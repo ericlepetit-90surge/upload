@@ -104,30 +104,44 @@
 
   <div id="admin-gallery">Loading uploads...</div>
 
-  <script>
-    async function loadConfig() {
+ <script>
+  async function loadConfig() {
+    try {
       const res = await fetch('/api/config');
       const config = await res.json();
 
+      document.getElementById('showName').value = config.showName || '';
       if (config.startTime) {
         document.getElementById('startTime').value = config.startTime.slice(0, 16);
       }
       if (config.endTime) {
         document.getElementById('endTime').value = config.endTime.slice(0, 16);
       }
+    } catch (err) {
+      alert('❌ Failed to load config');
+      console.error(err);
+    }
+  }
+
+  async function saveConfig(event) {
+    event.preventDefault();
+
+    const showName = document.getElementById('showName')?.value?.trim();
+    const startTimeRaw = document.getElementById('startTime')?.value;
+    const endTimeRaw = document.getElementById('endTime')?.value;
+
+    if (!showName || !startTimeRaw || !endTimeRaw) {
+      alert('❌ Please fill in all fields (show name, start time, end time)');
+      return;
     }
 
-    async function saveConfig(event) {
-      event.preventDefault();
+    const body = {
+      showName,
+      startTime: new Date(startTimeRaw).toISOString(),
+      endTime: new Date(endTimeRaw).toISOString(),
+    };
 
-      const startTime = document.getElementById('startTime').value;
-      const endTime = document.getElementById('endTime').value;
-
-      const body = {
-        startTime: new Date(startTime).toISOString(),
-        endTime: new Date(endTime).toISOString(),
-      };
-
+    try {
       const res = await fetch('/api/config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -137,10 +151,21 @@
       if (res.ok) {
         alert('✅ Config saved!');
       } else {
-        alert('❌ Failed to save config');
+        const error = await res.json();
+        alert('❌ Save failed: ' + (error.error || 'Unknown error'));
       }
+    } catch (err) {
+      alert('❌ Save failed (network error)');
+      console.error(err);
     }
+  }
 
+document.addEventListener('DOMContentLoaded', () => {
+  loadConfig();
+});
+
+</script>
+<script>
     async function loadAdminGallery() {
       const gallery = document.getElementById('admin-gallery');
       gallery.innerHTML = 'Loading...';
@@ -199,7 +224,6 @@
       }
     }
 
-    loadConfig();
     loadAdminGallery();
   </script>
 </body>
