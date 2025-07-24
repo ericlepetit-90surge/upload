@@ -1,42 +1,62 @@
-import fs from 'fs';
-import path from 'path';
+import { createClient } from 'redis';
 
 export const config = {
   api: {
-    bodyParser: true, // Allow JSON parsing
+    bodyParser: true,
   },
 };
 
-export default async function handler(req, res) {
-  const configPath = path.join(process.cwd(), 'config.json');
+// Keep redis client cached
+let redis;
 
+async function getRedis() {
+  if (!redis) {
+    redis = createClient({
+      url: process.env.REDIS_URL,
+    });
+
+    redis.on('error', (err) => console.error('Redis Client Error:', err));
+    await redis.connect();
+  }
+
+  return redis;
+}
+
+export default async function handler(req, res) {
   try {
+    const client = await getRedis();
+
     if (req.method === 'GET') {
-      const raw = fs.readFileSync(configPath, 'utf8');
-      const data = JSON.parse(raw);
-      return res.status(200).json(data);
+      const [showName, startTime, endTime] = await Promise.all([
+        client.get('config:showName'),
+        client.get('config:startTime'),
+        client.get('config:endTime'),
+      ]);
+
+      return res.status(200).json({
+        showName: showName || '90 Surge',
+        startTime,
+        endTime,
+      });
     }
 
     if (req.method === 'POST') {
       const { showName, startTime, endTime } = req.body;
 
       if (!showName || typeof showName !== 'string') {
-        return res.status(400).json({ error: 'Invalid showName format' });
+        return res.status(400).json({ error: 'Invalid showName' });
       }
 
-      const updatedConfig = {
-        showName,
-        startTime: startTime || null,
-        endTime: endTime || null,
-      };
+      await client.set('config:showName', showName);
+      if (startTime) await client.set('config:startTime', startTime);
+      if (endTime) await client.set('config:endTime', endTime);
 
-      fs.writeFileSync(configPath, JSON.stringify(updatedConfig, null, 2), 'utf8');
-      return res.status(200).json({ success: true });
+      return res.status(200).json({ message: '✅ Config saved to Redis' });
     }
 
     return res.status(405).json({ error: 'Method Not Allowed' });
-  } catch (err) {
-    console.error('❌ Error in /api/config:', err);
+  } catch (error) {
+    console.error('❌ Redis error in /api/config:', error);
     return res.status(500).json({ error: 'Internal Server Error' });
   }
 }
