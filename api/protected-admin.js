@@ -4,11 +4,10 @@ import path from 'path';
 export default function handler(req, res) {
   const auth = req.headers.authorization;
   const ADMIN_PASS = process.env.ADMIN_PASS || 'secret';
-
   const hostname = req.headers.host;
   const isLocal = hostname.includes('localhost');
 
-  // Allow without auth locally
+  // Skip auth locally
   if (!isLocal) {
     if (!auth) {
       res.writeHead(401, {
@@ -28,7 +27,7 @@ export default function handler(req, res) {
     }
   }
 
-  // Serve the static admin.html content
+  // Serve the admin.html file
   const filePath = path.join(process.cwd(), 'public', 'admin.html');
   try {
     const html = fs.readFileSync(filePath, 'utf8');
