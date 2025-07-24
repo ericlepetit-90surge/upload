@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Upload to 90 Surge</title>
+  <style>
+    :root {
+      --primary-color: #111;
+      --accent-color: #e91e63;
+      --bg-color: #f4f4f4;
+      --card-bg: #ffffff;
+      --border-radius: 16px;
+      --font: 'Helvetica Neue', sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: var(--font);
+      margin: 0;
+      background: var(--bg-color);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 2rem 1rem;
+    }
+
+    h1 {
+      font-size: 1.8rem;
+      color: var(--primary-color);
+      margin-bottom: 1rem;
+      text-align: center;
+    }
+
+    form {
+      background: var(--card-bg);
+      border-radius: var(--border-radius);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+      width: 100%;
+      max-width: 400px;
+      padding: 1.5rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    label {
+      font-size: 1rem;
+      color: #444;
+    }
+
+    input[type="text"],
+    input[type="file"] {
+      padding: 0.75rem;
+      font-size: 1rem;
+      border: 1px solid #ccc;
+      border-radius: 10px;
+      width: 100%;
+      background: #fff;
+    }
+
+    input[type="file"] {
+      font-size: 0.95rem;
+    }
+
+    button {
+      background-color: var(--accent-color);
+      color: white;
+      font-size: 1rem;
+      font-weight: bold;
+      padding: 0.75rem;
+      border: none;
+      border-radius: 10px;
+      cursor: pointer;
+      transition: background-color 0.3s ease;
+    }
+
+    button:hover {
+      background-color: #d81b60;
+    }
+
+    .message {
+      text-align: center;
+      font-size: 1rem;
+      margin-top: 1rem;
+      color: green;
+    }
+
+    .gallery-title {
+      margin-top: 2.5rem;
+      font-size: 1.4rem;
+      font-weight: bold;
+      text-align: center;
+      color: #333;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+      gap: 10px;
+      margin-top: 1rem;
+      width: 100%;
+      max-width: 800px;
+    }
+
+    .card {
+      background: white;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+    }
+
+    .card img,
+    .card video {
+      width: 100%;
+      height: auto;
+      display: block;
+    }
+
+    .card .info {
+      font-size: 0.8rem;
+      padding: 0.5rem;
+      color: #666;
+      text-align: center;
+    }
+
+    @media (max-width: 480px) {
+      h1 {
+        font-size: 1.4rem;
+      }
+
+      form {
+        padding: 1rem;
+        border-radius: 12px;
+      }
+
+      label, input, button {
+        font-size: 0.95rem;
+      }
+
+      button {
+        padding: 0.65rem;
+      }
+
+      .gallery-title {
+        font-size: 1.2rem;
+      }
+    }
+  </style>
+</head>
+<body>
+  <h1 id="headline">Uploading...</h1>
+
+  <form id="upload-form">
+    <label for="name">Your Name (optional):</label>
+    <input type="text" id="name" name="name" placeholder="First name, nickname..."/>
+
+    <label for="file">Choose photo or video:</label>
+    <input type="file" id="file" name="file" accept="image/*,video/*" required />
+
+    <button type="submit">Upload</button>
+    <div class="message" id="message"></div>
+  </form>
+
+  <div class="gallery-title">Recent Uploads</div>
+  <div class="grid" id="gallery"></div>
+
+  <script>
+    const form = document.getElementById('upload-form');
+    const message = document.getElementById('message');
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      message.textContent = '';
+
+      const fileInput = document.getElementById('file');
+      const nameInput = document.getElementById('name');
+      const file = fileInput.files[0];
+
+      if (!file) {
+        message.textContent = 'Please select a file.';
+        return;
+      }
+
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('name', nameInput.value);
+
+      try {
+        const res = await fetch('/api/upload-file', {
+          method: 'POST',
+          body: formData
+        });
+
+        const result = await res.json();
+        if (res.ok) {
+          message.textContent = 'Upload successful!';
+          form.reset();
+          loadGallery(); // Reload gallery after upload
+        } else {
+          message.textContent = result.error || 'Upload failed.';
+        }
+      } catch (err) {
+        message.textContent = 'Something went wrong.';
+      }
+    });
+
+    async function setHeadline() {
+      try {
+        const res = await fetch('/api/config');
+        const config = await res.json();
+        const showName = config?.showName || '90 Surge';
+        document.getElementById('headline').textContent = `Upload to ${showName}`;
+      } catch {
+        document.getElementById('headline').textContent = 'Upload to 90 Surge';
+      }
+    }
+
+    async function loadGallery() {
+      const gallery = document.getElementById('gallery');
+      gallery.innerHTML = '';
+
+      try {
+        const res = await fetch('/api/uploads-list');
+        const uploads = await res.json();
+
+        uploads
+          .sort((a, b) => b.timestamp - a.timestamp) // newest first
+          .forEach(upload => {
+            const card = document.createElement('div');
+            card.className = 'card';
+
+            const media = upload.type === 'video'
+              ? document.createElement('video')
+              : document.createElement('img');
+
+            media.src = upload.fileUrl;
+            if (upload.type === 'video') {
+              media.controls = true;
+              media.muted = true;
+            }
+
+            const info = document.createElement('div');
+            info.className = 'info';
+            info.textContent = upload.name || 'Anonymous';
+
+            card.appendChild(media);
+            card.appendChild(info);
+            gallery.appendChild(card);
+          });
+      } catch (err) {
+        gallery.innerHTML = 'Failed to load gallery.';
+      }
+    }
+
+    setHeadline();
+    loadGallery();
+  </script>
+</body>
+</html>

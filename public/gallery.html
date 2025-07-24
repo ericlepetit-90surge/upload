@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>90 Surge Gallery</title>
+  <style>
+    body {
+      font-family: 'Helvetica Neue', sans-serif;
+      margin: 0;
+      background: #f4f4f4;
+      padding: 1rem;
+      color: #222;
+    }
+
+    h1 {
+      font-size: 1.8rem;
+      text-align: center;
+      margin-bottom: 1rem;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+      gap: 10px;
+    }
+
+    .card {
+      background: white;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+    }
+
+    .card img,
+    .card video {
+      width: 100%;
+      height: auto;
+      display: block;
+    }
+
+    .card .info {
+      font-size: 0.8rem;
+      padding: 0.5rem;
+      color: #666;
+      text-align: center;
+    }
+
+    @media (max-width: 480px) {
+      h1 {
+        font-size: 1.4rem;
+      }
+    }
+  </style>
+</head>
+<body>
+  <h1>Uploaded Media</h1>
+  <div class="grid" id="gallery"></div>
+
+  <script>
+    async function loadGallery() {
+      try {
+        const res = await fetch('/api/uploads');
+        const uploads = await res.json();
+        const gallery = document.getElementById('gallery');
+
+        uploads.forEach(upload => {
+          const card = document.createElement('div');
+          card.className = 'card';
+
+          const media = upload.type === 'video'
+            ? document.createElement('video')
+            : document.createElement('img');
+
+          media.src = upload.fileUrl;
+          if (upload.type === 'video') {
+            media.controls = true;
+            media.muted = true;
+          }
+
+          const info = document.createElement('div');
+          info.className = 'info';
+          info.textContent = upload.name || 'Anonymous';
+
+          card.appendChild(media);
+          card.appendChild(info);
+          gallery.appendChild(card);
+        });
+      } catch (err) {
+        document.getElementById('gallery').textContent = 'Failed to load gallery.';
+      }
+    }
+
+    loadGallery();
+  </script>
+</body>
+</html>

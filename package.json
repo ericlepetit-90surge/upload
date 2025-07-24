@@ -1,0 +1,12 @@
+{
+  "name": "90surge-drive-upload-app",
+  "version": "1.0.0",
+  "scripts": {},
+  "dependencies": {
+    "dotenv": "^17.2.0",
+    "express": "^5.1.0",
+    "formidable": "^3.5.4",
+    "googleapis": "^118.0.0",
+    "open": "^10.2.0"
+  }
+}
