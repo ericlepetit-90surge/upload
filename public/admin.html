@@ -82,17 +82,25 @@
   <h1>🎛️ Admin Panel – Manage Uploads</h1>
 
   <div style="margin-top: 2rem;">
-    <h3>Upload Access Window</h3>
-    <label>
-      Start Time (UTC):
-      <input type="datetime-local" id="startTime" />
-    </label><br/><br/>
-    <label>
-      End Time (UTC):
-      <input type="datetime-local" id="endTime" />
-    </label><br/><br/>
-    <button onclick="saveConfig(event)">💾 Save Config</button>
-  </div>
+  <h3>Upload Settings</h3>
+  <label>
+    Show Name:
+    <input type="text" id="showName" placeholder="90 Surge at Echo Club" />
+  </label><br/><br/>
+
+  <label>
+    Start Time (UTC):
+    <input type="datetime-local" id="startTime" />
+  </label><br/><br/>
+
+  <label>
+    End Time (UTC):
+    <input type="datetime-local" id="endTime" />
+  </label><br/><br/>
+
+  <button onclick="saveConfig(event)">💾 Save Config</button>
+</div>
+
 
   <div id="admin-gallery">Loading uploads...</div>
 
