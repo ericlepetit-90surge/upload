@@ -33,9 +33,10 @@ export default async function handler(req, res) {
 
       return {
         name: file.name,
-        fileUrl: `/api/proxy?id=${file.id}`, // loads through your own proxy
+        fileUrl: `/api/proxy?id=${file.id}`,      // This is your existing proxy endpoint
         type,
-        timestamp: new Date(file.createdTime).getTime()
+        timestamp: new Date(file.createdTime).getTime(),
+        driveFileId: file.id                      // ✅ Needed for delete functionality
       };
     });
 
