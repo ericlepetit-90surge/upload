@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Upload to 90 Surge</title>
   <style>
     :root {
@@ -38,7 +38,7 @@
     form {
       background: var(--card-bg);
       border-radius: var(--border-radius);
-      box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
       width: 100%;
       max-width: 400px;
       padding: 1.5rem;
@@ -110,7 +110,7 @@
       background: white;
       border-radius: 12px;
       overflow: hidden;
-      box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
     }
 
     .card img,
@@ -127,6 +127,37 @@
       text-align: center;
     }
 
+    progress {
+      height: 10px;
+      border-radius: 5px;
+      overflow: hidden;
+      appearance: none;
+    }
+
+    .follow-btn {
+      padding: 0.5rem 1rem;
+      background: var(--accent-color);
+      color: white;
+      font-weight: bold;
+      text-decoration: none;
+      border-radius: 8px;
+      transition: background 0.3s;
+    }
+
+    .follow-btn:hover {
+      background: #d81b60;
+    }
+
+
+    progress::-webkit-progress-bar {
+      background-color: #eee;
+      border-radius: 5px;
+    }
+
+    progress::-webkit-progress-value {
+      background-color: var(--accent-color);
+    }
+
     @media (max-width: 480px) {
       h1 {
         font-size: 1.4rem;
@@ -137,7 +168,9 @@
         border-radius: 12px;
       }
 
-      label, input, button {
+      label,
+      input,
+      button {
         font-size: 0.95rem;
       }
 
@@ -151,17 +184,28 @@
     }
   </style>
 </head>
+
 <body>
   <h1 id="headline">Uploading...</h1>
 
   <form id="upload-form">
     <label for="name">Your Name (optional):</label>
-    <input type="text" id="name" name="name" placeholder="First name, nickname..."/>
+    <input type="text" id="name" name="name" placeholder="First name, nickname..." />
 
     <label for="file">Choose photo or video:</label>
     <input type="file" id="file" name="file" accept="image/*,video/*" required />
 
-    <button type="submit">Upload</button>
+    <div id="follow-gate">
+      <p style="font-size: 0.95rem; color: #444;">🎉 Follow us to unlock uploading:</p>
+      <div style="display: flex; justify-content: center; gap: 1rem; margin-bottom: 1rem;">
+        <a href="https://www.instagram.com/90_Surge" target="_blank" id="ig-btn" class="follow-btn">Instagram</a>
+        <a href="https://www.facebook.com/90Surge" target="_blank" id="fb-btn" class="follow-btn">Facebook</a>
+      </div>
+    </div>
+
+    <button type="submit" disabled>Upload</button>
+
+    <progress id="progress" value="0" max="100" style="width: 100%; display: none;"></progress>
     <div class="message" id="message"></div>
   </form>
 
@@ -169,6 +213,31 @@
   <div class="grid" id="gallery"></div>
 
   <script>
+
+    function maybeEnableUpload() {
+      const isLocal = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+      const uploadBtn = document.querySelector('button[type="submit"]');
+      const gate = document.getElementById('follow-gate');
+
+      if (isLocal) {
+        uploadBtn.disabled = false;
+        gate.style.display = 'none';
+        return;
+      }
+
+      const unlock = () => {
+        uploadBtn.disabled = false;
+        gate.innerHTML = '<p style="color: green; font-weight: bold;">✅ Thanks for following! You can now upload.</p>';
+      };
+
+      document.getElementById('ig-btn').addEventListener('click', unlock);
+      document.getElementById('fb-btn').addEventListener('click', unlock);
+    }
+
+    maybeEnableUpload();
+
+
+
     const form = document.getElementById('upload-form');
     const message = document.getElementById('message');
 
@@ -178,6 +247,7 @@
 
       const fileInput = document.getElementById('file');
       const nameInput = document.getElementById('name');
+      const progress = document.getElementById('progress');
       const file = fileInput.files[0];
 
       if (!file) {
@@ -189,24 +259,47 @@
       formData.append('file', file);
       formData.append('name', nameInput.value);
 
-      try {
-        const res = await fetch('/api/upload-file', {
-          method: 'POST',
-          body: formData
-        });
+      // Show and reset progress bar
+      progress.style.display = 'block';
+      progress.value = 0;
+      message.style.color = '#666';
+      message.textContent = '⏳ Uploading...';
 
-        const result = await res.json();
-        if (res.ok) {
-          message.textContent = 'Upload successful!';
-          form.reset();
-          loadGallery(); // Reload gallery after upload
-        } else {
-          message.textContent = result.error || 'Upload failed.';
+      // Use XMLHttpRequest to track upload progress
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', '/api/upload-file', true);
+
+      xhr.upload.onprogress = (event) => {
+        if (event.lengthComputable) {
+          const percent = Math.round((event.loaded / event.total) * 100);
+          progress.value = percent;
         }
-      } catch (err) {
-        message.textContent = 'Something went wrong.';
-      }
+      };
+
+      xhr.onload = () => {
+        const res = JSON.parse(xhr.responseText);
+        if (xhr.status === 200) {
+          message.style.color = 'green';
+          message.textContent = '✅ Upload successful!';
+          fileInput.value = ''; // clear file input only
+          progress.style.display = 'none';
+          loadGallery();
+        } else {
+          message.style.color = 'red';
+          message.textContent = res.error || '❌ Upload failed.';
+          progress.style.display = 'none';
+        }
+      };
+
+      xhr.onerror = () => {
+        message.style.color = 'red';
+        message.textContent = '❌ Network error.';
+        progress.style.display = 'none';
+      };
+
+      xhr.send(formData);
     });
+
 
     async function setHeadline() {
       try {
@@ -259,13 +352,14 @@
     setHeadline();
     loadGallery();
 
-  window.addEventListener('storage', (event) => {
-    if (event.key === 'galleryRefresh') {
-      console.log('🔁 Detected change — refreshing gallery...');
-      loadGallery();
-    }
-  });
+    window.addEventListener('storage', (event) => {
+      if (event.key === 'galleryRefresh') {
+        console.log('🔁 Detected change — refreshing gallery...');
+        loadGallery();
+      }
+    });
 
   </script>
 </body>
+
 </html>

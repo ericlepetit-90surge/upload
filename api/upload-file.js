@@ -6,6 +6,15 @@ import path from 'path';
 
 dotenv.config();
 
+function sanitizePart(str) {
+  return String(str || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')  // replace anything non-alphanumeric with "_"
+    .replace(/^_+|_+$/g, '');     // trim leading/trailing underscores
+}
+
+
+
 export const config = {
   api: {
     bodyParser: false, // Required for file uploads
@@ -61,10 +70,16 @@ export default async function handler(req, res) {
       }
 
       const fileDetails = file[0];
-      const fileExtension = path.extname(fileDetails.originalFilename);
+      const rawName = fields.name?.[0] || 'anonymous'; // from form
+      const showName = process.env.SHOW_NAME || '90surge'; // set in Vercel or .env
       const timestamp = Date.now();
-      const newFileName = `${userName}_${timestamp}${fileExtension}`;
-
+      const safeName = sanitizePart(rawName);
+      const safeShow = sanitizePart(showName);
+      const shortTimestamp = String(Date.now()).slice(-4); // last 4 digits
+      const fileExtension = path.extname(fileDetails.originalFilename);
+      
+      const newFileName = `${safeName}-${safeShow}-${shortTimestamp}${fileExtension}`;
+      
       try {
         const fileContent = fs.createReadStream(fileDetails.filepath);
 
@@ -99,7 +114,6 @@ await drive.permissions.create({
     type: 'anyone',
   },
 });
-
 
         // Store metadata in uploads.json
         const uploadedMeta = {
