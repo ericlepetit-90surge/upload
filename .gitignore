@@ -1,4 +1,5 @@
 .env
+.env.*
 node_modules/
 .vercel
 .next
@@ -6,4 +7,4 @@ dist
 .DS_Store
 key.json
 token.json
-uploads.json
+uploads.json.env*
