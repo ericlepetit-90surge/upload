@@ -224,7 +224,7 @@
       gallery.innerHTML = '';
 
       try {
-        const res = await fetch('/api/uploads-list');
+        const res = await fetch('/api/list-drive-files');
         const uploads = await res.json();
 
         uploads
