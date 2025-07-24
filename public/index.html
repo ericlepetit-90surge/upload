@@ -258,6 +258,14 @@
 
     setHeadline();
     loadGallery();
+
+  window.addEventListener('storage', (event) => {
+    if (event.key === 'galleryRefresh') {
+      console.log('🔁 Detected change — refreshing gallery...');
+      loadGallery();
+    }
+  });
+
   </script>
 </body>
 </html>
