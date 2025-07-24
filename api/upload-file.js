@@ -9,15 +9,13 @@ dotenv.config();
 function sanitizePart(str) {
   return String(str || '')
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '_')  // replace anything non-alphanumeric with "_"
-    .replace(/^_+|_+$/g, '');     // trim leading/trailing underscores
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
 }
-
-
 
 export const config = {
   api: {
-    bodyParser: false, // Required for file uploads
+    bodyParser: false,
   },
 };
 
@@ -47,6 +45,25 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method Not Allowed' });
   }
 
+  // ✅ Time restriction logic
+  const configPath = path.join(process.cwd(), 'config.json');
+  let config = {};
+
+  try {
+    config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+  } catch (err) {
+    console.error('❌ Failed to load config.json:', err);
+    return res.status(500).json({ error: 'Server config error' });
+  }
+
+  const now = new Date();
+  const start = new Date(config.startTime);
+  const end = new Date(config.endTime);
+
+  if (now < start || now > end) {
+    return res.status(403).json({ error: 'Uploads are not allowed at this time.' });
+  }
+
   const form = new IncomingForm();
 
   form.parse(req, async (err, fields, files) => {
@@ -59,7 +76,12 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'No files uploaded' });
     }
 
-    const userName = fields.name || 'Anonymous';
+    const rawName = fields.name?.[0] || '';
+    if (!rawName.trim()) {
+      return res.status(400).json({ error: 'Name is required.' });
+    }
+
+    const userName = rawName;
     const uploadedFiles = [];
 
     for (const key in files) {
@@ -70,16 +92,15 @@ export default async function handler(req, res) {
       }
 
       const fileDetails = file[0];
-      const rawName = fields.name?.[0] || 'anonymous'; // from form
-      const showName = process.env.SHOW_NAME || '90surge'; // set in Vercel or .env
+      const showName = process.env.SHOW_NAME || '90surge';
       const timestamp = Date.now();
       const safeName = sanitizePart(rawName);
       const safeShow = sanitizePart(showName);
-      const shortTimestamp = String(Date.now()).slice(-4); // last 4 digits
+      const shortTimestamp = String(Date.now()).slice(-4);
       const fileExtension = path.extname(fileDetails.originalFilename);
-      
+
       const newFileName = `${safeName}-${safeShow}-${shortTimestamp}${fileExtension}`;
-      
+
       try {
         const fileContent = fs.createReadStream(fileDetails.filepath);
 
@@ -95,25 +116,24 @@ export default async function handler(req, res) {
           },
         });
 
+        const fileId = driveResponse.data.id;
 
-const fileId = driveResponse.data.id;
+        // Get webContentLink
+        const getLink = await drive.files.get({
+          fileId,
+          fields: 'webContentLink',
+        });
 
-// Get webContentLink
-const getLink = await drive.files.get({
-  fileId,
-  fields: 'webContentLink'
-});
+        const webContentLink = getLink.data.webContentLink;
 
-const webContentLink = getLink.data.webContentLink;
-
-// Make file public
-await drive.permissions.create({
-  fileId,
-  requestBody: {
-    role: 'reader',
-    type: 'anyone',
-  },
-});
+        // Make file public
+        await drive.permissions.create({
+          fileId,
+          requestBody: {
+            role: 'reader',
+            type: 'anyone',
+          },
+        });
 
         // Store metadata in uploads.json
         const uploadedMeta = {
