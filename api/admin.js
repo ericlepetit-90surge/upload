@@ -45,4 +45,44 @@ export default async function handler(req, res) {
     console.error('❌ Failed to read admin.html:', err);
     res.status(500).send('Admin panel could not be loaded.');
   }
+
+  export default function AdminPage() {
+  return (
+    <div style={{ padding: 30 }}>
+      <h1>Admin Panel</h1>
+      <p>You’re logged in.</p>
+      {/* Load your original admin HTML content here */}
+    </div>
+  );
+}
+
+export async function getServerSideProps({ req, res }) {
+  const auth = req.headers.authorization;
+  const correctPass = process.env.ADMIN_PASS || 'secret';
+
+  // Dev bypass
+  if (req.headers.host.startsWith('localhost')) {
+    return { props: {} };
+  }
+
+  if (!auth) {
+    res.statusCode = 401;
+    res.setHeader('WWW-Authenticate', 'Basic realm="Admin Area"');
+    res.end('Auth required');
+    return { props: {} }; // Will never be reached
+  }
+
+  const base64 = auth.split(' ')[1];
+  const [user, pass] = Buffer.from(base64, 'base64').toString().split(':');
+
+  if (pass !== correctPass) {
+    res.statusCode = 401;
+    res.setHeader('WWW-Authenticate', 'Basic realm="Admin Area"');
+    res.end('Invalid password');
+    return { props: {} };
+  }
+
+  return { props: {} };
+}
+
 }
