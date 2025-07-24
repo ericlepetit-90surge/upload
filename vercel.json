@@ -4,8 +4,9 @@
     { "src": "api/*.js", "use": "@vercel/node" },
     { "src": "public/**", "use": "@vercel/static" }
   ],
-  "redirects": [
-    { "source": "/admin", "destination": "/api/protected-admin.js", "permanent": false },
-    { "source": "/", "destination": "/public/index.html", "permanent": false }
+  "rewrites": [
+    { "source": "/", "destination": "/public/index.html" },
+    { "source": "/admin", "destination": "/api/protected-admin.js" },
+    { "source": "/api/(.*)", "destination": "/api/$1.js" }
   ]
 }
