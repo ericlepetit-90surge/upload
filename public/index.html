@@ -240,7 +240,17 @@
     return;
   }
 
+  // ✅ If they already clicked follow before, don't make them do it again
+  if (localStorage.getItem('followed') === 'true') {
+    uploadBtn.disabled = false;
+    uploadBtn.classList.remove('disabled-btn');
+    gate.innerHTML = '<p style="color: green; font-weight: bold;">✅ You can now upload.</p>';
+    return;
+  }
+
+  // 👇 Unlock function stores in localStorage
   const unlock = () => {
+    localStorage.setItem('followed', 'true');
     uploadBtn.disabled = false;
     uploadBtn.classList.remove('disabled-btn');
     gate.innerHTML = '<p style="color: green; font-weight: bold;">✅ Thanks for following! You can now upload.</p>';
