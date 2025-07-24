@@ -5,7 +5,7 @@
     { "src": "public/**", "use": "@vercel/static" }
   ],
   "redirects": [
-    { "source": "/admin", "destination": "/api/protected-admin", "permanent": false },
+    { "source": "/admin", "destination": "/api/protected-admin.js", "permanent": false },
     { "source": "/", "destination": "/public/index.html", "permanent": false }
   ]
 }
