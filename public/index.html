@@ -72,6 +72,7 @@ button {
   border-radius: 8px;
   cursor: pointer;
   transition: background 0.2s ease;
+  width: 100%;
 }
 
 button:hover {
@@ -176,12 +177,12 @@ progress {
 <body>
   <h1 id="headline">Uploading...</h1>
 
-  <form id="upload-form">
+  <form id="upload-form" enctype="multipart/form-data" method="POST">
     <div style="font-size: 0.95rem; background: #1a1a1a; padding: 1rem; border-radius: 10px; color: #eee; line-height: 1.5;">
   <p style="margin-top: 0;"><strong>🎉 Win a 90 Surge T-shirt!</strong></p>
   <ol style="padding-left: 1.2rem; margin-top: 0.5rem;">
     <li>Enter your full name (so we can shout you out if you win!)</li>
-    <li>Follow us on <a href="https://www.facebook.com/90surge" target="_blank" style="color:#e91e63;">Facebook</a> or <a href="https://www.instagram.com/90_surge" target="_blank" style="color:#e91e63;">Instagram</a></li>
+    <li>Follow us on <a href="https://www.facebook.com/90surge" target="_blank" style="color:#01d6ff;">Facebook</a> or <a href="https://www.instagram.com/90_surge" target="_blank" style="color:#e91e63;">Instagram</a></li>
     <li>Upload your photo or video (max 1 minute) — crowd shots, solos, dance moves, epic selfies. Keep it lit, not blurry, cool and clean!</li>
     <li>Each 📸 = 1 raffle entry | Each 🎥 = 3 entries</li>
     <li>Scroll down to check out the live gallery 👇</li>
@@ -203,8 +204,8 @@ progress {
          style="flex: 1; min-width: 160px; padding: 0.3rem; font-size: 0.95rem; border-radius: 8px; background: #fff;" />
 </div>
     <div id="follow-gate">
-      <p style="font-size: 1rem; color: #444; margin-bottom: 0.5rem;">
-        🎁 <strong>For a chance to win a T-shirt</strong>, follow us on Facebook or Instagram.
+      <p style="font-size: 1rem; color: #c96161; margin-bottom: 0.5rem;">
+        🎁 <strong>Follow us on Facebook or Instagram to enter the raffle.
       </p>
       <div style="display: flex; justify-content: center; gap: 1rem; margin-bottom: 1rem;">
         <a href="https://www.instagram.com/90_surge" target="_blank" id="ig-btn" class="follow-btn">Instagram</a>
@@ -250,16 +251,9 @@ progress {
     }
 
     function maybeEnableUpload() {
-  const isLocal = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
   const uploadBtn = document.getElementById('upload-btn');
   const gate = document.getElementById('follow-gate');
 
-  if (isLocal) {
-    uploadBtn.disabled = false;
-    uploadBtn.classList.remove('disabled-btn');
-    gate.style.display = 'none';
-    return;
-  }
 
   // ✅ If they already clicked follow before, don't make them do it again
   if (localStorage.getItem('followed') === 'true') {
@@ -289,61 +283,64 @@ progress {
     const message = document.getElementById('message');
 
     form.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      message.textContent = '';
+  e.preventDefault();
+  message.textContent = '';
 
-      const fileInput = document.getElementById('file');
-      const nameInput = document.getElementById('name');
-      const progress = document.getElementById('progress');
-      const file = fileInput.files[0];
+  const fileInput = document.getElementById('file');
+  const nameInput = document.getElementById('name');
+  const progress = document.getElementById('progress');
+  const file = fileInput.files[0];
 
-      if (!file) {
-        message.textContent = 'Please select a file.';
-        return;
-      }
+  if (!file) {
+    message.textContent = 'Please select a file.';
+    return;
+  }
 
-      const formData = new FormData();
-      formData.append('file', file);
-      formData.append('name', nameInput.value);
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('name', nameInput.value);
 
-      progress.style.display = 'block';
-      progress.value = 0;
-      message.style.color = '#666';
-      message.textContent = '⏳ Uploading...';
+  progress.style.display = 'block';
+  progress.value = 0;
+  message.style.color = '#666';
+  message.textContent = '⏳ Uploading...';
 
-      const xhr = new XMLHttpRequest();
-      xhr.open('POST', '/api/upload-file', true);
+  const xhr = new XMLHttpRequest();
+  xhr.open('POST', '/api/upload-file-resumable', true);
 
-      xhr.upload.onprogress = (event) => {
-        if (event.lengthComputable) {
-          const percent = Math.round((event.loaded / event.total) * 100);
-          progress.value = percent;
-        }
-      };
+  xhr.upload.onprogress = (event) => {
+    if (event.lengthComputable) {
+      const percent = Math.round((event.loaded / event.total) * 100);
+      progress.value = percent;
+    }
+  };
 
-      xhr.onload = () => {
-        const res = JSON.parse(xhr.responseText);
-        if (xhr.status === 200) {
-          message.style.color = 'green';
-          message.textContent = '✅ Upload successful!';
-          fileInput.value = '';
-          progress.style.display = 'none';
-          loadGallery();
-        } else {
-          message.style.color = 'red';
-          message.textContent = res.error || '❌ Upload failed.';
-          progress.style.display = 'none';
-        }
-      };
+  xhr.onload = () => {
+    const res = JSON.parse(xhr.responseText);
+    if (xhr.status === 200) {
+      message.style.color = 'green';
+      message.textContent = '✅ Upload successful!';
+      fileInput.value = '';
+      progress.style.display = 'none';
+      loadGallery();
+    } else {
+      message.style.color = 'red';
+      message.textContent = res.error || '❌ Upload failed.';
+      progress.style.display = 'none';
+      console.log('FIELDS:', fields);
+console.log('FILES:', files);
+    }
+  };
 
-      xhr.onerror = () => {
-        message.style.color = 'red';
-        message.textContent = '❌ Network error.';
-        progress.style.display = 'none';
-      };
+  xhr.onerror = () => {
+    message.style.color = 'red';
+    message.textContent = '❌ Network error.';
+    progress.style.display = 'none';
+  };
 
-      xhr.send(formData);
-    });
+  xhr.send(formData);
+});
+
 
     async function setHeadline() {
       try {
