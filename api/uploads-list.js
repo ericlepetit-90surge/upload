@@ -1,7 +1,8 @@
-import fs from 'fs';
-import path from 'path';
+// /api/uploads-list.js
+const fs = require('fs');
+const path = require('path');
 
-export default function handler(req, res) {
+module.exports = function handler(req, res) {
   const uploadsPath = path.join(process.cwd(), 'uploads.json');
 
   try {
@@ -25,21 +26,21 @@ export default function handler(req, res) {
     }
 
     const uploads = rawUploads.map(entry => {
-  const { name, driveFileId, mimeType, timestamp } = entry;
-  const fileUrl = `/api/proxy?id=${driveFileId}`;
-  const type = mimeType?.startsWith('video/') ? 'video' : 'image';
+      const { name, driveFileId, mimeType, timestamp } = entry;
+      const fileUrl = `/api/proxy?id=${driveFileId}`;
+      const type = mimeType?.startsWith('video/') ? 'video' : 'image';
 
-  return {
-    name: name || 'Anonymous',
-    fileUrl,
-    type,
-    timestamp
-  };
-});
+      return {
+        name: name || 'Anonymous',
+        fileUrl,
+        type,
+        timestamp
+      };
+    });
 
     res.status(200).json(uploads);
   } catch (err) {
     console.error('❌ Failed to read uploads.json:', err);
     res.status(500).json({ error: 'Failed to read uploads list.' });
   }
-}
+};

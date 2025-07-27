@@ -1,15 +1,9 @@
 // /api/upload-resumable.js
-import { google } from "googleapis";
-import path from "path";
-import fs from "fs";
-import axios from "axios";
-import formidable from "formidable";
-
-export const config = {
-  api: {
-    bodyParser: false,
-  },
-};
+const { google } = require("googleapis");
+const path = require("path");
+const fs = require("fs");
+const axios = require("axios");
+const formidable = require("formidable");
 
 const oauthPath = path.join(process.cwd(), "oauth-client.json");
 const oauthClient = JSON.parse(fs.readFileSync(oauthPath, "utf8"));
@@ -22,13 +16,19 @@ const oauth2Client = new google.auth.OAuth2(
 );
 oauth2Client.setCredentials(tokenData);
 
-export default async function handler(req, res) {
+module.exports.config = {
+  api: {
+    bodyParser: false,
+  },
+};
+
+module.exports = async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).end("Method Not Allowed");
 
-  const form = formidable({
-    keepExtensions: true,
-    allowEmptyFiles: true, // ✅ Fixes the error
-  });
+  const form = new formidable.IncomingForm({
+  keepExtensions: true,
+  allowEmptyFiles: true
+});
 
   form.parse(req, async (err, fields, files) => {
     if (err) {
@@ -50,16 +50,14 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: "Invalid file upload" });
     }
 
-    const fileName = `${userName}_${Date.now()}_${
-      file.originalFilename || file.name
-    }`;
+    const fileName = `${userName}_${Date.now()}_${file.originalFilename || file.name}`;
     const mimeType = file.mimetype || "application/octet-stream";
 
     try {
       const { token } = await oauth2Client.getAccessToken();
       if (!token) throw new Error("No access token");
 
-      // Step 1: Start resumable session
+      // Step 1: Create upload session
       const session = await axios.post(
         "https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable",
         {
@@ -82,7 +80,7 @@ export default async function handler(req, res) {
         throw new Error("Upload session failed");
       }
 
-      // Step 2: Upload file contents
+      // Step 2: Upload file
       const fileStream = fs.createReadStream(filePath);
       await axios.put(uploadUrl, fileStream, {
         headers: {
@@ -95,11 +93,8 @@ export default async function handler(req, res) {
 
       res.status(200).json({ success: true });
     } catch (err) {
-      console.error(
-        "🔥 Upload error:",
-        err.response?.data || err.message || err
-      );
+      console.error("🔥 Upload error:", err.response?.data || err.message || err);
       res.status(500).json({ error: "Upload failed" });
     }
   });
-}
+};

@@ -1,7 +1,8 @@
-import fs from 'fs';
-import path from 'path';
+// /api/protected-admin.js
+const fs = require('fs');
+const path = require('path');
 
-export default function handler(req, res) {
+module.exports = function handler(req, res) {
   const auth = req.headers.authorization;
   const ADMIN_PASS = process.env.ADMIN_PASS || 'secret';
   const isLocal = req.headers.host.includes('localhost');
@@ -34,4 +35,4 @@ export default function handler(req, res) {
     console.error('❌ Failed to read admin.html:', err);
     res.status(500).send('Internal Server Error');
   }
-}
+};

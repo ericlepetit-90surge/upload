@@ -1,7 +1,7 @@
 // /api/list-drive-files.js
-import { google } from 'googleapis';
-import fs from 'fs';
-import path from 'path';
+const { google } = require('googleapis');
+const fs = require('fs');
+const path = require('path');
 
 const oauthClientPath = path.join(process.cwd(), 'oauth-client.json');
 const oauthClient = JSON.parse(fs.readFileSync(oauthClientPath, 'utf8'));
@@ -12,9 +12,7 @@ const oauth2Client = new google.auth.OAuth2(
   oauthClient.web.redirect_uris[0]
 );
 
-
 const tokenJson = process.env.GOOGLE_TOKEN_JSON;
-
 if (!tokenJson) {
   throw new Error('Missing GOOGLE_TOKEN_JSON in environment.');
 }
@@ -24,7 +22,7 @@ oauth2Client.setCredentials(token);
 
 const drive = google.drive({ version: 'v3', auth: oauth2Client });
 
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
   try {
     const response = await drive.files.list({
       q: `'${process.env.GOOGLE_DRIVE_FOLDER_ID}' in parents and trashed = false`,
@@ -48,7 +46,7 @@ export default async function handler(req, res) {
 
     res.status(200).json(files);
   } catch (err) {
-    console.error('❌ Failed to list Drive files:', err);
+    console.error('❌ Failed to list Drive files:', err.message || err);
     res.status(500).json({ error: 'Failed to list Google Drive files' });
   }
-}
+};

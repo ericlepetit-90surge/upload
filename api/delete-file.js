@@ -1,7 +1,8 @@
-import { google } from 'googleapis';
-import dotenv from 'dotenv';
-import fs from 'fs';
-import path from 'path';
+// /api/delete-files.js
+const { google } = require('googleapis');
+const dotenv = require('dotenv');
+const fs = require('fs');
+const path = require('path');
 
 dotenv.config();
 
@@ -25,7 +26,7 @@ oauth2Client.setCredentials(token);
 
 const drive = google.drive({ version: 'v3', auth: oauth2Client });
 
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
@@ -40,7 +41,7 @@ export default async function handler(req, res) {
     await drive.files.delete({ fileId });
     res.status(200).json({ message: 'File deleted successfully' });
   } catch (err) {
-    console.error('❌ Failed to delete file:', err);
+    console.error('❌ Failed to delete file:', err.message || err);
     res.status(500).json({ error: 'Failed to delete file from Drive' });
   }
-}
+};

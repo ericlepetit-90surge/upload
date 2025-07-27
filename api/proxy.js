@@ -1,18 +1,17 @@
-import { google } from 'googleapis';
-import dotenv from 'dotenv';
-import fs from 'fs';
-import path from 'path';
+// /api/proxy.js
+const { google } = require('googleapis');
+const dotenv = require('dotenv');
+const fs = require('fs');
+const path = require('path');
 
 dotenv.config();
 
-// Read oauth-client.json (safe to bundle locally)
 const oauthClientPath = path.join(process.cwd(), 'oauth-client.json');
 const credentials = JSON.parse(fs.readFileSync(oauthClientPath, 'utf8'));
 
 const { client_id, client_secret, redirect_uris } = credentials.web;
 const oauth2Client = new google.auth.OAuth2(client_id, client_secret, redirect_uris[0]);
 
-// Read token from env (for deployment) or fallback to local file (for local testing)
 let token;
 if (process.env.GOOGLE_TOKEN_JSON) {
   token = JSON.parse(process.env.GOOGLE_TOKEN_JSON);
@@ -24,7 +23,7 @@ if (process.env.GOOGLE_TOKEN_JSON) {
 oauth2Client.setCredentials(token);
 const drive = google.drive({ version: 'v3', auth: oauth2Client });
 
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
   const { id } = req.query;
 
   if (!id) {
@@ -43,4 +42,4 @@ export default async function handler(req, res) {
     console.error('❌ Proxy failed:', err.message);
     res.status(500).json({ error: 'Failed to fetch file from Drive' });
   }
-}
+};

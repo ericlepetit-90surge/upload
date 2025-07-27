@@ -1,5 +1,5 @@
 // /api/config.js
-import { createClient } from 'redis';
+const { createClient } = require('redis');
 
 let redis;
 if (!global.redis) {
@@ -10,7 +10,7 @@ if (!global.redis) {
   redis = global.redis;
 }
 
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
   if (req.method === 'GET') {
     try {
       const showName = await redis.get('showName');
@@ -37,4 +37,4 @@ export default async function handler(req, res) {
   }
 
   res.status(405).end('Method Not Allowed');
-}
+};
