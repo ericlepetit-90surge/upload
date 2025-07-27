@@ -1,3 +1,4 @@
+// /api/config.js
 import { createClient } from 'redis';
 
 let redis;
@@ -10,38 +11,30 @@ if (!global.redis) {
 }
 
 export default async function handler(req, res) {
-  try {
-    if (req.method === 'GET') {
-      const [showName, startTime, endTime] = await Promise.all([
-        redis.get('showName'),
-        redis.get('startTime'),
-        redis.get('endTime'),
-      ]);
-
-      return res.status(200).json({
-        showName: showName || '90 Surge',
-        startTime,
-        endTime,
-      });
+  if (req.method === 'GET') {
+    try {
+      const showName = await redis.get('showName');
+      const startTime = await redis.get('startTime');
+      const endTime = await redis.get('endTime');
+      return res.status(200).json({ showName, startTime, endTime });
+    } catch (err) {
+      console.error('Failed to fetch config:', err);
+      return res.status(500).json({ error: 'Could not fetch config' });
     }
-
-    if (req.method === 'POST') {
-      const { showName, startTime, endTime } = req.body;
-
-      if (!showName || !startTime || !endTime) {
-        return res.status(400).json({ error: 'Missing required fields' });
-      }
-
-      await redis.set('showName', showName);
-      await redis.set('startTime', startTime);
-      await redis.set('endTime', endTime);
-
-      return res.status(200).json({ message: '✅ Config saved to Redis' });
-    }
-
-    return res.status(405).json({ error: 'Method Not Allowed' });
-  } catch (err) {
-    console.error('❌ Error in /api/config:', err);
-    return res.status(500).json({ error: 'Internal Server Error' });
   }
+
+  if (req.method === 'POST') {
+    try {
+      const { showName, startTime, endTime } = req.body;
+      if (showName) await redis.set('showName', showName);
+      if (startTime) await redis.set('startTime', startTime);
+      if (endTime) await redis.set('endTime', endTime);
+      return res.status(200).json({ success: true });
+    } catch (err) {
+      console.error('Failed to save config:', err);
+      return res.status(500).json({ error: 'Could not save config' });
+    }
+  }
+
+  res.status(405).end('Method Not Allowed');
 }

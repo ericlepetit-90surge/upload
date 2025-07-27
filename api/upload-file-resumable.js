@@ -21,8 +21,10 @@ const oauth2Client = new google.auth.OAuth2(
   oauthClient.web.redirect_uris[0]
 );
 
-const tokenData = JSON.parse(process.env.GOOGLE_TOKEN_JSON);
-oauth2Client.setCredentials(tokenData);
+
+const tokenPath = path.join(process.cwd(), 'GOOGLE_TOKEN.json'); // ✅ Local file
+const token = JSON.parse(fs.readFileSync(tokenPath, 'utf8'));
+oauth2Client.setCredentials(token);
 
 // ✅ Define Drive client
 const drive = google.drive({ version: 'v3', auth: oauth2Client });
