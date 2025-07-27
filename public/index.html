@@ -222,7 +222,7 @@
         type="file"
         id="file"
         name="file"
-        accept="image/*,video/*"
+        accept="image/*"
         required
       />
 
@@ -349,7 +349,7 @@
 
   try {
     const xhr = new XMLHttpRequest();
-    xhr.open('POST', '/api/upload-resumable', true);
+    xhr.open('POST', '/api/upload-file', true);
 
     xhr.upload.onprogress = (event) => {
       if (event.lengthComputable) {

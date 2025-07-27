@@ -6,6 +6,7 @@ export default function handler(req, res) {
   const ADMIN_PASS = process.env.ADMIN_PASS || 'secret';
   const isLocal = req.headers.host.includes('localhost');
 
+  // If not local, enforce basic auth
   if (!isLocal) {
     if (!auth) {
       res.writeHead(401, {
@@ -25,6 +26,7 @@ export default function handler(req, res) {
     }
   }
 
+  // Serve admin.html
   const filePath = path.join(process.cwd(), 'public', 'admin.html');
   try {
     const html = fs.readFileSync(filePath, 'utf8');

@@ -1,10 +1,11 @@
 import { google } from 'googleapis';
-import dotenv from 'dotenv';
 import fs from 'fs';
 import path from 'path';
+import dotenv from 'dotenv';
 
 dotenv.config();
 
+// Load OAuth credentials
 const oauthClientPath = path.join(process.cwd(), 'oauth-client.json');
 const oauthClient = JSON.parse(fs.readFileSync(oauthClientPath, 'utf8'));
 
@@ -15,10 +16,7 @@ const oauth2Client = new google.auth.OAuth2(
 );
 
 const tokenJson = process.env.GOOGLE_TOKEN_JSON;
-
-if (!tokenJson) {
-  throw new Error('Missing GOOGLE_TOKEN_JSON in environment.');
-}
+if (!tokenJson) throw new Error('Missing GOOGLE_TOKEN_JSON in environment.');
 
 const token = JSON.parse(tokenJson);
 oauth2Client.setCredentials(token);
@@ -27,7 +25,8 @@ const drive = google.drive({ version: 'v3', auth: oauth2Client });
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
+    res.setHeader('Allow', 'POST');
+    return res.status(405).json({ error: 'Method Not Allowed' });
   }
 
   const { fileId } = req.body;
@@ -38,7 +37,7 @@ export default async function handler(req, res) {
 
   try {
     await drive.files.delete({ fileId });
-    res.status(200).json({ message: 'File deleted successfully' });
+    res.status(200).json({ success: true });
   } catch (err) {
     console.error('❌ Failed to delete file:', err);
     res.status(500).json({ error: 'Failed to delete file from Drive' });

@@ -1,3 +1,4 @@
+// /api/proxy.js
 import { google } from 'googleapis';
 import dotenv from 'dotenv';
 import fs from 'fs';
@@ -5,23 +6,24 @@ import path from 'path';
 
 dotenv.config();
 
-// Read oauth-client.json (safe to bundle locally)
+// OAuth2 setup
 const oauthClientPath = path.join(process.cwd(), 'oauth-client.json');
 const credentials = JSON.parse(fs.readFileSync(oauthClientPath, 'utf8'));
 
 const { client_id, client_secret, redirect_uris } = credentials.web;
-const oauth2Client = new google.auth.OAuth2(client_id, client_secret, redirect_uris[0]);
+const oauth2Client = new google.auth.OAuth2(
+  client_id,
+  client_secret,
+  redirect_uris[0]
+);
 
-// Read token from env (for deployment) or fallback to local file (for local testing)
-let token;
-if (process.env.GOOGLE_TOKEN_JSON) {
-  token = JSON.parse(process.env.GOOGLE_TOKEN_JSON);
-} else {
-  const tokenPath = path.join(process.cwd(), 'GOOGLE_TOKEN.json');
-  token = JSON.parse(fs.readFileSync(tokenPath, 'utf8'));
-}
+// Token fallback (prefer env var)
+const token = process.env.GOOGLE_TOKEN_JSON
+  ? JSON.parse(process.env.GOOGLE_TOKEN_JSON)
+  : JSON.parse(fs.readFileSync(path.join(process.cwd(), 'GOOGLE_TOKEN.json'), 'utf8'));
 
 oauth2Client.setCredentials(token);
+
 const drive = google.drive({ version: 'v3', auth: oauth2Client });
 
 export default async function handler(req, res) {
@@ -37,10 +39,22 @@ export default async function handler(req, res) {
       { responseType: 'stream' }
     );
 
-    res.setHeader('Content-Type', driveRes.headers['content-type'] || 'application/octet-stream');
-    driveRes.data.pipe(res);
+    const contentType = driveRes.headers['content-type'] || 'application/octet-stream';
+    res.setHeader('Content-Type', contentType);
+
+    driveRes.data
+      .on('error', (streamErr) => {
+        console.error('❌ Stream error:', streamErr);
+        res.status(500).end('Error streaming file');
+      })
+      .pipe(res);
   } catch (err) {
-    console.error('❌ Proxy failed:', err.message);
+    if (err.code === 404) {
+      console.warn('⚠️ File not found:', id);
+      return res.status(404).json({ error: 'File not found' });
+    }
+
+    console.error('❌ Proxy failed:', err.response?.data || err.message);
     res.status(500).json({ error: 'Failed to fetch file from Drive' });
   }
 }

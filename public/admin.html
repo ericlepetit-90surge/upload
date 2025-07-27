@@ -82,125 +82,133 @@
   <h1>🎛️ Admin Panel – Manage Uploads</h1>
 
   <div style="margin-top: 2rem;">
-  <h3>Upload Settings</h3>
-  <label>
-    Show Name:
-    <input type="text" id="showName" placeholder="90 Surge at Echo Club" />
-  </label><br/><br/>
+    <h3>Upload Settings</h3>
+    <label>
+      Show Name:
+      <input type="text" id="showName" placeholder="90 Surge at Echo Club" />
+    </label><br/><br/>
 
-  <label>
-    Start Time (UTC):
-    <input type="datetime-local" id="startTime" />
-  </label><br/><br/>
+    <label>
+      Start Time (UTC):
+      <input type="datetime-local" id="startTime" />
+    </label><br/><br/>
 
-  <label>
-    End Time (UTC):
-    <input type="datetime-local" id="endTime" />
-  </label><br/><br/>
+    <label>
+      End Time (UTC):
+      <input type="datetime-local" id="endTime" />
+    </label><br/><br/>
 
-  <button onclick="saveConfig(event)">💾 Save Config</button>
-</div>
-
+    <button onclick="saveConfig(event)">💾 Save Config</button>
+  </div>
 
   <div id="admin-gallery">Loading uploads...</div>
 
- <script>
-  async function loadConfig() {
-    try {
-      const res = await fetch('/api/config');
-      const config = await res.json();
-
-      document.getElementById('showName').value = config.showName || '';
-      if (config.startTime) {
-        document.getElementById('startTime').value = config.startTime.slice(0, 16);
-      }
-      if (config.endTime) {
-        document.getElementById('endTime').value = config.endTime.slice(0, 16);
-      }
-    } catch (err) {
-      alert('❌ Failed to load config');
-      console.error(err);
-    }
-  }
-
-  async function saveConfig(event) {
-    event.preventDefault();
-
-    const showName = document.getElementById('showName')?.value?.trim();
-    const startTimeRaw = document.getElementById('startTime')?.value;
-    const endTimeRaw = document.getElementById('endTime')?.value;
-
-    if (!showName || !startTimeRaw || !endTimeRaw) {
-      alert('❌ Please fill in all fields (show name, start time, end time)');
-      return;
-    }
-
-    const body = {
-      showName,
-      startTime: new Date(startTimeRaw).toISOString(),
-      endTime: new Date(endTimeRaw).toISOString(),
-    };
-
-    try {
-      const res = await fetch('/api/config', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-
-      if (res.ok) {
-        alert('✅ Config saved!');
-      } else {
-        const error = await res.json();
-        alert('❌ Save failed: ' + (error.error || 'Unknown error'));
-      }
-    } catch (err) {
-      alert('❌ Save failed (network error)');
-      console.error(err);
-    }
-  }
-
-document.addEventListener('DOMContentLoaded', () => {
-  loadConfig();
-});
-
-</script>
-<script>
-    async function loadAdminGallery() {
-      const gallery = document.getElementById('admin-gallery');
-      gallery.innerHTML = 'Loading...';
-
+  <script>
+    async function loadConfig() {
       try {
-        const res = await fetch('/api/list-drive-files');
-        const files = await res.json();
-        gallery.innerHTML = '';
+        const res = await fetch('/api/config');
+        const config = await res.json();
 
-        files.forEach(file => {
-          const name = file.name || 'Anonymous';
-          const container = document.createElement('div');
-          container.className = 'admin-item';
-
-          const media = file.type === 'image'
-            ? `<img src="${file.fileUrl}" alt="${name}" />`
-            : `<video src="${file.fileUrl}" controls muted></video>`;
-
-          container.innerHTML = `
-            ${media}
-            <p>${name}</p>
-            <button onclick="deleteFile('${file.driveFileId}', '${name}')">🗑 Delete</button>
-          `;
-
-          gallery.appendChild(container);
-        });
-
-        if (files.length === 0) {
-          gallery.innerHTML = '<p>No uploads found.</p>';
+        document.getElementById('showName').value = config.showName || '';
+        if (config.startTime) {
+          document.getElementById('startTime').value = config.startTime.slice(0, 16);
+        }
+        if (config.endTime) {
+          document.getElementById('endTime').value = config.endTime.slice(0, 16);
         }
       } catch (err) {
-        console.error('❌ Failed to load admin gallery:', err);
-        gallery.innerHTML = '<p style="color: red;">Failed to load uploads.</p>';
+        alert('❌ Failed to load config');
+        console.error(err);
       }
     }
+
+    async function saveConfig(event) {
+      event.preventDefault();
+
+      const showName = document.getElementById('showName')?.value?.trim();
+      const startTimeRaw = document.getElementById('startTime')?.value;
+      const endTimeRaw = document.getElementById('endTime')?.value;
+
+      if (!showName || !startTimeRaw || !endTimeRaw) {
+        alert('❌ Please fill in all fields (show name, start time, end time)');
+        return;
+      }
+
+      const body = {
+        showName,
+        startTime: new Date(startTimeRaw).toISOString(),
+        endTime: new Date(endTimeRaw).toISOString(),
+      };
+
+      try {
+        const res = await fetch('/api/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+
+        if (res.ok) {
+          alert('✅ Config saved!');
+        } else {
+          const error = await res.json();
+          alert('❌ Save failed: ' + (error.error || 'Unknown error'));
+        }
+      } catch (err) {
+        alert('❌ Save failed (network error)');
+        console.error(err);
+      }
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      loadConfig();
+    });
+  </script>
+
+  <script>
+    async function loadAdminGallery() {
+    const gallery = document.getElementById('admin-gallery');
+    gallery.innerHTML = 'Loading...';
+
+    try {
+      const res = await fetch('/api/list-drive-files');
+      const files = await res.json();
+      gallery.innerHTML = '';
+
+      files.forEach(file => {
+        const name = file.name || 'Anonymous';
+
+        const container = document.createElement('div');
+        container.className = 'admin-item';
+
+        const mediaEl = document.createElement(file.type === 'image' ? 'img' : 'video');
+        mediaEl.src = file.fileUrl;
+        if (file.type !== 'image') {
+          mediaEl.controls = true;
+          mediaEl.muted = true;
+        }
+
+        const nameEl = document.createElement('p');
+        nameEl.textContent = name;
+
+        const btn = document.createElement('button');
+        btn.textContent = '🗑 Delete';
+        btn.addEventListener('click', () => deleteFile(file.driveFileId, name));
+
+        container.appendChild(mediaEl);
+        container.appendChild(nameEl);
+        container.appendChild(btn);
+
+        gallery.appendChild(container);
+      });
+
+      if (files.length === 0) {
+        gallery.innerHTML = '<p>No uploads found.</p>';
+      }
+    } catch (err) {
+      console.error('❌ Failed to load admin gallery:', err);
+      gallery.innerHTML = '<p style="color: red;">Failed to load uploads.</p>';
+    }
+  }
 
     async function deleteFile(fileId, name) {
       if (!fileId) return alert('Invalid file ID');
