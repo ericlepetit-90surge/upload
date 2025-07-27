@@ -191,24 +191,10 @@
           <li>Enter your full name</li>
           <li>
             Follow us on
-            <a
-              href="https://www.facebook.com/90surge"
-              target="_blank"
-              style="color: #01d6ff"
-              >Facebook</a
-            >
-            or
-            <a
-              href="https://www.instagram.com/90_surge"
-              target="_blank"
-              style="color: #e91e63"
-              >Instagram</a
-            >
+            <a href="https://www.facebook.com/90surge" target="_blank" style="color: #01d6ff">Facebook</a> or
+            <a href="https://www.instagram.com/90_surge" target="_blank" style="color: #e91e63">Instagram</a>
           </li>
-          <li>
-            Upload your photo or video (max 1 min) — crowd shots, solos, dance
-            moves!
-          </li>
+          <li>Upload your photo or video (max 1 min) — crowd shots, solos, dance moves!</li>
           <li>Each 📸 = 1 raffle entry | Each 🎥 = 3 entries</li>
           <li>Winner announced before final set 🎁</li>
         </ol>
@@ -218,48 +204,20 @@
       <input type="text" id="name" name="name" required placeholder="Name" />
 
       <label for="file">Choose photo or video:</label>
-      <input
-        type="file"
-        id="file"
-        name="file"
-        accept="image/*,video/*"
-        required
-      />
+      <input type="file" id="file" name="file" accept="image/*,video/*" required />
 
       <div id="follow-gate">
         <p style="font-size: 1rem; color: #c96161">
-          🎁
-          <strong
-            >Follow us on Facebook or Instagram to enter the raffle.</strong
-          >
+          🎁 <strong>Follow us on Facebook or Instagram to enter the raffle.</strong>
         </p>
         <div style="display: flex; justify-content: center; gap: 1rem">
-          <a
-            href="https://www.instagram.com/90_surge"
-            target="_blank"
-            id="ig-btn"
-            class="follow-btn"
-            >Instagram</a
-          >
-          <a
-            href="https://www.facebook.com/90surge"
-            target="_blank"
-            id="fb-btn"
-            class="follow-btn"
-            >Facebook</a
-          >
+          <a href="https://www.instagram.com/90_surge" target="_blank" id="ig-btn" class="follow-btn">Instagram</a>
+          <a href="https://www.facebook.com/90surge" target="_blank" id="fb-btn" class="follow-btn">Facebook</a>
         </div>
       </div>
 
-      <button type="submit" id="upload-btn" class="disabled-btn" disabled>
-        Upload
-      </button>
-      <progress
-        id="progress"
-        value="0"
-        max="100"
-        style="display: none"
-      ></progress>
+      <button type="submit" id="upload-btn" class="disabled-btn" disabled>Upload</button>
+      <progress id="progress" value="0" max="100" style="display: none"></progress>
       <div class="message" id="message"></div>
     </form>
 
@@ -282,9 +240,9 @@
           const end = new Date(config.endTime);
           if (now < start || now > end) {
             document.getElementById("upload-form").innerHTML = `
-            <p style="color: #e91e63; text-align: center; font-weight: bold;">
-              🚫 Uploads are currently closed.
-            </p>`;
+              <p style="color: #e91e63; text-align: center; font-weight: bold;">
+                🚫 Uploads are currently closed.
+              </p>`;
             isWindowOpen = false;
           }
         } catch {
@@ -299,8 +257,7 @@
         if (localStorage.getItem("followed") === "true") {
           uploadBtn.disabled = false;
           uploadBtn.classList.remove("disabled-btn");
-          gate.innerHTML =
-            '<p style="color: green; font-weight: bold;">✅ You can now upload.</p>';
+          gate.innerHTML = '<p style="color: green; font-weight: bold;">✅ You can now upload.</p>';
           return;
         }
 
@@ -323,81 +280,88 @@
       const form = document.getElementById("upload-form");
       const message = document.getElementById("message");
 
-      form.addEventListener('submit', async (e) => {
-  e.preventDefault();
-  message.textContent = '';
+      form.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        message.textContent = "";
 
-  const fileInput = document.getElementById('file');
-  const nameInput = document.getElementById('name');
-  const progress = document.getElementById('progress');
-  const file = fileInput.files[0];
-  const userName = nameInput.value.trim();
+        const fileInput = document.getElementById("file");
+        const nameInput = document.getElementById("name");
+        const progress = document.getElementById("progress");
+        const file = fileInput.files[0];
+        const userName = nameInput.value.trim();
 
-  if (!file || !userName) {
-    message.textContent = 'Name and file are required.';
-    return;
-  }
+        if (!file || !userName) {
+          message.textContent = "Name and file are required.";
+          return;
+        }
 
-  const formData = new FormData();
-  formData.append('file', file);
-  formData.append('userName', userName);
+        progress.style.display = "block";
+        progress.value = 0;
+        message.style.color = "#999";
+        message.textContent = "⏳ Uploading...";
 
-  progress.style.display = 'block';
-  progress.value = 0;
-  message.style.color = '#999';
-  message.textContent = '⏳ Uploading...';
+        try {
+          const initRes = await fetch("/api/start-resumable-upload", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              fileName: file.name,
+              mimeType: file.type,
+              userName: userName
+            })
+          });
 
-  try {
-    const xhr = new XMLHttpRequest();
-    xhr.open('POST', '/api/upload-resumable', true);
+          const { uploadUrl } = await initRes.json();
+          if (!uploadUrl) throw new Error("Failed to get upload URL");
 
-    xhr.upload.onprogress = (event) => {
-      if (event.lengthComputable) {
-        const percent = Math.round((event.loaded / event.total) * 100);
-        progress.value = percent;
-      }
-    };
+          const reader = file.stream().getReader();
+          const total = file.size;
+          let uploaded = 0;
 
-    xhr.onload = () => {
-      if (xhr.status === 200) {
-        message.style.color = 'green';
-        message.textContent = '✅ Upload successful!';
-        fileInput.value = '';
-        progress.style.display = 'none';
-        loadGallery();
-      } else {
-        message.style.color = 'red';
-        message.textContent = '❌ Upload failed.';
-        progress.style.display = 'none';
-        console.error('Error:', xhr.responseText);
-      }
-    };
+          const uploadRes = await fetch(uploadUrl, {
+            method: "PUT",
+            headers: {
+              "Content-Type": file.type,
+              "Content-Length": total
+            },
+            body: new ReadableStream({
+              async start(controller) {
+                while (true) {
+                  const { done, value } = await reader.read();
+                  if (done) break;
+                  controller.enqueue(value);
+                  uploaded += value.length;
+                  progress.value = Math.round((uploaded / total) * 100);
+                }
+                controller.close();
+              },
+              type: "bytes"
+            }),
+            duplex: "half"
+          });
 
-    xhr.onerror = () => {
-      message.style.color = 'red';
-      message.textContent = '❌ Network error.';
-      progress.style.display = 'none';
-    };
+          if (!uploadRes.ok) throw new Error("Upload failed");
 
-    xhr.send(formData);
-  } catch (err) {
-    message.style.color = 'red';
-    message.textContent = '❌ Upload error.';
-    console.error(err);
-    progress.style.display = 'none';
-  }
-});
-
+          message.style.color = "green";
+          message.textContent = "✅ Upload successful!";
+          fileInput.value = "";
+          progress.style.display = "none";
+          loadGallery();
+        } catch (err) {
+          message.style.color = "red";
+          message.textContent = "❌ Upload error.";
+          console.error(err);
+          progress.style.display = "none";
+        }
+      });
 
       async function setHeadline() {
         try {
           const res = await fetch("/api/config");
           const config = await res.json();
-          document.getElementById("headline").textContent =
-            config?.showName || "90 Surge";
+          document.getElementById("headline").textContent = config?.showName || "90 Surge";
         } catch {
-          document.getElementById("headline").textContent =
-            "Upload to 90 Surge";
+          document.getElementById("headline").textContent = "Upload to 90 Surge";
         }
       }
 
