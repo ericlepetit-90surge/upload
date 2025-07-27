@@ -13,10 +13,16 @@ const oauth2Client = new google.auth.OAuth2(
 );
 
 
-const tokenPath = path.join(process.cwd(), 'GOOGLE_TOKEN.json');
-const tokenData = JSON.parse(fs.readFileSync(tokenPath, 'utf8'));
+let token;
 
-oauth2Client.setCredentials(tokenData);
+if (process.env.GOOGLE_TOKEN_JSON) {
+  token = JSON.parse(process.env.GOOGLE_TOKEN_JSON);
+} else {
+  const tokenPath = path.join(process.cwd(), 'GOOGLE_TOKEN.json');
+  token = JSON.parse(fs.readFileSync(tokenPath, 'utf8'));
+}
+
+oauth2Client.setCredentials(token);
 
 const drive = google.drive({ version: 'v3', auth: oauth2Client });
 
