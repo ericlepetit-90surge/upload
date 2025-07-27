@@ -13,15 +13,13 @@ const oauth2Client = new google.auth.OAuth2(
 );
 
 
-let token;
+const tokenJson = process.env.GOOGLE_TOKEN_JSON;
 
-if (process.env.GOOGLE_TOKEN_JSON) {
-  token = JSON.parse(process.env.GOOGLE_TOKEN_JSON);
-} else {
-  const tokenPath = path.join(process.cwd(), 'GOOGLE_TOKEN.json');
-  token = JSON.parse(fs.readFileSync(tokenPath, 'utf8'));
+if (!tokenJson) {
+  throw new Error('Missing GOOGLE_TOKEN_JSON in environment.');
 }
 
+const token = JSON.parse(tokenJson);
 oauth2Client.setCredentials(token);
 
 const drive = google.drive({ version: 'v3', auth: oauth2Client });

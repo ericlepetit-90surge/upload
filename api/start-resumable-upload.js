@@ -10,17 +10,28 @@ export const config = {
   },
 };
 
-const oauthClientPath = path.join(process.cwd(), 'oauth-client.json'); // Local file, not from env
+// Load OAuth client credentials from local file
+const oauthClientPath = path.join(process.cwd(), 'oauth-client.json');
 const credentials = JSON.parse(fs.readFileSync(oauthClientPath, 'utf8'));
-
-const tokenPath = path.join(process.cwd(), 'GOOGLE_TOKEN.json'); // ✅ Local file
-const token = JSON.parse(fs.readFileSync(tokenPath, 'utf8'));
-oauth2Client.setCredentials(token);
-
 const { client_secret, client_id, redirect_uris } = credentials.web;
 
-const oauth2Client = new google.auth.OAuth2(client_id, client_secret, redirect_uris[0]);
+// Initialize OAuth2 client
+const oauth2Client = new google.auth.OAuth2(
+  client_id,
+  client_secret,
+  redirect_uris[0]
+);
+
+// Load token from environment variable
+const tokenJson = process.env.GOOGLE_TOKEN_JSON;
+if (!tokenJson) {
+  throw new Error('Missing GOOGLE_TOKEN_JSON in environment.');
+}
+
+const token = JSON.parse(tokenJson);
 oauth2Client.setCredentials(token);
+
+module.exports = oauth2Client;
 
 const drive = google.drive({ version: 'v3', auth: oauth2Client });
 
