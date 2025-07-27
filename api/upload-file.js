@@ -20,8 +20,6 @@ export const config = {
 };
 
 // OAuth2 setup
-const oauthClientPath = path.join(process.cwd(), 'oauth-client.json');
-const oauthClient = JSON.parse(fs.readFileSync(oauthClientPath, 'utf8'));
 
 const oauth2Client = new google.auth.OAuth2(
   oauthClient.web.client_id,
@@ -29,7 +27,17 @@ const oauth2Client = new google.auth.OAuth2(
   oauthClient.web.redirect_uris[0]
 );
 
-const tokenData = JSON.parse(process.env.GOOGLE_TOKEN_JSON);
+const oauthClientPath = path.join(process.cwd(), 'oauth-client.json');
+const oauthClient = JSON.parse(fs.readFileSync(oauthClientPath, 'utf8'));
+
+let tokenData;
+if (process.env.GOOGLE_TOKEN_JSON) {
+  tokenData = JSON.parse(process.env.GOOGLE_TOKEN_JSON);
+} else {
+  const tokenPath = path.join(process.cwd(), 'GOOGLE_TOKEN.json');
+  tokenData = JSON.parse(fs.readFileSync(tokenPath, 'utf8'));
+}
+
 oauth2Client.setCredentials({
   access_token: tokenData.access_token,
   refresh_token: tokenData.refresh_token,
@@ -76,7 +84,7 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'No files uploaded' });
     }
 
-    const rawName = fields.name?.[0] || '';
+    const rawName = fields.name || '';
     if (!rawName.trim()) {
       return res.status(400).json({ error: 'Name is required.' });
     }
@@ -118,22 +126,20 @@ export default async function handler(req, res) {
 
         const fileId = driveResponse.data.id;
 
-        // Get webContentLink
-        const getLink = await drive.files.get({
-          fileId,
-          fields: 'webContentLink',
-        });
+    // Make file public
+await drive.permissions.create({
+  fileId,
+  requestBody: {
+    role: 'reader',
+    type: 'anyone',
+  },
+});
 
-        const webContentLink = getLink.data.webContentLink;
-
-        // Make file public
-        await drive.permissions.create({
-          fileId,
-          requestBody: {
-            role: 'reader',
-            type: 'anyone',
-          },
-        });
+// Get webContentLink
+const getLink = await drive.files.get({
+  fileId,
+  fields: 'webContentLink',
+});
 
         // Store metadata in uploads.json
         const uploadedMeta = {

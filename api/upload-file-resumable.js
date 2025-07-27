@@ -22,13 +22,13 @@ const oauth2Client = new google.auth.OAuth2(
 );
 
 
-const tokenJson = process.env.GOOGLE_TOKEN_JSON;
-
-if (!tokenJson) {
-  throw new Error('Missing GOOGLE_TOKEN_JSON in environment.');
+let token;
+if (process.env.GOOGLE_TOKEN_JSON) {
+  token = JSON.parse(process.env.GOOGLE_TOKEN_JSON);
+} else {
+  const tokenPath = path.join(process.cwd(), 'GOOGLE_TOKEN.json');
+  token = JSON.parse(fs.readFileSync(tokenPath, 'utf8'));
 }
-
-const token = JSON.parse(tokenJson);
 oauth2Client.setCredentials(token);
 
 
@@ -89,20 +89,21 @@ const fileStream = fs.createReadStream(filePath);
     body: fileStream,
   };
 
-  try {
-    const response = await drive.files.create({
-      resource: fileMeta,
-      media,
-      fields: 'id',
-    });
+ try {
+  const response = await drive.files.create({
+    resource: fileMeta,
+    media,
+    fields: 'id',
+  });
 
-    await drive.permissions.create({
-  fileId,
-  requestBody: {
-    role: 'reader',
-    type: 'anyone',
-  },
-});
+  // ✅ Fix: Set permissions using the uploaded file's ID
+  await drive.permissions.create({
+    fileId: response.data.id,
+    requestBody: {
+      role: 'reader',
+      type: 'anyone',
+    },
+  });
 
     console.log(`✅ Uploaded to Drive as ${fileName}`);
     res.status(200).json({ success: true, fileId: response.data.id });

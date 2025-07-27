@@ -5,20 +5,23 @@ import path from 'path';
 
 dotenv.config();
 
-// Google Auth
+// Read oauth-client.json (safe to bundle locally)
 const oauthClientPath = path.join(process.cwd(), 'oauth-client.json');
-const oauthClient = JSON.parse(fs.readFileSync(oauthClientPath, 'utf8'));
+const credentials = JSON.parse(fs.readFileSync(oauthClientPath, 'utf8'));
 
-const oauth2Client = new google.auth.OAuth2(
-  oauthClient.web.client_id,
-  oauthClient.web.client_secret,
-  oauthClient.web.redirect_uris[0]
-);
+const { client_id, client_secret, redirect_uris } = credentials.web;
+const oauth2Client = new google.auth.OAuth2(client_id, client_secret, redirect_uris[0]);
 
-const tokenPath = path.join(process.cwd(), 'GOOGLE_TOKEN.json'); // ✅ Local file
-const token = JSON.parse(fs.readFileSync(tokenPath, 'utf8'));
+// Read token from env (for deployment) or fallback to local file (for local testing)
+let token;
+if (process.env.GOOGLE_TOKEN_JSON) {
+  token = JSON.parse(process.env.GOOGLE_TOKEN_JSON);
+} else {
+  const tokenPath = path.join(process.cwd(), 'GOOGLE_TOKEN.json');
+  token = JSON.parse(fs.readFileSync(tokenPath, 'utf8'));
+}
+
 oauth2Client.setCredentials(token);
-
 const drive = google.drive({ version: 'v3', auth: oauth2Client });
 
 export default async function handler(req, res) {
@@ -35,7 +38,6 @@ export default async function handler(req, res) {
     );
 
     res.setHeader('Content-Type', driveRes.headers['content-type'] || 'application/octet-stream');
-
     driveRes.data.pipe(res);
   } catch (err) {
     console.error('❌ Proxy failed:', err.message);
