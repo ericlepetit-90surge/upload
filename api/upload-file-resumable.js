@@ -96,6 +96,14 @@ const fileStream = fs.createReadStream(filePath);
       fields: 'id',
     });
 
+    await drive.permissions.create({
+  fileId,
+  requestBody: {
+    role: 'reader',
+    type: 'anyone',
+  },
+});
+
     console.log(`✅ Uploaded to Drive as ${fileName}`);
     res.status(200).json({ success: true, fileId: response.data.id });
   } catch (err) {
