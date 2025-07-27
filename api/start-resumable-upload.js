@@ -1,75 +1,65 @@
-// /api/start-resumable-upload.js
-
 import { google } from 'googleapis';
-import fs from 'fs';
 import path from 'path';
+import fs from 'fs';
+import axios from 'axios';
 
-export const config = {
-  api: {
-    bodyParser: true,
-  },
-};
+const oauthPath = path.join(process.cwd(), 'oauth-client.json');
+const oauthClient = JSON.parse(fs.readFileSync(oauthPath, 'utf8'));
+const tokenData = JSON.parse(process.env.GOOGLE_TOKEN_JSON || '{}');
 
-// Load OAuth client credentials from local file
-const oauthClientPath = path.join(process.cwd(), 'oauth-client.json');
-const credentials = JSON.parse(fs.readFileSync(oauthClientPath, 'utf8'));
-const { client_secret, client_id, redirect_uris } = credentials.web;
-
-// Initialize OAuth2 client
 const oauth2Client = new google.auth.OAuth2(
-  client_id,
-  client_secret,
-  redirect_uris[0]
+  oauthClient.web.client_id,
+  oauthClient.web.client_secret,
+  oauthClient.web.redirect_uris[0]
 );
 
-// Load token from environment variable
-const tokenJson = process.env.GOOGLE_TOKEN_JSON;
-if (!tokenJson) {
-  throw new Error('Missing GOOGLE_TOKEN_JSON in environment.');
-}
-
-const token = JSON.parse(tokenJson);
-oauth2Client.setCredentials(token);
-
-module.exports = oauth2Client;
-
-const drive = google.drive({ version: 'v3', auth: oauth2Client });
+// Preload credentials (including refresh_token)
+oauth2Client.setCredentials(tokenData);
 
 export default async function handler(req, res) {
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
-  }
+  if (req.method !== 'POST') return res.status(405).end('Method Not Allowed');
 
-  const { fileName, mimeType, userName } = req.body;
-  if (!fileName || !mimeType || !userName) {
-    return res.status(400).json({ error: 'Missing required fields' });
+  const { fileName, mimeType } = req.body;
+
+  if (!fileName || !mimeType) {
+    return res.status(400).json({ error: 'Missing fileName or mimeType' });
   }
 
   try {
-    const safeName = `${userName.toLowerCase().replace(/[^a-z0-9]+/g, '_')}--${Date.now()}${path.extname(fileName)}`;
+    // ✅ Refresh the access token using the refresh_token
+    const { token } = await oauth2Client.getAccessToken();
 
-    const fileMeta = {
-      name: safeName,
-      parents: [process.env.GOOGLE_DRIVE_FOLDER_ID],
-    };
+    if (!token) {
+      console.error('❌ Failed to refresh access token');
+      return res.status(500).json({ error: 'Could not refresh access token' });
+    }
 
-    const uploadRes = await drive.files.create({
-      requestBody: fileMeta,
-      media: { mimeType },
-      fields: 'id',
-    }, {
-      params: { uploadType: 'resumable' },
-    });
+    // ✅ Use axios to initiate a resumable upload
+    const response = await axios.post(
+      'https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable',
+      {
+        name: fileName,
+        mimeType: mimeType,
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          'X-Upload-Content-Type': mimeType,
+        },
+      }
+    );
 
-    const uploadUrl = uploadRes.headers.location;
+    const uploadUrl = response?.headers?.location;
 
     if (!uploadUrl) {
-      return res.status(500).json({ error: 'Failed to get upload URL from Google' });
+      console.error('❌ Missing upload URL. Headers:', response.headers);
+      return res.status(500).json({ error: 'Upload URL not returned from Google' });
     }
 
     res.status(200).json({ uploadUrl });
   } catch (err) {
-    console.error('❌ Error starting resumable upload:', err);
-    res.status(500).json({ error: 'Failed to get upload URL from Google' });
+    console.error('🔥 Upload init error:', err.response?.data || err.message || err);
+    return res.status(500).json({ error: 'Upload session failed' });
   }
 }
