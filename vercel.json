@@ -5,8 +5,12 @@
     { "src": "public/**", "use": "@vercel/static" }
   ],
   "rewrites": [
-    { "source": "/", "destination": "/public/index.html" },
-    { "source": "/admin", "destination": "/api/protected-admin.js" },
-    { "source": "/api/(.*)", "destination": "/api/$1.js" }
-  ]
+  { "source": "/admin", "destination": "/api/protected-admin.js" },
+  { "source": "/api/(.*)", "destination": "/api/$1.js" },
+  { "source": "/wheel.html", "destination": "/public/wheel.html" },
+  { "source": "/wheel.js", "destination": "/public/wheel.js" },
+  { "source": "/", "destination": "/public/index.html" }
+]
 }
+
+

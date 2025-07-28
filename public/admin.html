@@ -82,90 +82,86 @@
   <h1>🎛️ Admin Panel – Manage Uploads</h1>
 
   <div style="margin-top: 2rem;">
-  <h3>Upload Settings</h3>
-  <label>
-    Show Name:
-    <input type="text" id="showName" placeholder="90 Surge at Echo Club" />
-  </label><br/><br/>
+    <label>
+      Show Name:
+      <input type="text" id="showName" placeholder="90 Surge at Echo Club" />
+    </label><br/><br/>
 
-  <label>
-    Start Time (UTC):
-    <input type="datetime-local" id="startTime" />
-  </label><br/><br/>
+    <label>
+      Start Time (UTC):
+      <input type="datetime-local" id="startTime" />
+    </label><br/><br/>
 
-  <label>
-    End Time (UTC):
-    <input type="datetime-local" id="endTime" />
-  </label><br/><br/>
+    <label>
+      End Time (UTC):
+      <input type="datetime-local" id="endTime" />
+    </label><br/><br/>
 
-  <button onclick="saveConfig(event)">💾 Save Config</button>
-</div>
+    <button onclick="saveConfig(event)">💾 Save Config</button>
+  </div>
+
+  <button onclick="pickWinner()" style="margin-bottom: 2rem; font-weight: bold;">🎉 Pick Random Winner</button>
+<div id="winnerDisplay" style="font-size: 1.2em; margin-top: 1rem;"></div>
 
 
   <div id="admin-gallery">Loading uploads...</div>
 
- <script>
-  async function loadConfig() {
-    try {
-      const res = await fetch('/api/config');
-      const config = await res.json();
+  <script>
+    async function loadConfig() {
+      try {
+        const res = await fetch('/api/config');
+        const config = await res.json();
 
-      document.getElementById('showName').value = config.showName || '';
-      if (config.startTime) {
-        document.getElementById('startTime').value = config.startTime.slice(0, 16);
+        document.getElementById('showName').value = config.showName || '';
+        if (config.startTime) {
+          document.getElementById('startTime').value = config.startTime.slice(0, 16);
+        }
+        if (config.endTime) {
+          document.getElementById('endTime').value = config.endTime.slice(0, 16);
+        }
+      } catch (err) {
+        alert('❌ Failed to load config');
+        console.error(err);
       }
-      if (config.endTime) {
-        document.getElementById('endTime').value = config.endTime.slice(0, 16);
-      }
-    } catch (err) {
-      alert('❌ Failed to load config');
-      console.error(err);
-    }
-  }
-
-  async function saveConfig(event) {
-    event.preventDefault();
-
-    const showName = document.getElementById('showName')?.value?.trim();
-    const startTimeRaw = document.getElementById('startTime')?.value;
-    const endTimeRaw = document.getElementById('endTime')?.value;
-
-    if (!showName || !startTimeRaw || !endTimeRaw) {
-      alert('❌ Please fill in all fields (show name, start time, end time)');
-      return;
     }
 
-    const body = {
-      showName,
-      startTime: new Date(startTimeRaw).toISOString(),
-      endTime: new Date(endTimeRaw).toISOString(),
-    };
+    async function saveConfig(event) {
+      event.preventDefault();
 
-    try {
-      const res = await fetch('/api/config', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
+      const showName = document.getElementById('showName')?.value?.trim();
+      const startTimeRaw = document.getElementById('startTime')?.value;
+      const endTimeRaw = document.getElementById('endTime')?.value;
 
-      if (res.ok) {
-        alert('✅ Config saved!');
-      } else {
-        const error = await res.json();
-        alert('❌ Save failed: ' + (error.error || 'Unknown error'));
+      if (!showName || !startTimeRaw || !endTimeRaw) {
+        alert('❌ Please fill in all fields (show name, start time, end time)');
+        return;
       }
-    } catch (err) {
-      alert('❌ Save failed (network error)');
-      console.error(err);
+
+      const body = {
+        showName,
+        startTime: new Date(startTimeRaw).toISOString(),
+        endTime: new Date(endTimeRaw).toISOString(),
+      };
+
+      try {
+        const res = await fetch('/api/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+
+        if (res.ok) {
+          alert('✅ Config saved!');
+        } else {
+          const error = await res.json();
+          alert('❌ Save failed: ' + (error.error || 'Unknown error'));
+        }
+      } catch (err) {
+        alert('❌ Save failed (network error)');
+        console.error(err);
+      }
     }
-  }
 
-document.addEventListener('DOMContentLoaded', () => {
-  loadConfig();
-});
-
-</script>
-<script>
     async function loadAdminGallery() {
       const gallery = document.getElementById('admin-gallery');
       gallery.innerHTML = 'Loading...';
@@ -187,8 +183,13 @@ document.addEventListener('DOMContentLoaded', () => {
           container.innerHTML = `
             ${media}
             <p>${name}</p>
-            <button onclick="deleteFile('${file.driveFileId}', '${name}')">🗑 Delete</button>
+            <button class="delete-btn">🗑 Delete</button>
           `;
+
+          const deleteButton = container.querySelector('.delete-btn');
+          deleteButton.addEventListener('click', () => {
+            deleteFile(file.driveFileId, name);
+          });
 
           gallery.appendChild(container);
         });
@@ -208,23 +209,52 @@ document.addEventListener('DOMContentLoaded', () => {
       const confirmDelete = confirm(`Are you sure you want to delete:\n\n${name}?`);
       if (!confirmDelete) return;
 
-      const res = await fetch('/api/delete-file', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fileId })
-      });
+      try {
+        const res = await fetch('/api/delete-file', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ fileId })
+        });
 
-      const result = await res.json();
-      if (res.ok) {
-        alert('✅ File deleted successfully');
-        loadAdminGallery();
-        localStorage.setItem('galleryRefresh', Date.now());
-      } else {
-        alert('❌ ' + (result.error || 'Failed to delete file.'));
+        const result = await res.json();
+        if (res.ok) {
+          alert('✅ File deleted successfully');
+          loadAdminGallery();
+          localStorage.setItem('galleryRefresh', Date.now());
+        } else {
+          alert('❌ ' + (result.error || 'Failed to delete file.'));
+        }
+      } catch (err) {
+        alert('❌ Network error');
+        console.error(err);
       }
     }
 
-    loadAdminGallery();
+    document.addEventListener('DOMContentLoaded', () => {
+      loadConfig();
+      loadAdminGallery();
+    });
   </script>
+
+  <script>
+  async function pickWinner() {
+    try {
+      const res = await fetch('/api/pick-winner');
+      const result = await res.json();
+
+      const display = document.getElementById("winnerDisplay");
+
+      if (res.ok && result.winner) {
+        display.textContent = `🎉 Winner: ${result.winner}`;
+      } else {
+        display.textContent = `⚠️ ${result.error || "No entries found."}`;
+      }
+    } catch (err) {
+      console.error("Error picking winner:", err);
+      document.getElementById("winnerDisplay").textContent = "❌ Failed to pick winner.";
+    }
+  }
+</script>
+
 </body>
 </html>

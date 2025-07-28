@@ -1,8 +1,8 @@
 // /api/protected-admin.js
-const fs = require('fs');
-const path = require('path');
+import fs from 'fs';
+import path from 'path';
 
-module.exports = function handler(req, res) {
+export default function handler(req, res) {
   const auth = req.headers.authorization;
   const ADMIN_PASS = process.env.ADMIN_PASS || 'secret';
   const isLocal = req.headers.host.includes('localhost');
@@ -29,10 +29,10 @@ module.exports = function handler(req, res) {
   const filePath = path.join(process.cwd(), 'public', 'admin.html');
   try {
     const html = fs.readFileSync(filePath, 'utf8');
-    res.setHeader('Content-Type', 'text/html');
-    res.status(200).send(html);
+    res.setHeader('Content-Type', 'text/html'); // ✅ this line is critical
+    res.status(200).end(html);
   } catch (err) {
     console.error('❌ Failed to read admin.html:', err);
-    res.status(500).send('Internal Server Error');
+    res.status(500).end('Internal Server Error');
   }
-};
+}
