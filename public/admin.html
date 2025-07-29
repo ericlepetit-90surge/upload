@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>90 Surge Admin Panel</title>
   <style>
     body {
@@ -12,42 +12,27 @@
       margin: 0;
       padding: 20px;
     }
-
-    h1 {
-      text-align: center;
-      margin-bottom: 20px;
-      font-size: 1.6em;
-    }
-
+    h1 { text-align: center; margin-bottom: 20px; font-size: 1.6em; }
     #admin-gallery {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
       gap: 15px;
     }
-
     .admin-item {
       background: #1e1e1e;
       padding: 10px;
       border-radius: 10px;
       text-align: center;
-      box-shadow: 0 0 6px rgba(255,255,255,0.05);
+      box-shadow: 0 0 6px rgba(255, 255, 255, 0.05);
     }
-
-    .admin-item img,
-    .admin-item video {
+    .admin-item img, .admin-item video {
       width: 100%;
       height: auto;
       border-radius: 6px;
       max-height: 200px;
       object-fit: cover;
     }
-
-    .admin-item p {
-      font-size: 0.9em;
-      margin: 8px 0;
-      word-break: break-word;
-    }
-
+    .admin-item p { font-size: 0.9em; margin: 8px 0; word-break: break-word; }
     .admin-item button {
       background: #e53935;
       color: white;
@@ -57,193 +42,143 @@
       font-size: 0.9em;
       cursor: pointer;
     }
-
-    .admin-item button:hover {
-      background: #c62828;
-    }
-
+    .admin-item button:hover { background: #c62828; }
     @media (max-width: 600px) {
-      h1 {
-        font-size: 1.2em;
-      }
-
-      .admin-item p {
-        font-size: 0.8em;
-      }
-
-      .admin-item button {
-        padding: 4px 10px;
-        font-size: 0.8em;
-      }
+      h1 { font-size: 1.2em; }
+      .admin-item p { font-size: 0.8em; }
+      .admin-item button { padding: 4px 10px; font-size: 0.8em; }
     }
   </style>
 </head>
 <body>
+
+<div id="login-section">
+  <h2>Admin Login</h2>
+  <input type="password" id="admin-password" placeholder="Enter password" />
+  <button onclick="handleLogin()">Login</button>
+  <p id="login-error" style="color: red;"></p>
+</div>
+
+<div id="admin-content" style="display:none;">
+  <button onclick="logout()" style="float:right; margin-bottom:1rem;">🚪 Logout</button>
   <h1>🎛️ Admin Panel – Manage Uploads</h1>
+  <h3 id="role-banner"></h3>
 
   <div style="margin-top: 2rem;">
-    <label>
-      Show Name:
+    <label>Show Name:
       <input type="text" id="showName" placeholder="90 Surge at Echo Club" />
-    </label><br/><br/>
-
-    <label>
-      Start Time (UTC):
+    </label><br /><br />
+    <label>Start Time (UTC):
       <input type="datetime-local" id="startTime" />
-    </label><br/><br/>
-
-    <label>
-      End Time (UTC):
+    </label><br /><br />
+    <label>End Time (UTC):
       <input type="datetime-local" id="endTime" />
-    </label><br/><br/>
-
-    <button onclick="saveConfig(event)">💾 Save Config</button>
+    </label><br /><br />
+    <div class="admin-only">
+      <button onclick="saveConfig(event)">Save Config</button>
+    </div>
   </div>
 
-  <button onclick="pickWinner()" style="margin-bottom: 2rem; font-weight: bold;">🎉 Pick Random Winner</button>
-<div id="winnerDisplay" style="font-size: 1.2em; margin-top: 1rem;"></div>
-
+  <button onclick="pickWinner()" class="admin-only" style="margin-bottom: 2rem; font-weight: bold;">🎉 Pick Random Winner</button>
+  <div id="winnerDisplay" style="font-size: 1.2em; margin-top: 1rem;"></div>
 
   <div id="admin-gallery">Loading uploads...</div>
+</div>
 
-  <script>
-    async function loadConfig() {
-      try {
-        const res = await fetch('/api/config');
-        const config = await res.json();
+<script>
+  let role = null;
 
-        document.getElementById('showName').value = config.showName || '';
-        if (config.startTime) {
-          document.getElementById('startTime').value = config.startTime.slice(0, 16);
-        }
-        if (config.endTime) {
-          document.getElementById('endTime').value = config.endTime.slice(0, 16);
-        }
-      } catch (err) {
-        alert('❌ Failed to load config');
-        console.error(err);
-      }
+  document.addEventListener('DOMContentLoaded', () => {
+    role = localStorage.getItem('role');
+    if (!role) return; // Let login screen show
+
+    document.getElementById('login-section').style.display = 'none';
+    document.getElementById('admin-content').style.display = 'block';
+
+    loadConfig(role);
+    loadAdminGallery();
+
+    if (role === 'moderator') {
+      document.querySelector('div[style*="margin-top: 2rem"]').style.display = 'none';
+      document.querySelectorAll('.admin-only').forEach(el => el.style.display = 'none');
+      document.getElementById('role-banner').textContent = '👮 Moderator View – Delete Only';
+    } else {
+      document.getElementById('role-banner').textContent = '👑 Admin View – Full Access';
     }
+  });
 
-    async function saveConfig(event) {
-      event.preventDefault();
-
-      const showName = document.getElementById('showName')?.value?.trim();
-      const startTimeRaw = document.getElementById('startTime')?.value;
-      const endTimeRaw = document.getElementById('endTime')?.value;
-
-      if (!showName || !startTimeRaw || !endTimeRaw) {
-        alert('❌ Please fill in all fields (show name, start time, end time)');
-        return;
-      }
-
-      const body = {
-        showName,
-        startTime: new Date(startTimeRaw).toISOString(),
-        endTime: new Date(endTimeRaw).toISOString(),
-      };
-
-      try {
-        const res = await fetch('/api/config', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-        });
-
-        if (res.ok) {
-          alert('✅ Config saved!');
-        } else {
-          const error = await res.json();
-          alert('❌ Save failed: ' + (error.error || 'Unknown error'));
-        }
-      } catch (err) {
-        alert('❌ Save failed (network error)');
-        console.error(err);
-      }
-    }
-
-    async function loadAdminGallery() {
-      const gallery = document.getElementById('admin-gallery');
-      gallery.innerHTML = 'Loading...';
-
-      try {
-        const res = await fetch('/api/list-drive-files');
-        const files = await res.json();
-        gallery.innerHTML = '';
-
-        files.forEach(file => {
-          const name = file.name || 'Anonymous';
-          const container = document.createElement('div');
-          container.className = 'admin-item';
-
-          const media = file.type === 'image'
-            ? `<img src="${file.fileUrl}" alt="${name}" />`
-            : `<video src="${file.fileUrl}" controls muted></video>`;
-
-          container.innerHTML = `
-            ${media}
-            <p>${name}</p>
-            <button class="delete-btn">🗑 Delete</button>
-          `;
-
-          const deleteButton = container.querySelector('.delete-btn');
-          deleteButton.addEventListener('click', () => {
-            deleteFile(file.driveFileId, name);
-          });
-
-          gallery.appendChild(container);
-        });
-
-        if (files.length === 0) {
-          gallery.innerHTML = '<p>No uploads found.</p>';
-        }
-      } catch (err) {
-        console.error('❌ Failed to load admin gallery:', err);
-        gallery.innerHTML = '<p style="color: red;">Failed to load uploads.</p>';
-      }
-    }
-
-    async function deleteFile(fileId, name) {
-      if (!fileId) return alert('Invalid file ID');
-
-      const confirmDelete = confirm(`Are you sure you want to delete:\n\n${name}?`);
-      if (!confirmDelete) return;
-
-      try {
-        const res = await fetch('/api/delete-file', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ fileId })
-        });
-
-        const result = await res.json();
-        if (res.ok) {
-          alert('✅ File deleted successfully');
-          loadAdminGallery();
-          localStorage.setItem('galleryRefresh', Date.now());
-        } else {
-          alert('❌ ' + (result.error || 'Failed to delete file.'));
-        }
-      } catch (err) {
-        alert('❌ Network error');
-        console.error(err);
-      }
-    }
-
-    document.addEventListener('DOMContentLoaded', () => {
-      loadConfig();
-      loadAdminGallery();
+  async function handleLogin() {
+    const password = document.getElementById('admin-password').value;
+    const res = await fetch('/api/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password })
     });
-  </script>
+    const data = await res.json();
+    if (data.success) {
+      localStorage.setItem('role', data.role);
+      location.reload();
+    } else {
+      document.getElementById('login-error').textContent = '❌ Incorrect password';
+    }
+  }
 
-  <script>
+function logout() {
+  localStorage.removeItem('role');
+
+  // Reload page without embedded credentials
+  window.location.href = window.location.origin + '/admin';
+}
+
+  async function loadConfig(currentRole) {
+    if (currentRole !== 'admin') return;
+    try {
+      const res = await fetch('/api/config');
+      const config = await res.json();
+      document.getElementById('showName').value = config.showName || '';
+      if (config.startTime) document.getElementById('startTime').value = config.startTime.slice(0, 16);
+      if (config.endTime) document.getElementById('endTime').value = config.endTime.slice(0, 16);
+    } catch (err) {
+      alert('❌ Failed to load config');
+      console.error(err);
+    }
+  }
+
+  async function saveConfig(event) {
+    if (role !== 'admin') return;
+    event.preventDefault();
+    const showName = document.getElementById('showName')?.value?.trim();
+    const startTimeRaw = document.getElementById('startTime')?.value;
+    const endTimeRaw = document.getElementById('endTime')?.value;
+    if (!showName || !startTimeRaw || !endTimeRaw) {
+      alert('❌ Please fill in all fields');
+      return;
+    }
+    const body = {
+      showName,
+      startTime: new Date(startTimeRaw).toISOString(),
+      endTime: new Date(endTimeRaw).toISOString()
+    };
+    try {
+      const res = await fetch('/api/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      const json = await res.json();
+      if (res.ok) alert('✅ Config saved!');
+      else alert('❌ Save failed: ' + (json.error || 'Unknown error'));
+    } catch (err) {
+      alert('❌ Save failed (network error)');
+      console.error(err);
+    }
+  }
+
   async function pickWinner() {
     try {
       const res = await fetch('/api/pick-winner');
       const result = await res.json();
-
       const display = document.getElementById("winnerDisplay");
-
       if (res.ok && result.winner) {
         display.textContent = `🎉 Winner: ${result.winner}`;
       } else {
@@ -254,7 +189,50 @@
       document.getElementById("winnerDisplay").textContent = "❌ Failed to pick winner.";
     }
   }
-</script>
 
+  async function loadAdminGallery() {
+    const gallery = document.getElementById('admin-gallery');
+    gallery.innerHTML = 'Loading...';
+    try {
+      const res = await fetch('/api/list-drive-files');
+      const files = await res.json();
+      gallery.innerHTML = '';
+      files.forEach(file => {
+        const name = file.name || 'Anonymous';
+        const container = document.createElement('div');
+        container.className = 'admin-item';
+        const media = file.type === 'image'
+          ? `<img src="${file.fileUrl}" alt="${name}" />`
+          : `<video src="${file.fileUrl}" controls muted></video>`;
+        const deleteBtn = `<button onclick="deleteFile('${file.driveFileId}', '${name}')">🗑 Delete</button>`;
+        container.innerHTML = `${media}<p>${name}</p>${deleteBtn}`;
+        gallery.appendChild(container);
+      });
+      if (files.length === 0) gallery.innerHTML = '<p>No uploads found.</p>';
+    } catch (err) {
+      console.error('❌ Failed to load admin gallery:', err);
+      gallery.innerHTML = '<p style="color: red;">Failed to load uploads.</p>';
+    }
+  }
+
+  async function deleteFile(fileId, name) {
+    if (!fileId) return alert('Invalid file ID');
+    const confirmDelete = confirm(`Are you sure you want to delete:\n\n${name}?`);
+    if (!confirmDelete) return;
+    const res = await fetch('/api/delete-file', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fileId })
+    });
+    const result = await res.json();
+    if (res.ok) {
+      alert('✅ File deleted');
+      loadAdminGallery();
+      localStorage.setItem('galleryRefresh', Date.now());
+    } else {
+      alert('❌ ' + (result.error || 'Failed to delete file.'));
+    }
+  }
+</script>
 </body>
 </html>
