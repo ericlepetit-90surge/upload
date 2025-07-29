@@ -2,12 +2,11 @@
 import fs from 'fs';
 import path from 'path';
 import { google } from 'googleapis';
-import { randomUUID } from 'crypto';
+import { kv } from '@vercel/kv';
 
 const ADMIN_PASS = process.env.ADMIN_PASS;
 const MODERATOR_PASS = process.env.MODERATOR_PASS;
 const uploadsPath = path.join(process.cwd(), 'uploads.json');
-const configPath = path.join(process.cwd(), 'config.json');
 const folderId = process.env.GOOGLE_DRIVE_FOLDER_ID;
 
 const oauthClient = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'oauth-client.json'), 'utf8'));
@@ -31,11 +30,20 @@ export default async function handler(req, res) {
     return res.status(401).json({ success: false, error: 'Invalid password' });
   }
 
-// ----------------- CONFIG -----------------
+  // ----------------- CONFIG (using KV) -----------------
+  const isLocal = process.env.VERCEL_ENV !== 'production';
+
 if (action === 'config' && req.method === 'GET') {
   try {
-    const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-    return res.status(200).json(config);
+    if (isLocal) {
+      const config = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'config.json'), 'utf8'));
+      return res.status(200).json(config);
+    } else {
+      const showName = await kv.get('showName');
+      const startTime = await kv.get('startTime');
+      const endTime = await kv.get('endTime');
+      return res.status(200).json({ showName, startTime, endTime });
+    }
   } catch (err) {
     return res.status(500).json({ error: 'Failed to load config' });
   }
@@ -43,12 +51,23 @@ if (action === 'config' && req.method === 'GET') {
 
 if (action === 'config' && req.method === 'POST') {
   try {
-    fs.writeFileSync(configPath, JSON.stringify(req.body, null, 2));
+    const { showName, startTime, endTime } = req.body;
+    if (isLocal) {
+      fs.writeFileSync(
+        path.join(process.cwd(), 'config.json'),
+        JSON.stringify({ showName, startTime, endTime }, null, 2)
+      );
+    } else {
+      await kv.set('showName', showName || '');
+      await kv.set('startTime', startTime || '');
+      await kv.set('endTime', endTime || '');
+    }
     return res.status(200).json({ success: true });
   } catch (err) {
     return res.status(500).json({ error: 'Failed to save config' });
   }
 }
+
 
   // ----------------- PICK WINNER -----------------
   if (action === 'pick-winner') {
@@ -83,29 +102,28 @@ if (action === 'config' && req.method === 'POST') {
   }
 
   // ----------------- LIST FILES -----------------
+  if (action === 'list-drive-files' && req.method === 'GET') {
+    try {
+      const drive = google.drive({ version: 'v3', auth });
+      const resp = await drive.files.list({
+        q: `'${folderId}' in parents and trashed=false`,
+        fields: 'files(id, name, mimeType, webContentLink)'
+      });
 
-if (action === 'list-drive-files' && req.method === 'GET') {
-  try {
-    const drive = google.drive({ version: 'v3', auth });
-    const resp = await drive.files.list({
-      q: `'${folderId}' in parents and trashed=false`,
-      fields: 'files(id, name, mimeType, webContentLink)'
-    });
+      const files = resp.data.files.map(file => ({
+        userName: file.name.split('_')[0],
+        type: file.mimeType.startsWith('image') ? 'image' : 'video',
+        fileUrl: `/api/proxy?id=${file.id}`,
+        driveFileId: file.id
+      }));
 
-    const files = resp.data.files.map(file => ({
-  userName: file.name.split('_')[0],
-  type: file.mimeType.startsWith('image') ? 'image' : 'video',
-  fileUrl: `/api/proxy?id=${file.id}`,
-  driveFileId: file.id
-}));
-
-    res.setHeader("Access-Control-Allow-Origin", "*");
-    return res.json(files);
-  } catch (err) {
-    console.error("🔥 list-drive-files error:", err);
-    return res.status(500).json({ error: 'Failed to list files' });
+      res.setHeader("Access-Control-Allow-Origin", "*");
+      return res.json(files);
+    } catch (err) {
+      console.error("🔥 list-drive-files error:", err);
+      return res.status(500).json({ error: 'Failed to list files' });
+    }
   }
-}
 
   res.status(400).json({ error: 'Invalid action' });
 }
