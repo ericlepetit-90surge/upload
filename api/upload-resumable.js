@@ -26,9 +26,9 @@ module.exports = async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).end("Method Not Allowed");
 
   const form = new formidable.IncomingForm({
-  keepExtensions: true,
-  allowEmptyFiles: true
-});
+    keepExtensions: true,
+    allowEmptyFiles: true,
+  });
 
   form.parse(req, async (err, fields, files) => {
     if (err) {
@@ -63,7 +63,7 @@ module.exports = async function handler(req, res) {
         {
           name: fileName,
           mimeType: mimeType,
-          parents: [process.env.GOOGLE_DRIVE_FOLDER_ID], // ✅ assign to folder
+          parents: [process.env.GOOGLE_DRIVE_FOLDER_ID],
         },
         {
           headers: {
@@ -80,7 +80,7 @@ module.exports = async function handler(req, res) {
         throw new Error("Upload session failed");
       }
 
-      // Step 2: Upload file
+      // Step 2: Upload file to the session URL
       const fileStream = fs.createReadStream(filePath);
       await axios.put(uploadUrl, fileStream, {
         headers: {
@@ -89,6 +89,24 @@ module.exports = async function handler(req, res) {
         },
         maxBodyLength: Infinity,
         maxContentLength: Infinity,
+      });
+
+      // Step 3: Get the fileId from the upload session
+      const drive = google.drive({ version: "v3", auth: oauth2Client });
+      const match = uploadUrl.match(/upload\/drive\/v3\/files\/(.*)\?/);
+      const fileId = match?.[1];
+
+      if (!fileId) {
+        throw new Error("Could not extract file ID from upload URL");
+      }
+
+      // Step 4: Make file public
+      await drive.permissions.create({
+        fileId,
+        requestBody: {
+          role: "reader",
+          type: "anyone",
+        },
       });
 
       res.status(200).json({ success: true });

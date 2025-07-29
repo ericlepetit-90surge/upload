@@ -274,7 +274,7 @@
 
       async function checkUploadWindow() {
         try {
-          const res = await fetch("/api/config");
+          const res = await fetch('/api/admin?action=config');
           const config = await res.json();
           const now = new Date();
           const start = new Date(config.startTime);
@@ -390,7 +390,7 @@
 
       async function setHeadline() {
         try {
-          const res = await fetch("/api/config");
+          const res = await fetch('/api/admin?action=config');
           const config = await res.json();
           document.getElementById("headline").textContent =
             config?.showName || "90 Surge";
@@ -404,16 +404,16 @@
         const gallery = document.getElementById("gallery");
         gallery.innerHTML = "";
         try {
-          const res = await fetch("/api/list-drive-files");
+          const res = await fetch("/api/admin?action=list-drive-files");
           const uploads = await res.json();
           uploads
-            .sort((a, b) => b.timestamp - a.timestamp)
+            .sort((a, b) => new Date(b.createdTime) - new Date(a.createdTime))
             .forEach((upload) => {
               const card = document.createElement("div");
               card.className = "card";
               const info = document.createElement("div");
               info.className = "info";
-              info.textContent = upload.userName || "Anonymous";
+              info.textContent = upload.userName ?? "Anonymous";
 
               let media;
               if (upload.type === "video") {

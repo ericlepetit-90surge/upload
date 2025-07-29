@@ -48,6 +48,36 @@
       .admin-item p { font-size: 0.8em; }
       .admin-item button { padding: 4px 10px; font-size: 0.8em; }
     }
+    .grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 12px;
+  margin-top: 1rem;
+  width: 100%;
+  max-width: 800px;
+}
+
+.card {
+  background: #1a1a1a;
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 2px 6px rgba(255, 255, 255, 0.05);
+}
+
+.card img,
+.card video {
+  width: 100%;
+  display: block;
+  max-height: 220px;
+  object-fit: cover;
+}
+
+.card .info {
+  font-size: 0.8rem;
+  padding: 0.5rem;
+  text-align: center;
+  color: #aaa;
+}
   </style>
 </head>
 <body>
@@ -109,7 +139,7 @@
 
   async function handleLogin() {
     const password = document.getElementById('admin-password').value;
-    const res = await fetch('/api/login', {
+    const res = await fetch('/api/admin?action=login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ password })
@@ -133,7 +163,7 @@ function logout() {
   async function loadConfig(currentRole) {
     if (currentRole !== 'admin') return;
     try {
-      const res = await fetch('/api/config');
+      const res = await fetch('/api/admin?action=config');
       const config = await res.json();
       document.getElementById('showName').value = config.showName || '';
       if (config.startTime) document.getElementById('startTime').value = config.startTime.slice(0, 16);
@@ -160,7 +190,7 @@ function logout() {
       endTime: new Date(endTimeRaw).toISOString()
     };
     try {
-      const res = await fetch('/api/config', {
+      const res = await fetch('/api/admin?action=config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body)
@@ -176,7 +206,7 @@ function logout() {
 
   async function pickWinner() {
     try {
-      const res = await fetch('/api/pick-winner');
+      const res = await fetch('/api/admin?action=pick-winner');
       const result = await res.json();
       const display = document.getElementById("winnerDisplay");
       if (res.ok && result.winner) {
@@ -191,35 +221,57 @@ function logout() {
   }
 
   async function loadAdminGallery() {
-    const gallery = document.getElementById('admin-gallery');
-    gallery.innerHTML = 'Loading...';
-    try {
-      const res = await fetch('/api/list-drive-files');
-      const files = await res.json();
-      gallery.innerHTML = '';
-      files.forEach(file => {
-        const name = file.name || 'Anonymous';
-        const container = document.createElement('div');
-        container.className = 'admin-item';
-        const media = file.type === 'image'
-          ? `<img src="${file.fileUrl}" alt="${name}" />`
-          : `<video src="${file.fileUrl}" controls muted></video>`;
-        const deleteBtn = `<button onclick="deleteFile('${file.driveFileId}', '${name}')">🗑 Delete</button>`;
-        container.innerHTML = `${media}<p>${name}</p>${deleteBtn}`;
-        gallery.appendChild(container);
-      });
-      if (files.length === 0) gallery.innerHTML = '<p>No uploads found.</p>';
-    } catch (err) {
-      console.error('❌ Failed to load admin gallery:', err);
-      gallery.innerHTML = '<p style="color: red;">Failed to load uploads.</p>';
-    }
+  try {
+    const res = await fetch('/api/admin?action=list-drive-files');
+    const files = await res.json();
+
+    if (!Array.isArray(files)) throw new Error("Response was not an array");
+
+    const gallery = document.getElementById("admin-gallery");
+    gallery.innerHTML = '';
+
+    files.forEach(file => {
+      const card = document.createElement("div");
+      card.className = "card";
+
+      let media;
+      if (file.type === "video") {
+        media = document.createElement("video");
+        media.src = file.fileUrl;
+        media.controls = true;
+        media.muted = true;
+      } else {
+        media = document.createElement("img");
+        media.src = file.fileUrl;
+        media.style.cursor = "pointer";
+      }
+
+      const info = document.createElement("div");
+      info.className = "info";
+      info.textContent = file.name;
+
+      const deleteBtn = document.createElement("button");
+      deleteBtn.textContent = "🗑 Delete";
+      deleteBtn.onclick = () => deleteFile(file.driveFileId, card);
+
+      card.appendChild(media);
+      card.appendChild(info);
+      card.appendChild(deleteBtn);
+      gallery.appendChild(card);
+    });
+
+  } catch (err) {
+    console.error("❌ Failed to load admin gallery:", err);
+    document.getElementById("admin-gallery").innerHTML = "<p style='color:red'>Failed to load gallery</p>";
   }
+}
+
 
   async function deleteFile(fileId, name) {
     if (!fileId) return alert('Invalid file ID');
     const confirmDelete = confirm(`Are you sure you want to delete:\n\n${name}?`);
     if (!confirmDelete) return;
-    const res = await fetch('/api/delete-file', {
+    const res = await fetch('/api/admin?action=delete-file', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ fileId })
