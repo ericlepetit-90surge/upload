@@ -1,16 +1,7 @@
-// /api/admin.js
 import fs from 'fs';
 import path from 'path';
 import { google } from 'googleapis';
-import { Redis } from '@upstash/redis';
-
-const redis = new Redis({
-  url: process.env.UPSTASH_REDIS_REST_URL,
-  token: process.env.UPSTASH_REDIS_REST_TOKEN
-});
-
-await redis.rpush('uploads', JSON.stringify(newEntry));
-
+import { createClient } from 'redis';
 
 const ADMIN_PASS = process.env.ADMIN_PASS;
 const MODERATOR_PASS = process.env.MODERATOR_PASS;
@@ -30,6 +21,10 @@ auth.setCredentials(tokenData);
 export default async function handler(req, res) {
   const action = req.query.action;
   const isLocal = process.env.VERCEL_ENV !== 'production';
+
+  const redis = !isLocal
+    ? await createClient({ url: process.env.REDIS_URL }).connect()
+    : null;
 
   // ----------------- LOGIN -----------------
   if (action === 'login' && req.method === 'POST') {
@@ -89,7 +84,7 @@ export default async function handler(req, res) {
           return res.status(500).json({ error: 'Invalid uploads.json format' });
         }
       } else {
-        const raw = await redis.lrange('uploads', 0, -1);
+        const raw = await redis.lRange('uploads', 0, -1);
         allUploads = raw.map(entry => JSON.parse(entry));
       }
 

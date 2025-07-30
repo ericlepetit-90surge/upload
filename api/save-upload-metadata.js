@@ -1,36 +1,45 @@
 // /api/save-upload-metadata.js
-import { Redis } from '@upstash/redis';
+import fs from 'fs';
+import path from 'path';
+import { createClient } from 'redis';
 
-const redis = new Redis({
-  url: process.env.UPSTASH_REDIS_REST_URL,
-  token: process.env.UPSTASH_REDIS_REST_TOKEN
-});
+export const config = {
+  api: { bodyParser: true },
+};
 
-await redis.rpush('uploads', JSON.stringify(newEntry));
-
+const uploadsPath = path.join(process.cwd(), 'uploads.json');
 
 export default async function handler(req, res) {
-  if (req.method !== 'POST') return res.status(405).end('Method Not Allowed');
+  const isLocal = process.env.VERCEL_ENV !== 'production';
+
+  const { userName, driveFileId, mimeType } = req.body;
+  if (!userName || !driveFileId) {
+    return res.status(400).json({ error: 'Missing userName or driveFileId' });
+  }
+
+  const newEntry = {
+    name: userName.trim(),
+    driveFileId,
+    mimeType: mimeType || 'unknown',
+    timestamp: Date.now()
+  };
 
   try {
-    const { userName, driveFileId, mimeType } = req.body;
-
-    if (!userName || !driveFileId) {
-      return res.status(400).json({ error: 'Missing userName or driveFileId' });
+    if (isLocal) {
+      const data = fs.existsSync(uploadsPath)
+        ? JSON.parse(fs.readFileSync(uploadsPath, 'utf8'))
+        : [];
+      data.push(newEntry);
+      fs.writeFileSync(uploadsPath, JSON.stringify(data, null, 2));
+    } else {
+      const redis = await createClient({ url: process.env.REDIS_URL }).connect();
+      await redis.rPush('uploads', JSON.stringify(newEntry));
+      redis.disconnect();
     }
 
-    const entry = {
-      userName,
-      driveFileId,
-      mimeType,
-      count: 1,
-      createdAt: Date.now(),
-    };
-
-    await redis.lpush('uploads', JSON.stringify(entry));
     return res.status(200).json({ success: true });
   } catch (err) {
-    console.error("❌ Failed to save upload metadata:", err);
-    return res.status(500).json({ error: 'Failed to save metadata' });
+    console.error('❌ Failed to save upload metadata:', err);
+    return res.status(500).json({ error: 'Internal server error' });
   }
 }
