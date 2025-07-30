@@ -143,6 +143,19 @@ export default async function handler(req, res) {
     }
   }
 
+  // -----------------  DUMP UPLOADS ----------------- 
+
+
+  if (action === 'dump-uploads') {
+  if (!isLocal) {
+    const raw = await redis.lRange('uploads', 0, -1);
+    const parsed = raw.map(JSON.parse);
+    return res.json(parsed);
+  } else {
+    const fileData = fs.readFileSync(uploadsPath, 'utf8');
+    return res.json(JSON.parse(fileData));
+  }
+}
   // ----------------- LIST FILES -----------------
   if (action === 'list-drive-files' && req.method === 'GET') {
     try {
