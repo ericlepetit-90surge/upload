@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "scripts": {},
   "dependencies": {
+    "@upstash/redis": "^1.35.2",
     "@vercel/kv": "^3.0.0",
     "axios": "^1.6.7",
     "dotenv": "^17.2.1",

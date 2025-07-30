@@ -2,7 +2,15 @@
 import fs from 'fs';
 import path from 'path';
 import { google } from 'googleapis';
-import { kv } from '@vercel/kv';
+import { Redis } from '@upstash/redis';
+
+const redis = new Redis({
+  url: process.env.UPSTASH_REDIS_REST_URL,
+  token: process.env.UPSTASH_REDIS_REST_TOKEN
+});
+
+await redis.rpush('uploads', JSON.stringify(newEntry));
+
 
 const ADMIN_PASS = process.env.ADMIN_PASS;
 const MODERATOR_PASS = process.env.MODERATOR_PASS;
@@ -38,9 +46,9 @@ export default async function handler(req, res) {
         const config = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'config.json'), 'utf8'));
         return res.status(200).json(config);
       } else {
-        const showName = await kv.get('showName');
-        const startTime = await kv.get('startTime');
-        const endTime = await kv.get('endTime');
+        const showName = await redis.get('showName');
+        const startTime = await redis.get('startTime');
+        const endTime = await redis.get('endTime');
         return res.status(200).json({ showName, startTime, endTime });
       }
     } catch (err) {
@@ -57,9 +65,9 @@ export default async function handler(req, res) {
           JSON.stringify({ showName, startTime, endTime }, null, 2)
         );
       } else {
-        await kv.set('showName', showName || '');
-        await kv.set('startTime', startTime || '');
-        await kv.set('endTime', endTime || '');
+        await redis.set('showName', showName || '');
+        await redis.set('startTime', startTime || '');
+        await redis.set('endTime', endTime || '');
       }
       return res.status(200).json({ success: true });
     } catch (err) {
@@ -81,7 +89,7 @@ export default async function handler(req, res) {
           return res.status(500).json({ error: 'Invalid uploads.json format' });
         }
       } else {
-        const raw = await kv.lrange('uploads', 0, -1);
+        const raw = await redis.lrange('uploads', 0, -1);
         allUploads = raw.map(entry => JSON.parse(entry));
       }
 

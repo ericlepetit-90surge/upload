@@ -1,5 +1,13 @@
 // /api/save-upload-metadata.js
-import { kv } from '@vercel/kv';
+import { Redis } from '@upstash/redis';
+
+const redis = new Redis({
+  url: process.env.UPSTASH_REDIS_REST_URL,
+  token: process.env.UPSTASH_REDIS_REST_TOKEN
+});
+
+await redis.rpush('uploads', JSON.stringify(newEntry));
+
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end('Method Not Allowed');
@@ -19,7 +27,7 @@ export default async function handler(req, res) {
       createdAt: Date.now(),
     };
 
-    await kv.lpush('uploads', JSON.stringify(entry));
+    await redis.lpush('uploads', JSON.stringify(entry));
     return res.status(200).json({ success: true });
   } catch (err) {
     console.error("❌ Failed to save upload metadata:", err);
