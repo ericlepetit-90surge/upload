@@ -76,13 +76,8 @@ export default async function handler(req, res) {
       let allUploads = [];
 
       if (isLocal) {
-        try {
-          const fileData = fs.readFileSync(uploadsPath, 'utf8');
-          allUploads = JSON.parse(fileData);
-        } catch (jsonErr) {
-          console.error("❌ Failed to parse uploads.json:", jsonErr.message);
-          return res.status(500).json({ error: 'Invalid uploads.json format' });
-        }
+        const fileData = fs.readFileSync(uploadsPath, 'utf8');
+        allUploads = JSON.parse(fileData);
       } else {
         const raw = await redis.lRange('uploads', 0, -1);
         allUploads = raw.map(entry => JSON.parse(entry));
@@ -107,12 +102,9 @@ export default async function handler(req, res) {
 
       const allEntries = [];
       eligibleUploads.forEach(entry => {
-        const name = entry.userName || entry.name;
+        const name = entry.name || entry.userName;
         const count = parseInt(entry.count || 1);
-        if (!name) {
-          console.warn("⚠️ Skipping entry with missing name:", entry);
-          return;
-        }
+        if (!name) return;
         for (let i = 0; i < count; i++) allEntries.push(name);
       });
 
@@ -143,38 +135,76 @@ export default async function handler(req, res) {
     }
   }
 
-  // -----------------  DUMP UPLOADS ----------------- 
-
-
+  // ----------------- DUMP UPLOADS -----------------
   if (action === 'dump-uploads') {
-  if (!isLocal) {
-    const raw = await redis.lRange('uploads', 0, -1);
-    const parsed = raw.map(JSON.parse);
-    return res.json(parsed);
-  } else {
-    const fileData = fs.readFileSync(uploadsPath, 'utf8');
-    return res.json(JSON.parse(fileData));
+    try {
+      if (!isLocal) {
+        const raw = await redis.lRange('uploads', 0, -1);
+        const parsed = raw.map(JSON.parse);
+        return res.json(parsed);
+      } else {
+        const fileData = fs.readFileSync(uploadsPath, 'utf8');
+        return res.json(JSON.parse(fileData));
+      }
+    } catch (err) {
+      return res.status(500).json({ error: 'Failed to dump uploads' });
+    }
+  }
+
+  // ----------------- CLEAR ALL -----------------
+if (action === 'clear-all' && req.method === 'POST') {
+  const { role } = req.body;
+  if (role !== 'admin') {
+    return res.status(403).json({ error: 'Unauthorized' });
+  }
+
+  try {
+    // Clear Redis uploads
+    if (!isLocal) {
+      await redis.del('uploads');
+    } else {
+      fs.writeFileSync(uploadsPath, '[]');
+    }
+
+    // Delete all files in Drive folder
+    const drive = google.drive({ version: 'v3', auth });
+    const resp = await drive.files.list({
+      q: `'${folderId}' in parents and trashed=false`,
+      fields: 'files(id)'
+    });
+
+    const deletePromises = resp.data.files.map(file =>
+      drive.files.delete({ fileId: file.id })
+    );
+    await Promise.all(deletePromises);
+
+    return res.json({ success: true });
+  } catch (err) {
+    console.error("🔥 clear-all error:", err);
+    return res.status(500).json({ error: 'Failed to clear all data' });
   }
 }
+
   // ----------------- LIST FILES -----------------
   if (action === 'list-drive-files' && req.method === 'GET') {
     try {
       const drive = google.drive({ version: 'v3', auth });
       const resp = await drive.files.list({
         q: `'${folderId}' in parents and trashed=false`,
-        fields: 'files(id, name, mimeType, webContentLink)'
+        fields: 'files(id, name, mimeType)'
       });
 
       const files = resp.data.files.map(file => {
-        const userName = file.name?.split('_')[0] || 'Unknown';
-        return {
-          userName,
-          name: userName,
-          type: file.mimeType.startsWith('image') ? 'image' : 'video',
-          fileUrl: `/api/proxy?id=${file.id}`,
-          driveFileId: file.id
-        };
-      });
+  const fullName = file.name?.split('_')?.slice(0, -2).join('_') || 'Unknown'; // Remove timestamp + original name
+  return {
+    userName: fullName,
+    name: fullName,
+    type: file.mimeType.startsWith('image') ? 'image' : 'video',
+    fileUrl: `/api/proxy?id=${file.id}`,
+    driveFileId: file.id
+  };
+});
+
 
       res.setHeader("Access-Control-Allow-Origin", "*");
       return res.json(files);
