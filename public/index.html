@@ -170,50 +170,69 @@
       border-radius: 5px;
       width: 100%;
     }
+
+    .rules {
+      font-size: 0.95rem;
+      background: #1a1a1a;
+      padding: 1rem;
+      border-radius: 10px;
+      color: #eee;
+      line-height: 1.5;
+    }
+
+    .rules h2 {
+      font-size: 1.1rem;
+      margin: 0.5rem 0 1rem;
+    }
+
+    @media (max-width: 480px) {
+      .rules {
+        font-size: 0.85rem;
+        padding: 0.75rem;
+      }
+
+      .rules h2 {
+        font-size: 1rem;
+        margin-top: 0.25rem;
+      }
+
+      .rules ol {
+        padding-left: 1rem;
+      }
+
+      .rules li {
+        margin-bottom: 0.5rem;
+      }
+    }
   </style>
 </head>
 
 <body>
 
-  <img
-    src="https://static.wixstatic.com/media/1cc82f_3f31524539e0456d85e29eb49e640a7d~mv2.png/v1/crop/x_0,y_59,w_500,h_412/fill/w_374,h_308,al_c,q_85,usm_0.66_1.00_0.01,enc_avif,quality_auto/90-SURGE-3.png"
+  <img src="https://static.wixstatic.com/media/1cc82f_3f31524539e0456d85e29eb49e640a7d~mv2.png/v1/crop/x_0,y_59,w_500,h_412/fill/w_374,h_308,al_c,q_85,usm_0.66_1.00_0.01,enc_avif,quality_auto/90-SURGE-3.png"
     width="140" style="padding:10px">
+
   <form id="upload-form" enctype="multipart/form-data" method="POST">
-    <div style="
-          font-size: 0.95rem;
-          background: #1a1a1a;
-          padding: 1rem;
-          border-radius: 10px;
-          color: #eee;
-          line-height: 1.5;
-        ">
-
+    <div class="rules">
       <h1 id="headline">90 SURGE TONIGHT</h1>
-      <h2><strong>🎉 HERE IS YOUR CHANCE TO WIN A DRINK AND A 90 Surge T-SHIRT!</strong></h2>
-
+      <h2><strong>🎉 Win a drink and a 90 Surge t-shirt!</strong></h2>
       <ol>
-        <li>Enter your name. Best is your Facebook or Instagram handle so we can tag you.
-        <li>
-          Follow us on <b> Facebook </b> or <b>Instagram</b> (or both if you're that cool))
-        </li>
-        <li>
-          Upload your photo — band or crowd shots, selfie with the band, dance or sing, show the energy! And...be cool!
-        </li>
-        <li>Each photo upload = 1 raffle entry</li>
-        <li>Winners for drinks announced during breaks</li>
-         <li>Winners for t-short announced during final set 🎁</li>
-        <li>Have fun and rock on!</li>
+        <li>Enter your name — best is your Instagram or Facebook handle</li>
+        <li>Follow us on <b>Facebook</b> or <b>Instagram</b> (or both if you're that cool)</li>
+        <li>Upload your photo: crowd, band, selfie, dancing — show the energy</li>
+        <li>Each photo = 1 raffle entry</li>
+        <li>Winners are picked randomly based on number of entries</li>
+        <li>Drink winners announced during breaks; shirt winner in the final set 🎁</li>
+        <li>Be cool — non-relevant uploads and entries may be deleted by our moderators</li>
       </ol>
     </div>
 
     <div style="display: flex; align-items: center; gap: 10px;">
       <label for="name" style="white-space: nowrap;">Your Name <span style="color: red">*</span>:</label>
       <input type="text" id="name" name="userName" required placeholder="Name" style="flex: 1;" />
-
     </div>
 
     <input type="file" id="file" name="file" accept="image/*,video/*" required />
-
 
     <div id="follow-gate">
       <p style="font-size: 1rem; color: #c96161">
@@ -290,52 +309,50 @@
     const message = document.getElementById("message");
 
     form.addEventListener("submit", async (e) => {
-  e.preventDefault();
-  message.textContent = "";
+      e.preventDefault();
+      message.textContent = "";
 
-  const fileInput = document.getElementById("file");
-  const nameInput = document.getElementById("name");
-  const progress = document.getElementById("progress");
-  const file = fileInput.files[0];
-  const userName = nameInput.value.trim();
+      const fileInput = document.getElementById("file");
+      const nameInput = document.getElementById("name");
+      const progress = document.getElementById("progress");
+      const file = fileInput.files[0];
+      const userName = nameInput.value.trim();
 
-  if (!file || !userName) {
-    message.textContent = "Name and file are required.";
-    return;
-  }
+      if (!file || !userName) {
+        message.textContent = "Name and file are required.";
+        return;
+      }
 
-  const formData = new FormData();
-  formData.append("file", file);
-  formData.append("userName", userName);
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("userName", userName);
 
-  progress.style.display = "block";
-  progress.value = 0;
-  message.style.color = "#999";
-  message.textContent = "⏳ Uploading...";
+      progress.style.display = "block";
+      progress.value = 0;
+      message.style.color = "#999";
+      message.textContent = "⏳ Uploading...";
 
-  try {
-    const res = await fetch("/api/upload-resumable", {
-      method: "POST",
-      body: formData,
+      try {
+        const res = await fetch("/api/upload-resumable", {
+          method: "POST",
+          body: formData,
+        });
+
+        const data = await res.json();
+        if (!res.ok || !data.success) throw new Error("Upload failed");
+
+        message.style.color = "green";
+        message.textContent = "✅ Upload successful!";
+        fileInput.value = "";
+        progress.style.display = "none";
+        loadGallery();
+      } catch (err) {
+        message.style.color = "red";
+        message.textContent = "❌ Upload error.";
+        console.error(err);
+        progress.style.display = "none";
+      }
     });
-
-    const data = await res.json();
-    if (!res.ok || !data.success) throw new Error("Upload failed");
-
-    message.style.color = "green";
-    message.textContent = "✅ Upload successful!";
-    fileInput.value = "";
-    progress.style.display = "none";
-    loadGallery();
-  } catch (err) {
-    message.style.color = "red";
-    message.textContent = "❌ Upload error.";
-    console.error(err);
-    progress.style.display = "none";
-  }
-});
-
-
 
     async function setHeadline() {
       try {
@@ -398,3 +415,4 @@
 </body>
 
 </html>
+  

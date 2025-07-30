@@ -35,6 +35,7 @@ module.exports = async function handler(req, res) {
     const userName = Array.isArray(fields.userName)
       ? fields.userName[0]?.toString().trim()
       : fields.userName?.toString().trim();
+
     const file = Array.isArray(files.file) ? files.file[0] : files.file;
 
     if (!userName || !file) {
@@ -57,12 +58,7 @@ module.exports = async function handler(req, res) {
       const { token } = await oauth2Client.getAccessToken();
       if (!token) throw new Error("No access token");
 
-      console.log("📤 Uploading:", fileName);
-      console.log("👤 User:", userName);
-      console.log("📄 Mime Type:", mimeType);
-      console.log("📁 Folder ID:", process.env.GOOGLE_DRIVE_FOLDER_ID);
-
-      // Step 1: Start resumable upload session
+      // 1. Start resumable upload session
       const session = await axios.post(
         "https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable",
         {
@@ -82,7 +78,7 @@ module.exports = async function handler(req, res) {
       const uploadUrl = session.headers.location;
       if (!uploadUrl) throw new Error("No upload URL returned");
 
-      // Step 2: Upload the file to the session
+      // 2. Upload the file to the session
       const stream = fs.createReadStream(filePath);
       await axios.put(uploadUrl, stream, {
         headers: {
@@ -93,7 +89,7 @@ module.exports = async function handler(req, res) {
         maxBodyLength: Infinity,
       });
 
-      // Step 3: Get file ID from Drive
+      // 3. Get the uploaded file ID
       const drive = google.drive({ version: "v3", auth: oauth2Client });
       const listRes = await drive.files.list({
         q: `name='${fileName}' and '${process.env.GOOGLE_DRIVE_FOLDER_ID}' in parents`,
@@ -105,37 +101,27 @@ module.exports = async function handler(req, res) {
       const fileId = listRes.data.files[0]?.id;
       if (!fileId) throw new Error("Could not retrieve uploaded file ID from Drive");
 
-      // Step 4: Make file public
+      // 4. Make file public
       await drive.permissions.create({
         fileId,
         requestBody: { role: "reader", type: "anyone" },
       });
 
-      // Step 5: Save upload metadata
-      try {
-        const saveRes = await axios.post(
-          `${req.headers.origin || "http://localhost:3000"}/api/save-upload-metadata`,
-          {
-            userName,
-            driveFileId: fileId,
-            mimeType,
-          },
-          {
-            headers: { "Content-Type": "application/json" },
-          }
-        );
+      // 5. Save metadata to /api/save-upload-metadata
+      const saveRes = await axios.post(
+        `${req.headers.origin || "http://localhost:3000"}/api/save-upload-metadata`,
+        { userName, driveFileId: fileId, mimeType },
+        { headers: { "Content-Type": "application/json" } }
+      );
 
-        if (!saveRes.data.success) {
-          console.error("⚠️ Failed to save metadata:", saveRes.data);
-        }
-      } catch (metaErr) {
-        console.error("⚠️ Metadata save error:", metaErr.response?.data || metaErr.message);
+      if (!saveRes.data.success) {
+        console.warn("⚠️ Metadata save failed:", saveRes.data);
       }
 
-      res.status(200).json({ success: true, driveFileId: fileId });
+      return res.status(200).json({ success: true, driveFileId: fileId });
     } catch (err) {
       console.error("🔥 Upload error:", err.response?.data || err.message || err);
-      res.status(500).json({ error: "Upload failed" });
+      return res.status(500).json({ error: "Upload failed" });
     }
   });
 };
