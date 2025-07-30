@@ -9,6 +9,7 @@
     "express": "^5.1.0",
     "formidable": "^3.5.4",
     "googleapis": "^118.0.0",
+    "node-fetch": "^3.3.2",
     "open": "^10.2.0",
     "redis": "^5.6.1"
   }

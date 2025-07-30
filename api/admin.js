@@ -73,8 +73,13 @@ export default async function handler(req, res) {
       let allUploads = [];
 
       if (isLocal) {
-        const fileData = fs.readFileSync(uploadsPath, 'utf8');
-        allUploads = JSON.parse(fileData);
+        try {
+          const fileData = fs.readFileSync(uploadsPath, 'utf8');
+          allUploads = JSON.parse(fileData);
+        } catch (jsonErr) {
+          console.error("❌ Failed to parse uploads.json:", jsonErr.message);
+          return res.status(500).json({ error: 'Invalid uploads.json format' });
+        }
       } else {
         const raw = await kv.lrange('uploads', 0, -1);
         allUploads = raw.map(entry => JSON.parse(entry));
@@ -84,12 +89,12 @@ export default async function handler(req, res) {
         return res.status(404).json({ error: 'No entries found' });
       }
 
-      // Get currently existing files on Drive
       const drive = google.drive({ version: 'v3', auth });
       const resp = await drive.files.list({
         q: `'${folderId}' in parents and trashed=false`,
         fields: 'files(id)'
       });
+
       const liveFileIds = new Set(resp.data.files.map(f => f.id));
 
       const eligibleUploads = allUploads.filter(entry => {
@@ -101,9 +106,11 @@ export default async function handler(req, res) {
       eligibleUploads.forEach(entry => {
         const name = entry.userName || entry.name;
         const count = parseInt(entry.count || 1);
-        if (name) {
-          for (let i = 0; i < count; i++) allEntries.push(name);
+        if (!name) {
+          console.warn("⚠️ Skipping entry with missing name:", entry);
+          return;
         }
+        for (let i = 0; i < count; i++) allEntries.push(name);
       });
 
       if (allEntries.length === 0) {
@@ -145,6 +152,7 @@ export default async function handler(req, res) {
       const files = resp.data.files.map(file => {
         const userName = file.name?.split('_')[0] || 'Unknown';
         return {
+          userName,
           name: userName,
           type: file.mimeType.startsWith('image') ? 'image' : 'video',
           fileUrl: `/api/proxy?id=${file.id}`,
