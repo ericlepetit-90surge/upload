@@ -203,7 +203,7 @@ if (action === 'clear-all' && req.method === 'POST') {
 
       const redisClient = createClient({ url: process.env.REDIS_URL });
       await redisClient.connect();
-      const winnerData = await redisClient.get('raffle_winner');
+      const winnerData = await redisClient.getDel('raffle_winner');
       await redisClient.disconnect();
 
       if (!winnerData) {
