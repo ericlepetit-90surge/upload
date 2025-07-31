@@ -1,15 +1,17 @@
-import fs from 'fs';
-import path from 'path';
-import { google } from 'googleapis';
-import { createClient } from 'redis';
+import fs from "fs";
+import path from "path";
+import { google } from "googleapis";
+import { createClient } from "redis";
 
 const ADMIN_PASS = process.env.ADMIN_PASS;
 const MODERATOR_PASS = process.env.MODERATOR_PASS;
-const uploadsPath = path.join(process.cwd(), 'uploads.json');
+const uploadsPath = path.join(process.cwd(), "uploads.json");
 const folderId = process.env.GOOGLE_DRIVE_FOLDER_ID;
 
-const oauthClient = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'oauth-client.json'), 'utf8'));
-const tokenData = JSON.parse(process.env.GOOGLE_TOKEN_JSON || '{}');
+const oauthClient = JSON.parse(
+  fs.readFileSync(path.join(process.cwd(), "oauth-client.json"), "utf8")
+);
+const tokenData = JSON.parse(process.env.GOOGLE_TOKEN_JSON || "{}");
 
 const auth = new google.auth.OAuth2(
   oauthClient.web.client_id,
@@ -18,90 +20,117 @@ const auth = new google.auth.OAuth2(
 );
 auth.setCredentials(tokenData);
 
+// 🔁 Reuse Redis connection
+let globalForRedis = globalThis.__redis || null;
+if (!globalForRedis && process.env.REDIS_URL) {
+  const client = createClient({ url: process.env.REDIS_URL });
+  globalForRedis = client;
+  globalThis.__redis = client;
+  client.connect().catch(console.error);
+}
+const redis = globalForRedis;
+
 export default async function handler(req, res) {
   const action = req.query.action;
-  const isLocal = process.env.VERCEL_ENV !== 'production';
+  const isLocal = process.env.VERCEL_ENV !== "production";
 
-  const redis = !isLocal
-    ? await createClient({ url: process.env.REDIS_URL }).connect()
-    : null;
-
-  // ----------------- LOGIN -----------------
-  if (action === 'login' && req.method === 'POST') {
-    const { password } = req.body;
-    if (password === ADMIN_PASS) return res.json({ success: true, role: 'admin' });
-    if (password === MODERATOR_PASS) return res.json({ success: true, role: 'moderator' });
-    return res.status(401).json({ success: false, error: 'Invalid password' });
-  }
-
-  // ----------------- CONFIG -----------------
-  if (action === 'config' && req.method === 'GET') {
+  // Manual JSON body parser
+  if (
+    req.method === "POST" &&
+    req.headers["content-type"]?.includes("application/json")
+  ) {
+    let body = "";
+    await new Promise((resolve) => {
+      req.on("data", (chunk) => (body += chunk));
+      req.on("end", resolve);
+    });
     try {
-      if (isLocal) {
-        const config = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'config.json'), 'utf8'));
-        return res.status(200).json(config);
-      } else {
-        const showName = await redis.get('showName');
-        const startTime = await redis.get('startTime');
-        const endTime = await redis.get('endTime');
-        return res.status(200).json({ showName, startTime, endTime });
-      }
-    } catch (err) {
-      return res.status(500).json({ error: 'Failed to load config' });
+      req.body = JSON.parse(body);
+    } catch (e) {
+      return res.status(400).json({ error: "Invalid JSON" });
     }
   }
 
-  if (action === 'config' && req.method === 'POST') {
+  // ----------------- LOGIN -----------------
+  if (action === "login" && req.method === "POST") {
+    const { password } = req.body;
+    if (password === ADMIN_PASS)
+      return res.json({ success: true, role: "admin" });
+    if (password === MODERATOR_PASS)
+      return res.json({ success: true, role: "moderator" });
+    return res.status(401).json({ success: false, error: "Invalid password" });
+  }
+
+  // ----------------- CONFIG -----------------
+  if (action === "config" && req.method === "GET") {
+    try {
+      if (isLocal) {
+        const config = JSON.parse(
+          fs.readFileSync(path.join(process.cwd(), "config.json"), "utf8")
+        );
+        return res.status(200).json(config);
+      } else {
+        const showName = await redis.get("showName");
+        const startTime = await redis.get("startTime");
+        const endTime = await redis.get("endTime");
+        return res.status(200).json({ showName, startTime, endTime });
+      }
+    } catch (err) {
+      return res.status(500).json({ error: "Failed to load config" });
+    }
+  }
+
+  if (action === "config" && req.method === "POST") {
     try {
       const { showName, startTime, endTime } = req.body;
       if (isLocal) {
         fs.writeFileSync(
-          path.join(process.cwd(), 'config.json'),
+          path.join(process.cwd(), "config.json"),
           JSON.stringify({ showName, startTime, endTime }, null, 2)
         );
       } else {
-        await redis.set('showName', showName || '');
-        await redis.set('startTime', startTime || '');
-        await redis.set('endTime', endTime || '');
+        await redis.set("showName", showName || "");
+        await redis.set("startTime", startTime || "");
+        await redis.set("endTime", endTime || "");
       }
       return res.status(200).json({ success: true });
     } catch (err) {
-      return res.status(500).json({ error: 'Failed to save config' });
+      return res.status(500).json({ error: "Failed to save config" });
     }
   }
 
   // ----------------- PICK WINNER -----------------
-  if (action === 'pick-winner') {
+  if (action === "pick-winner") {
     try {
       let allUploads = [];
 
       if (isLocal) {
-        const fileData = fs.readFileSync(uploadsPath, 'utf8');
+        const fileData = fs.readFileSync(uploadsPath, "utf8");
         allUploads = JSON.parse(fileData);
       } else {
-        const raw = await redis.lRange('uploads', 0, -1);
-        allUploads = raw.map(entry => JSON.parse(entry));
+        const raw = await redis.lRange("uploads", 0, -1);
+        allUploads = raw.map((entry) => JSON.parse(entry));
       }
 
       if (!Array.isArray(allUploads) || allUploads.length === 0) {
-        return res.status(404).json({ error: 'No entries found' });
+        return res.status(404).json({ error: "No entries found" });
       }
 
-      const drive = google.drive({ version: 'v3', auth });
+      const drive = google.drive({ version: "v3", auth });
       const resp = await drive.files.list({
         q: `'${folderId}' in parents and trashed=false`,
-        fields: 'files(id)'
+        fields: "files(id)",
       });
 
-      const liveFileIds = new Set(resp.data.files.map(f => f.id));
+      const liveFileIds = new Set(resp.data.files.map((f) => f.id));
 
-      const eligibleUploads = allUploads.filter(entry => {
+      const eligibleUploads = allUploads.filter((entry) => {
         const id = entry.driveFileId || entry.fileId;
         return id && liveFileIds.has(id);
       });
 
       const allEntries = [];
-      eligibleUploads.forEach(entry => {
+      eligibleUploads.forEach((entry) => {
         const name = entry.name || entry.userName;
         const count = parseInt(entry.count || 1);
         if (!name) return;
@@ -109,101 +138,102 @@ export default async function handler(req, res) {
       });
 
       if (allEntries.length === 0) {
-        return res.status(400).json({ error: 'No valid entries with active files' });
+        return res
+          .status(400)
+          .json({ error: "No valid entries with active files" });
       }
 
       const winner = allEntries[Math.floor(Math.random() * allEntries.length)];
 
-      // 🆕 Save to Redis (or skip in local)
       if (!isLocal) {
-        await redis.set('raffle_winner', JSON.stringify({
-          name: winner,
-          timestamp: Date.now()
-        }));
+        await redis.set(
+          "raffle_winner",
+          JSON.stringify({
+            name: winner,
+            timestamp: Date.now(),
+          })
+        );
       }
 
       return res.json({ winner });
-
     } catch (err) {
-      console.error('🔥 pick-winner failed:', err);
-      return res.status(500).json({ error: 'Failed to pick winner' });
+      console.error("🔥 pick-winner failed:", err);
+      return res.status(500).json({ error: "Failed to pick winner" });
     }
   }
 
   // ----------------- DELETE FILE -----------------
-  if (action === 'delete-file' && req.method === 'POST') {
+  if (action === "delete-file" && req.method === "POST") {
     const { fileId } = req.body;
-    if (!fileId) return res.status(400).json({ error: 'Missing file ID' });
+    if (!fileId) return res.status(400).json({ error: "Missing file ID" });
 
     try {
-      const drive = google.drive({ version: 'v3', auth });
+      const drive = google.drive({ version: "v3", auth });
       await drive.files.delete({ fileId });
       return res.json({ success: true });
     } catch (err) {
-      return res.status(500).json({ error: 'Failed to delete file' });
+      return res.status(500).json({ error: "Failed to delete file" });
     }
   }
 
   // ----------------- DUMP UPLOADS -----------------
-  if (action === 'dump-uploads') {
+  if (action === "dump-uploads") {
     try {
       if (!isLocal) {
-        const raw = await redis.lRange('uploads', 0, -1);
+        const raw = await redis.lRange("uploads", 0, -1);
         const parsed = raw.map(JSON.parse);
         return res.json(parsed);
       } else {
-        const fileData = fs.readFileSync(uploadsPath, 'utf8');
+        const fileData = fs.readFileSync(uploadsPath, "utf8");
         return res.json(JSON.parse(fileData));
       }
     } catch (err) {
-      return res.status(500).json({ error: 'Failed to dump uploads' });
+      return res.status(500).json({ error: "Failed to dump uploads" });
     }
   }
 
   // ----------------- CLEAR ALL -----------------
-if (action === 'clear-all' && req.method === 'POST') {
-  const { role } = req.body;
-  if (role !== 'admin') {
-    return res.status(403).json({ error: 'Unauthorized' });
-  }
-
-  try {
-    // Clear Redis uploads
-    if (!isLocal) {
-      await redis.del('uploads');
-    } else {
-      fs.writeFileSync(uploadsPath, '[]');
+  if (action === "clear-all" && req.method === "POST") {
+    const { role } = req.body;
+    if (role !== "admin") {
+      return res.status(403).json({ error: "Unauthorized" });
     }
 
-    // Delete all files in Drive folder
-    const drive = google.drive({ version: 'v3', auth });
-    const resp = await drive.files.list({
-      q: `'${folderId}' in parents and trashed=false`,
-      fields: 'files(id)'
-    });
+    try {
+      if (!isLocal) {
+        await redis.del("uploads");
+      } else {
+        fs.writeFileSync(uploadsPath, "[]");
+      }
 
-    const deletePromises = resp.data.files.map(file =>
-      drive.files.delete({ fileId: file.id })
-    );
-    await Promise.all(deletePromises);
+      const drive = google.drive({ version: "v3", auth });
+      const resp = await drive.files.list({
+        q: `'${folderId}' in parents and trashed=false`,
+        fields: "files(id)",
+      });
 
-    return res.json({ success: true });
-  } catch (err) {
-    console.error("🔥 clear-all error:", err);
-    return res.status(500).json({ error: 'Failed to clear all data' });
+      const deletePromises = resp.data.files.map((file) =>
+        drive.files.delete({ fileId: file.id })
+      );
+      await Promise.all(deletePromises);
+
+      return res.json({ success: true });
+    } catch (err) {
+      console.error("🔥 clear-all error:", err);
+      return res.status(500).json({ error: "Failed to clear all data" });
+    }
   }
-}
 
- // ----------------- GET WINNER -----------------
-  if (action === 'winner' && req.method === 'GET') {
+  // ----------------- GET WINNER -----------------
+  if (action === "winner" && req.method === "GET") {
     try {
       if (isLocal) {
-        return res.json({ winner: null }); // or fake one for dev
+        return res.json({ winner: null });
       }
 
       const redisClient = createClient({ url: process.env.REDIS_URL });
       await redisClient.connect();
-      const winnerData = await redisClient.getDel('raffle_winner');
+      const winnerData = await redisClient.getDel("raffle_winner");
       await redisClient.disconnect();
 
       if (!winnerData) {
@@ -213,38 +243,94 @@ if (action === 'clear-all' && req.method === 'POST') {
       const parsed = JSON.parse(winnerData);
       return res.json({ winner: parsed });
     } catch (err) {
-      console.error('🔥 /api/admin?action=winner error:', err);
-      return res.status(500).json({ error: 'Failed to fetch winner' });
+      console.error("🔥 /api/admin?action=winner error:", err);
+      return res.status(500).json({ error: "Failed to fetch winner" });
     }
   }
-  // ----------------- LIST FILES -----------------
-  if (action === 'list-drive-files' && req.method === 'GET') {
+
+  // ----------------- UPVOTE -----------------
+  if (action === "upvote" && req.method === "POST") {
     try {
-      const drive = google.drive({ version: 'v3', auth });
+      const { fileId } = req.body;
+      if (!fileId) return res.status(400).json({ error: "Missing fileId" });
+
+      const key = `votes:${fileId}`;
+      const newCount = await redis.incr(key);
+      return res.json({ success: true, votes: newCount });
+    } catch (err) {
+      console.error("🔥 upvote error:", err);
+      return res.status(500).json({ error: "Failed to upvote" });
+    }
+  }
+
+  // ----------------- RESET ALL VOTES -----------------
+    if (action === 'reset-votes' && req.method === 'POST') {
+    try {
+      if (!redis) return res.status(500).json({ error: 'Redis not initialized' });
+
+      const keys = await redis.keys('votes:*');
+      if (keys.length > 0) {
+        await redis.del(keys);
+      }
+
+      await redis.set('resetVotesTimestamp', Date.now().toString());
+
+      return res.json({ success: true });
+    } catch (err) {
+      console.error("🔥 reset-votes error:", err);
+      return res.status(500).json({ error: 'Failed to reset votes' });
+    }
+  }
+
+  // ----------------- LIST FILES -----------------
+  if (action === "list-drive-files" && req.method === "GET") {
+    try {
+      const drive = google.drive({ version: "v3", auth });
       const resp = await drive.files.list({
         q: `'${folderId}' in parents and trashed=false`,
-        fields: 'files(id, name, mimeType)'
+        fields: "files(id, name, mimeType, createdTime)",
       });
 
-      const files = resp.data.files.map(file => {
-  const fullName = file.name?.split('_')?.slice(0, -2).join('_') || 'Unknown'; // Remove timestamp + original name
-  return {
-    userName: fullName,
-    name: fullName,
-    type: file.mimeType.startsWith('image') ? 'image' : 'video',
-    fileUrl: `/api/proxy?id=${file.id}`,
-    driveFileId: file.id
-  };
-});
+      const files = await Promise.all(
+        resp.data.files.map(async (file) => {
+          const fullName =
+            file.name?.split("_")?.slice(0, -2).join("_") || "Unknown";
+          let votes = 0;
+          try {
+            votes = (await redis.get(`votes:${file.id}`)) || 0;
+          } catch {}
 
+          return {
+            id: file.id,
+            userName: fullName,
+            name: fullName,
+            type: file.mimeType.startsWith("image") ? "image" : "video",
+            fileUrl: `/api/proxy?id=${file.id}`,
+            driveFileId: file.id,
+            createdTime: file.createdTime,
+            votes: parseInt(votes, 10),
+          };
+        })
+      );
 
       res.setHeader("Access-Control-Allow-Origin", "*");
       return res.json(files);
     } catch (err) {
       console.error("🔥 list-drive-files error:", err);
-      return res.status(500).json({ error: 'Failed to list files' });
+      return res.status(500).json({ error: "Failed to list files" });
     }
   }
 
-  res.status(400).json({ error: 'Invalid action' });
+    // ----------------- CHECK RESET -----------------
+  if (action === 'check-reset' && req.method === 'GET') {
+    try {
+      const resetTimestamp = await redis.get('resetVotesTimestamp');
+      return res.json({ resetTimestamp });
+    } catch (err) {
+      console.error("🔥 check-reset error:", err);
+      return res.status(500).json({ error: 'Failed to check reset timestamp' });
+    }
+  }
+
+  res.status(400).json({ error: "Invalid action" });
 }

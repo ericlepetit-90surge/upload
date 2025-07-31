@@ -38,7 +38,7 @@
 
     form {
       background: var(--card-bg);
-      padding: 0.25rem; 
+      padding: 0.25rem;
       border-radius: var(--border-radius);
       width: 100%;
       max-width: 420px;
@@ -210,7 +210,8 @@
 
 <body>
 
-  <img src="https://static.wixstatic.com/media/1cc82f_3f31524539e0456d85e29eb49e640a7d~mv2.png/v1/crop/x_0,y_59,w_500,h_412/fill/w_374,h_308,al_c,q_85,usm_0.66_1.00_0.01,enc_avif,quality_auto/90-SURGE-3.png"
+  <img
+    src="https://static.wixstatic.com/media/1cc82f_3f31524539e0456d85e29eb49e640a7d~mv2.png/v1/crop/x_0,y_59,w_500,h_412/fill/w_374,h_308,al_c,q_85,usm_0.66_1.00_0.01,enc_avif,quality_auto/90-SURGE-3.png"
     width="140" style="padding:10px">
 
   <form id="upload-form" enctype="multipart/form-data" method="POST">
@@ -258,11 +259,13 @@
   </div>
 
   <!-- Winner Celebration Modal -->
-<div id="winnerModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.95); color:white; z-index:9999; justify-content:center; align-items:center; flex-direction:column; text-align:center; padding:2rem;">
-  <h1 style="font-size:3rem; margin:0;">🎉 Raffle Winner 🎉</h1>
-  <p id="winnerName" style="font-size:2rem; margin-top:1rem;"></p>
-  <button onclick="hideWinnerModal()" style="margin-top:2rem; padding:0.8rem 1.5rem; font-size:1rem; background:#e91e63; border:none; color:white; border-radius:8px;">Close</button>
-</div>
+  <div id="winnerModal"
+    style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.95); color:white; z-index:9999; justify-content:center; align-items:center; flex-direction:column; text-align:center; padding:2rem;">
+    <h1 style="font-size:3rem; margin:0;">🎉 Raffle Winner 🎉</h1>
+    <p id="winnerName" style="font-size:2rem; margin-top:1rem;"></p>
+    <button onclick="hideWinnerModal()"
+      style="margin-top:2rem; padding:0.8rem 1.5rem; font-size:1rem; background:#e91e63; border:none; color:white; border-radius:8px;">Close</button>
+  </div>
 
 
   <script>
@@ -373,100 +376,225 @@
       }
     }
 
-    async function loadGallery() {
-      const gallery = document.getElementById("gallery");
-      gallery.innerHTML = "";
-      try {
-        const res = await fetch("/api/admin?action=list-drive-files");
-        const uploads = await res.json();
-        uploads
-          .sort((a, b) => new Date(b.createdTime) - new Date(a.createdTime))
-          .forEach((upload) => {
-            const card = document.createElement("div");
-            card.className = "card";
-            const info = document.createElement("div");
-            info.className = "info";
-            info.textContent = upload.userName ?? "Anonymous";
 
-            let media;
-            if (upload.type === "video") {
-              media = document.createElement("video");
-              media.src = upload.fileUrl;
-              media.controls = true;
-              media.muted = true;
-            } else {
-              media = document.createElement("img");
-              media.src = upload.fileUrl;
-              media.style.cursor = "pointer";
-              media.addEventListener("click", () => {
-                const modal = document.getElementById("imageModal");
-                document.getElementById("fullImage").src = upload.fileUrl;
-                modal.classList.remove("hidden");
-              });
-            }
-
-            card.appendChild(media);
-            card.appendChild(info);
-            gallery.appendChild(card);
-          });
-      } catch {
-        gallery.innerHTML = "Failed to load gallery.";
-      }
-    }
-
-    setHeadline();
-    loadGallery();
-
-    window.addEventListener("storage", (event) => {
-      if (event.key === "galleryRefresh") loadGallery();
-    });
   </script>
+  <script>
+  function getVotedImageIds() {
+    try {
+      return JSON.parse(localStorage.getItem("votedImages") || "[]");
+    } catch {
+      return [];
+    }
+  }
+
+  function markImageVoted(id) {
+    const voted = getVotedImageIds();
+    if (!voted.includes(id)) {
+      voted.push(id);
+      localStorage.setItem("votedImages", JSON.stringify(voted));
+    }
+  }
+
+  async function loadGallery() {
+  const gallery = document.getElementById("gallery");
+  const voted = getVotedImageIds();
+  const existingCards = new Map();
+
+  // index existing cards by fileId
+  gallery.querySelectorAll(".card").forEach(card => {
+    const id = card.dataset.id;
+    if (id) existingCards.set(id, card);
+  });
+
+  try {
+    const res = await fetch("/api/admin?action=list-drive-files");
+    const uploads = await res.json();
+
+    uploads
+      .sort((a, b) => new Date(b.createdTime) - new Date(a.createdTime))
+      .forEach((upload) => {
+        const existing = existingCards.get(upload.id);
+        if (existing) {
+          // Update vote count if needed
+          const voteInfo = existing.querySelector(".vote-info");
+          if (voteInfo) voteInfo.textContent = `👍 ${upload.votes || 0} likes`;
+          return;
+        }
+
+        // NEW CARD
+        const card = document.createElement("div");
+        card.className = "card";
+        card.dataset.id = upload.id;
+
+        const info = document.createElement("div");
+        info.className = "info";
+        info.innerHTML = `<span style="font-weight: bold;">Uploaded by:</span><br>${upload.userName ?? "Anonymous"}`;
+
+        const voteInfo = document.createElement("div");
+        voteInfo.className = "vote-info";
+        voteInfo.style.textAlign = "center";
+        voteInfo.style.marginBottom = "0.25rem";
+        voteInfo.textContent = `👍 ${upload.votes || 0} likes`;
+
+        const upvoteBtn = document.createElement("button");
+        upvoteBtn.textContent = voted.includes(upload.id) ? "✅ Voted" : "👍 Upvote";
+        upvoteBtn.disabled = voted.includes(upload.id);
+        upvoteBtn.style.margin = "0.5rem auto";
+        upvoteBtn.style.display = "block";
+        upvoteBtn.style.padding = "0.4rem 1rem";
+        upvoteBtn.style.border = "none";
+        upvoteBtn.style.borderRadius = "8px";
+        upvoteBtn.style.fontWeight = "bold";
+        upvoteBtn.style.background = voted.includes(upload.id) ? "#444" : "#e91e63";
+        upvoteBtn.style.color = "#fff";
+
+        upvoteBtn.addEventListener("click", async () => {
+          try {
+            const res = await fetch("/api/admin?action=upvote", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ fileId: upload.id }),
+            });
+            const result = await res.json();
+            if (result.success) {
+              const newVotes = result.votes;
+              voteInfo.textContent = `👍 ${newVotes} likes`;
+
+              markImageVoted(upload.id);
+              upvoteBtn.textContent = "✅ Voted";
+              upvoteBtn.disabled = true;
+              upvoteBtn.style.background = "#444";
+            }
+          } catch (err) {
+            alert("Voting failed.");
+            console.error(err);
+          }
+        });
+
+        let media;
+        if (upload.type === "video") {
+          media = document.createElement("video");
+          media.src = upload.fileUrl;
+          media.controls = true;
+          media.muted = true;
+        } else {
+          media = document.createElement("img");
+          media.src = upload.fileUrl;
+          media.style.cursor = "pointer";
+          media.addEventListener("click", () => {
+            const modal = document.getElementById("imageModal");
+            document.getElementById("fullImage").src = upload.fileUrl;
+            modal.classList.remove("hidden");
+          });
+        }
+
+        card.appendChild(media);
+        card.appendChild(info);
+        card.appendChild(voteInfo);
+        card.appendChild(upvoteBtn);
+        gallery.appendChild(card);
+      });
+  } catch (err) {
+    console.error("Failed to load gallery", err);
+  }
+}
+
+
+  setHeadline();
+  loadGallery();
+
+window.addEventListener("storage", (event) => {
+  if (event.key === "galleryRefresh") loadGallery();
+});
+
+// 🔁 Refresh gallery every 5 seconds
+setInterval(() => {
+  loadGallery();
+}, 5000);
+
+setInterval(async () => {
+  try {
+    const res = await fetch('/api/admin?action=check-reset');
+    const { resetTime } = await res.json();
+
+    if (resetTime && resetTime !== lastResetCheck) {
+      localStorage.removeItem("votedImages");
+      lastResetCheck = resetTime;
+      console.log("🎯 Votes reset detected. Local votes cleared.");
+    }
+  } catch (err) {
+    console.warn("Failed to check vote reset", err);
+  }
+}, 4000);
+</script>
+
 
   <script type="module">
-  import confetti from 'https://cdn.skypack.dev/canvas-confetti';
+    import confetti from 'https://cdn.skypack.dev/canvas-confetti';
 
-  let hasShownWinner = false;
+    let hasShownWinner = false;
 
-  function showWinnerModal(name) {
-    const modal = document.getElementById('winnerModal');
-    document.getElementById('winnerName').textContent = name;
-    modal.style.display = 'flex';
-    triggerConfetti();
-  }
+    function showWinnerModal(name) {
+      const modal = document.getElementById('winnerModal');
+      document.getElementById('winnerName').textContent = name;
+      modal.style.display = 'flex';
+      triggerConfetti();
+    }
 
-  function hideWinnerModal() {
-    document.getElementById('winnerModal').style.display = 'none';
-  }
+    function hideWinnerModal() {
+      document.getElementById('winnerModal').style.display = 'none';
+    }
 
-  function triggerConfetti() {
-    const duration = 3 * 1000;
-    const end = Date.now() + duration;
-    (function frame() {
-      confetti({ particleCount: 4, angle: 60, spread: 60, origin: { x: 0 } });
-      confetti({ particleCount: 4, angle: 120, spread: 60, origin: { x: 1 } });
-      if (Date.now() < end) requestAnimationFrame(frame);
-    })();
-  }
+    function triggerConfetti() {
+      const duration = 3 * 1000;
+      const end = Date.now() + duration;
+      (function frame() {
+        confetti({ particleCount: 4, angle: 60, spread: 60, origin: { x: 0 } });
+        confetti({ particleCount: 4, angle: 120, spread: 60, origin: { x: 1 } });
+        if (Date.now() < end) requestAnimationFrame(frame);
+      })();
+    }
 
-  async function checkWinner() {
+    async function checkWinner() {
+      try {
+        const res = await fetch('/api/admin?action=winner');
+        const data = await res.json();
+        if (data?.winner?.name && !hasShownWinner) {
+          hasShownWinner = true;
+          showWinnerModal(data.winner.name);
+        }
+      } catch (err) {
+        console.warn('No winner or failed to fetch', err);
+      }
+    }
+
+    setInterval(checkWinner, 10000); // check every 10s
+    window.hideWinnerModal = hideWinnerModal;
+
+  </script>
+  <script>
+  let lastResetCheck = localStorage.getItem('lastResetTimestamp') || null;
+
+  async function checkVoteReset() {
     try {
-      const res = await fetch('/api/admin?action=winner');
+      const res = await fetch('/api/admin?action=check-reset');
       const data = await res.json();
-      if (data?.winner?.name && !hasShownWinner) {
-        hasShownWinner = true;
-        showWinnerModal(data.winner.name);
+
+      if (data.resetTimestamp && data.resetTimestamp !== lastResetCheck) {
+        localStorage.removeItem('votedImages');
+        localStorage.setItem('lastResetTimestamp', data.resetTimestamp);
+        console.log("🧹 Vote history reset");
+        loadGallery(); // refresh with updated state
       }
     } catch (err) {
-      console.warn('No winner or failed to fetch', err);
+      console.warn("⚠️ Could not check vote reset", err);
     }
   }
 
-  setInterval(checkWinner, 10000); // check every 10s
-  window.hideWinnerModal = hideWinnerModal;
-
+  setInterval(checkVoteReset, 10000); // check every 10 seconds
 </script>
+
 
 </body>
 
 </html>
-  
