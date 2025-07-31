@@ -86,8 +86,18 @@
       opacity: 0.6;
     }
 
-    .follow-btn {
-      background: var(--accent-color);
+    .follow-btn-fb {
+      background: #1877F2;
+      color: white;
+      padding: 0.5rem 1rem;
+      border-radius: 8px;
+      text-decoration: none;
+      font-weight: bold;
+      display: inline-block;
+    }
+
+    .follow-btn-ig {
+      background: #E1306C;
       color: white;
       padding: 0.5rem 1rem;
       border-radius: 8px;
@@ -166,6 +176,26 @@
       border-radius: 10px;
     }
 
+    #follow-gate {
+      padding: 0 20px;
+    }
+
+    .followers-wrapper {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.follower-block {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.95rem;
+}
+
     progress {
       height: 10px;
       border-radius: 5px;
@@ -229,6 +259,10 @@
       </ol>
     </div>
 
+
+  
+ 
+
     <div style="display: flex; align-items: center; gap: 10px;">
       <label for="name" style="white-space: nowrap;">Your Name <span style="color: red">*</span>:</label>
       <input type="text" id="name" name="userName" required placeholder="Name" style="flex: 1;" />
@@ -238,13 +272,24 @@
 
     <div id="follow-gate">
       <p style="font-size: 1rem; color: #c96161">
-        🎁 <strong>Follow us on Facebook or Instagram to enter the raffle.</strong>
+        Follow us on Facebook or Instagram to enter the raffle.</strong>
       </p>
       <div style="display: flex; justify-content: center; gap: 1rem">
-        <a href="https://www.instagram.com/90_surge" target="_blank" id="ig-btn" class="follow-btn">Instagram</a>
-        <a href="https://www.facebook.com/90surge" target="_blank" id="fb-btn" class="follow-btn">Facebook</a>
+               <a href="https://www.facebook.com/90surge" target="_blank" id="fb-btn" class="follow-btn-fb">Facebook</a>
+               <a href="https://www.instagram.com/90_surge" target="_blank" id="ig-btn" class="follow-btn-ig">Instagram</a>
       </div>
     </div>
+
+    <div class="followers-wrapper">
+  <div class="follower-block">
+    <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/c/c3/FB_Logo_PNG.png/640px-FB_Logo_PNG.png" width="16">
+    <span>Followers:</span> <span id="fb-count">—</span>
+  </div>
+  <div class="follower-block">
+    <img src="https://upload.wikimedia.org/wikipedia/commons/a/a5/Instagram_icon.png" width="16">
+    <span>Followers:</span> <span id="ig-count">—</span>
+  </div>
+</div>
 
     <button type="submit" id="upload-btn" class="disabled-btn" disabled>Upload</button>
     <progress id="progress" value="0" max="100" style="display: none"></progress>
@@ -267,6 +312,16 @@
       style="margin-top:2rem; padding:0.8rem 1.5rem; font-size:1rem; background:#e91e63; border:none; color:white; border-radius:8px;">Close</button>
   </div>
 
+  <script>
+    async function loadFollowerCounts() {
+      const res = await fetch("/api/admin?action=followers");
+      const data = await res.json();
+
+      document.getElementById("fb-count").textContent = data.facebook ?? "0";
+      document.getElementById("ig-count").textContent = data.instagram ?? "0";
+    }
+    loadFollowerCounts();
+  </script>
 
   <script>
     let isWindowOpen = true;
@@ -396,130 +451,130 @@
     }
 
     async function loadGallery() {
-  const gallery = document.getElementById("gallery");
-  const voted = getVotedImageIds();
-  const existingCards = new Map();
+      const gallery = document.getElementById("gallery");
+      const voted = getVotedImageIds();
+      const existingCards = new Map();
 
-  gallery.querySelectorAll(".card").forEach(card => {
-    const id = card.dataset.id;
-    if (id) existingCards.set(id, card);
-  });
-
-  try {
-    const res = await fetch("/api/admin?action=list-drive-files");
-    const uploads = await res.json();
-
-    uploads
-      .sort((a, b) => new Date(b.createdTime) - new Date(a.createdTime))
-      .forEach((upload) => {
-        const existing = existingCards.get(upload.id);
-        if (existing) {
-          const voteInfo = existing.querySelector(".vote-info");
-          if (voteInfo) voteInfo.textContent = `👍 ${upload.votes || 0} likes`;
-          return;
-        }
-
-        const card = document.createElement("div");
-        card.className = "card";
-        card.dataset.id = upload.id;
-
-        const info = document.createElement("div");
-        info.className = "info";
-        info.innerHTML = `<span style="font-weight: bold;">Uploaded by:</span><br>${upload.userName ?? "Anonymous"}`;
-
-        const voteInfo = document.createElement("div");
-        voteInfo.className = "vote-info";
-        voteInfo.style.textAlign = "center";
-        voteInfo.style.marginBottom = "0.25rem";
-        voteInfo.textContent = `👍 ${upload.votes || 0} likes`;
-
-        const upvoteBtn = document.createElement("button");
-        upvoteBtn.textContent = voted.includes(upload.id) ? "✅ Voted" : "👍 Upvote";
-        upvoteBtn.disabled = voted.includes(upload.id);
-        upvoteBtn.style.margin = "0.5rem auto";
-        upvoteBtn.style.display = "block";
-        upvoteBtn.style.padding = "0.4rem 1rem";
-        upvoteBtn.style.border = "none";
-        upvoteBtn.style.borderRadius = "8px";
-        upvoteBtn.style.fontWeight = "bold";
-        upvoteBtn.style.background = voted.includes(upload.id) ? "#444" : "#e91e63";
-        upvoteBtn.style.color = "#fff";
-
-        upvoteBtn.addEventListener("click", async () => {
-  if (voted.includes(upload.id)) return; // Already voted for this image
-
-  // Optimistically disable to prevent rapid-fire clicks
-  upvoteBtn.disabled = true;
-  upvoteBtn.textContent = "⏳ Voting...";
-  upvoteBtn.style.background = "#888";
-
-  try {
-    const res = await fetch("/api/admin?action=upvote", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ fileId: upload.id }),
-    });
-
-    const result = await res.json();
-    if (result.success) {
-      voteInfo.textContent = `👍 ${result.votes} likes`;
-      markImageVoted(upload.id);
-
-      upvoteBtn.textContent = "✅ Voted";
-      upvoteBtn.style.background = "#444";
-    } else {
-      throw new Error("Vote failed");
-    }
-  } catch (err) {
-    alert("Voting failed. Try again.");
-    console.error(err);
-
-    // Re-enable for retry
-    upvoteBtn.disabled = false;
-    upvoteBtn.textContent = "👍 Upvote";
-    upvoteBtn.style.background = "#e91e63";
-  }
-});
-
-
-        let media;
-          // Lazy-load full image, blurred with CSS until loaded
-          const wrapper = document.createElement("div");
-          wrapper.style.position = "relative";
-
-          const img = document.createElement("img");
-          img.src = upload.fileUrl;
-          img.loading = "lazy";
-          img.style.cursor = "pointer";
-          img.style.maxHeight = "220px";
-          img.style.width = "100%";
-          img.style.objectFit = "cover";
-          img.style.filter = "blur(8px)";
-          img.style.transition = "filter 0.5s";
-
-          img.addEventListener("load", () => {
-            img.style.filter = "none";
-          });
-
-          img.addEventListener("click", () => {
-            const modal = document.getElementById("imageModal");
-            document.getElementById("fullImage").src = upload.fileUrl;
-            modal.classList.remove("hidden");
-          });
-
-          wrapper.appendChild(img);
-          media = wrapper;
-
-        card.appendChild(media);
-        card.appendChild(info);
-        card.appendChild(voteInfo);
-        card.appendChild(upvoteBtn);
-        gallery.appendChild(card);
+      gallery.querySelectorAll(".card").forEach(card => {
+        const id = card.dataset.id;
+        if (id) existingCards.set(id, card);
       });
-  } catch (err) {
-    console.error("Failed to load gallery", err);
-  }
-}
+
+      try {
+        const res = await fetch("/api/admin?action=list-drive-files");
+        const uploads = await res.json();
+
+        uploads
+          .sort((a, b) => new Date(b.createdTime) - new Date(a.createdTime))
+          .forEach((upload) => {
+            const existing = existingCards.get(upload.id);
+            if (existing) {
+              const voteInfo = existing.querySelector(".vote-info");
+              if (voteInfo) voteInfo.textContent = `👍 ${upload.votes || 0}`;
+              return;
+            }
+
+            const card = document.createElement("div");
+            card.className = "card";
+            card.dataset.id = upload.id;
+
+            const info = document.createElement("div");
+            info.className = "info";
+            info.innerHTML = `<span style="font-weight: bold;">Uploaded by:</span><br>${upload.userName ?? "Anonymous"}`;
+
+            const voteInfo = document.createElement("div");
+            voteInfo.className = "vote-info";
+            voteInfo.style.textAlign = "center";
+            voteInfo.style.marginBottom = "0.25rem";
+            voteInfo.textContent = `👍 ${upload.votes || 0}`;
+
+            const upvoteBtn = document.createElement("button");
+            upvoteBtn.textContent = voted.includes(upload.id) ? "Voted" : "Upvote";
+            upvoteBtn.disabled = voted.includes(upload.id);
+            upvoteBtn.style.margin = "0.5rem auto";
+            upvoteBtn.style.display = "block";
+            upvoteBtn.style.padding = "0.4rem 1rem";
+            upvoteBtn.style.border = "none";
+            upvoteBtn.style.borderRadius = "8px";
+            upvoteBtn.style.fontWeight = "bold";
+            upvoteBtn.style.background = voted.includes(upload.id) ? "#444" : "#e91e63";
+            upvoteBtn.style.color = "#fff";
+
+            upvoteBtn.addEventListener("click", async () => {
+              if (voted.includes(upload.id)) return; // Already voted for this image
+
+              // Optimistically disable to prevent rapid-fire clicks
+              upvoteBtn.disabled = true;
+              upvoteBtn.textContent = "⏳ Voting...";
+              upvoteBtn.style.background = "#888";
+
+              try {
+                const res = await fetch("/api/admin?action=upvote", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ fileId: upload.id }),
+                });
+
+                const result = await res.json();
+                if (result.success) {
+                  voteInfo.textContent = `👍 ${result.votes}`;
+                  markImageVoted(upload.id);
+
+                  upvoteBtn.textContent = "✅ Voted";
+                  upvoteBtn.style.background = "#444";
+                } else {
+                  throw new Error("Vote failed");
+                }
+              } catch (err) {
+                alert("Voting failed. Try again.");
+                console.error(err);
+
+                // Re-enable for retry
+                upvoteBtn.disabled = false;
+                upvoteBtn.textContent = "Upvote";
+                upvoteBtn.style.background = "#e91e63";
+              }
+            });
+
+
+            let media;
+            // Lazy-load full image, blurred with CSS until loaded
+            const wrapper = document.createElement("div");
+            wrapper.style.position = "relative";
+
+            const img = document.createElement("img");
+            img.src = upload.fileUrl;
+            img.loading = "lazy";
+            img.style.cursor = "pointer";
+            img.style.maxHeight = "220px";
+            img.style.width = "100%";
+            img.style.objectFit = "cover";
+            img.style.filter = "blur(8px)";
+            img.style.transition = "filter 0.5s";
+
+            img.addEventListener("load", () => {
+              img.style.filter = "none";
+            });
+
+            img.addEventListener("click", () => {
+              const modal = document.getElementById("imageModal");
+              document.getElementById("fullImage").src = upload.fileUrl;
+              modal.classList.remove("hidden");
+            });
+
+            wrapper.appendChild(img);
+            media = wrapper;
+
+            card.appendChild(media);
+            card.appendChild(info);
+            card.appendChild(voteInfo);
+            card.appendChild(upvoteBtn);
+            gallery.appendChild(card);
+          });
+      } catch (err) {
+        console.error("Failed to load gallery", err);
+      }
+    }
 
     setHeadline();
     loadGallery();
