@@ -113,6 +113,15 @@ export default async function handler(req, res) {
       }
 
       const winner = allEntries[Math.floor(Math.random() * allEntries.length)];
+
+      // 🆕 Save to Redis (or skip in local)
+      if (!isLocal) {
+        await redis.set('raffle_winner', JSON.stringify({
+          name: winner,
+          timestamp: Date.now()
+        }));
+      }
+
       return res.json({ winner });
 
     } catch (err) {
