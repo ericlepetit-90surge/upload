@@ -450,7 +450,7 @@
 
   async function checkWinner() {
     try {
-      const res = await fetch('/api/winner');
+      const res = await fetch('/api/admin?action=winner');
       const data = await res.json();
       if (data?.winner?.name && !hasShownWinner) {
         hasShownWinner = true;

@@ -194,6 +194,29 @@ if (action === 'clear-all' && req.method === 'POST') {
   }
 }
 
+ // ----------------- GET WINNER -----------------
+  if (action === 'winner' && req.method === 'GET') {
+    try {
+      if (isLocal) {
+        return res.json({ winner: null }); // or fake one for dev
+      }
+
+      const redisClient = createClient({ url: process.env.REDIS_URL });
+      await redisClient.connect();
+      const winnerData = await redisClient.get('raffle_winner');
+      await redisClient.disconnect();
+
+      if (!winnerData) {
+        return res.json({ winner: null });
+      }
+
+      const parsed = JSON.parse(winnerData);
+      return res.json({ winner: parsed });
+    } catch (err) {
+      console.error('🔥 /api/admin?action=winner error:', err);
+      return res.status(500).json({ error: 'Failed to fetch winner' });
+    }
+  }
   // ----------------- LIST FILES -----------------
   if (action === 'list-drive-files' && req.method === 'GET') {
     try {
