@@ -301,16 +301,16 @@
         return;
       }
 
-      const unlock = () => {
-        localStorage.setItem("followed", "true");
-        uploadBtn.disabled = false;
-        uploadBtn.classList.remove("disabled-btn");
-        gate.innerHTML =
-          '<p style="color: green; font-weight: bold;">✅ Thanks for following! You can now upload.</p>';
-      };
-
-      document.getElementById("ig-btn").addEventListener("click", unlock);
-      document.getElementById("fb-btn").addEventListener("click", unlock);
+      // Replace buttons with new ones that use inline onclick to set localStorage before navigating
+      gate.innerHTML = `
+    <p style="font-size: 1rem; color: #c96161">
+      🎁 <strong>Follow us on Facebook or Instagram to enter the raffle.</strong>
+    </p>
+    <div style="display: flex; justify-content: center; gap: 1rem">
+      <a href="#" onclick="localStorage.setItem('followed','true'); window.location.href='https://www.instagram.com/90_surge'; return false;" class="follow-btn">Instagram</a>
+      <a href="#" onclick="localStorage.setItem('followed','true'); window.location.href='https://www.facebook.com/90surge'; return false;" class="follow-btn">Facebook</a>
+    </div>
+  `;
     }
 
     checkUploadWindow().then(() => {
@@ -379,28 +379,27 @@
 
   </script>
   <script>
-  function getVotedImageIds() {
-    try {
-      return JSON.parse(localStorage.getItem("votedImages") || "[]");
-    } catch {
-      return [];
+    function getVotedImageIds() {
+      try {
+        return JSON.parse(localStorage.getItem("votedImages") || "[]");
+      } catch {
+        return [];
+      }
     }
-  }
 
-  function markImageVoted(id) {
-    const voted = getVotedImageIds();
-    if (!voted.includes(id)) {
-      voted.push(id);
-      localStorage.setItem("votedImages", JSON.stringify(voted));
+    function markImageVoted(id) {
+      const voted = getVotedImageIds();
+      if (!voted.includes(id)) {
+        voted.push(id);
+        localStorage.setItem("votedImages", JSON.stringify(voted));
+      }
     }
-  }
 
-  async function loadGallery() {
+    async function loadGallery() {
   const gallery = document.getElementById("gallery");
   const voted = getVotedImageIds();
   const existingCards = new Map();
 
-  // index existing cards by fileId
   gallery.querySelectorAll(".card").forEach(card => {
     const id = card.dataset.id;
     if (id) existingCards.set(id, card);
@@ -415,13 +414,11 @@
       .forEach((upload) => {
         const existing = existingCards.get(upload.id);
         if (existing) {
-          // Update vote count if needed
           const voteInfo = existing.querySelector(".vote-info");
           if (voteInfo) voteInfo.textContent = `👍 ${upload.votes || 0} likes`;
           return;
         }
 
-        // NEW CARD
         const card = document.createElement("div");
         card.className = "card";
         card.dataset.id = upload.id;
@@ -449,44 +446,69 @@
         upvoteBtn.style.color = "#fff";
 
         upvoteBtn.addEventListener("click", async () => {
-          try {
-            const res = await fetch("/api/admin?action=upvote", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ fileId: upload.id }),
-            });
-            const result = await res.json();
-            if (result.success) {
-              const newVotes = result.votes;
-              voteInfo.textContent = `👍 ${newVotes} likes`;
+  if (voted.includes(upload.id)) return; // Already voted for this image
 
-              markImageVoted(upload.id);
-              upvoteBtn.textContent = "✅ Voted";
-              upvoteBtn.disabled = true;
-              upvoteBtn.style.background = "#444";
-            }
-          } catch (err) {
-            alert("Voting failed.");
-            console.error(err);
-          }
-        });
+  // Optimistically disable to prevent rapid-fire clicks
+  upvoteBtn.disabled = true;
+  upvoteBtn.textContent = "⏳ Voting...";
+  upvoteBtn.style.background = "#888";
+
+  try {
+    const res = await fetch("/api/admin?action=upvote", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ fileId: upload.id }),
+    });
+
+    const result = await res.json();
+    if (result.success) {
+      voteInfo.textContent = `👍 ${result.votes} likes`;
+      markImageVoted(upload.id);
+
+      upvoteBtn.textContent = "✅ Voted";
+      upvoteBtn.style.background = "#444";
+    } else {
+      throw new Error("Vote failed");
+    }
+  } catch (err) {
+    alert("Voting failed. Try again.");
+    console.error(err);
+
+    // Re-enable for retry
+    upvoteBtn.disabled = false;
+    upvoteBtn.textContent = "👍 Upvote";
+    upvoteBtn.style.background = "#e91e63";
+  }
+});
+
 
         let media;
-        if (upload.type === "video") {
-          media = document.createElement("video");
-          media.src = upload.fileUrl;
-          media.controls = true;
-          media.muted = true;
-        } else {
-          media = document.createElement("img");
-          media.src = upload.fileUrl;
-          media.style.cursor = "pointer";
-          media.addEventListener("click", () => {
+          // Lazy-load full image, blurred with CSS until loaded
+          const wrapper = document.createElement("div");
+          wrapper.style.position = "relative";
+
+          const img = document.createElement("img");
+          img.src = upload.fileUrl;
+          img.loading = "lazy";
+          img.style.cursor = "pointer";
+          img.style.maxHeight = "220px";
+          img.style.width = "100%";
+          img.style.objectFit = "cover";
+          img.style.filter = "blur(8px)";
+          img.style.transition = "filter 0.5s";
+
+          img.addEventListener("load", () => {
+            img.style.filter = "none";
+          });
+
+          img.addEventListener("click", () => {
             const modal = document.getElementById("imageModal");
             document.getElementById("fullImage").src = upload.fileUrl;
             modal.classList.remove("hidden");
           });
-        }
+
+          wrapper.appendChild(img);
+          media = wrapper;
 
         card.appendChild(media);
         card.appendChild(info);
@@ -499,34 +521,33 @@
   }
 }
 
+    setHeadline();
+    loadGallery();
 
-  setHeadline();
-  loadGallery();
+    window.addEventListener("storage", (event) => {
+      if (event.key === "galleryRefresh") loadGallery();
+    });
 
-window.addEventListener("storage", (event) => {
-  if (event.key === "galleryRefresh") loadGallery();
-});
+    // 🔁 Refresh gallery every 5 seconds
+    setInterval(() => {
+      loadGallery();
+    }, 5000);
 
-// 🔁 Refresh gallery every 5 seconds
-setInterval(() => {
-  loadGallery();
-}, 5000);
+    setInterval(async () => {
+      try {
+        const res = await fetch('/api/admin?action=check-reset');
+        const { resetTime } = await res.json();
 
-setInterval(async () => {
-  try {
-    const res = await fetch('/api/admin?action=check-reset');
-    const { resetTime } = await res.json();
-
-    if (resetTime && resetTime !== lastResetCheck) {
-      localStorage.removeItem("votedImages");
-      lastResetCheck = resetTime;
-      console.log("🎯 Votes reset detected. Local votes cleared.");
-    }
-  } catch (err) {
-    console.warn("Failed to check vote reset", err);
-  }
-}, 4000);
-</script>
+        if (resetTime && resetTime !== lastResetCheck) {
+          localStorage.removeItem("votedImages");
+          lastResetCheck = resetTime;
+          console.log("🎯 Votes reset detected. Local votes cleared.");
+        }
+      } catch (err) {
+        console.warn("Failed to check vote reset", err);
+      }
+    }, 4000);
+  </script>
 
 
   <script type="module">
@@ -573,26 +594,26 @@ setInterval(async () => {
 
   </script>
   <script>
-  let lastResetCheck = localStorage.getItem('lastResetTimestamp') || null;
+    let lastResetCheck = localStorage.getItem('lastResetTimestamp') || null;
 
-  async function checkVoteReset() {
-    try {
-      const res = await fetch('/api/admin?action=check-reset');
-      const data = await res.json();
+    async function checkVoteReset() {
+      try {
+        const res = await fetch('/api/admin?action=check-reset');
+        const data = await res.json();
 
-      if (data.resetTimestamp && data.resetTimestamp !== lastResetCheck) {
-        localStorage.removeItem('votedImages');
-        localStorage.setItem('lastResetTimestamp', data.resetTimestamp);
-        console.log("🧹 Vote history reset");
-        loadGallery(); // refresh with updated state
+        if (data.resetTimestamp && data.resetTimestamp !== lastResetCheck) {
+          localStorage.removeItem('votedImages');
+          localStorage.setItem('lastResetTimestamp', data.resetTimestamp);
+          console.log("🧹 Vote history reset");
+          loadGallery(); // refresh with updated state
+        }
+      } catch (err) {
+        console.warn("⚠️ Could not check vote reset", err);
       }
-    } catch (err) {
-      console.warn("⚠️ Could not check vote reset", err);
     }
-  }
 
-  setInterval(checkVoteReset, 10000); // check every 10 seconds
-</script>
+    setInterval(checkVoteReset, 10000); // check every 10 seconds
+  </script>
 
 
 </body>
