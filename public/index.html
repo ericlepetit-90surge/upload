@@ -385,54 +385,52 @@
     const message = document.getElementById("message");
 
     form.addEventListener("submit", async (e) => {
-      e.preventDefault();
-      message.textContent = "";
+  e.preventDefault();
+  message.textContent = "";
 
-      const fileInput = document.getElementById("file");
-      const nameInput = document.getElementById("name");
-      const progress = document.getElementById("progress");
-      const file = fileInput.files[0];
-      const userName = nameInput.value.trim();
+  const fileInput = document.getElementById("file");
+  const nameInput = document.getElementById("name");
+  const progress = document.getElementById("progress");
+  const file = fileInput.files[0];
+  const userName = nameInput.value.trim();
 
-      if (!file || !userName) {
-        message.textContent = "Name and file are required.";
-        return;
-      }
+  if (!file || !userName) {
+    message.textContent = "Name and file are required.";
+    return;
+  }
 
-      const formData = new FormData();
-      formData.append("file", file);
-      formData.append("userName", userName);
+  progress.style.display = "block";
+  progress.value = 0;
+  message.style.color = "#999";
+  message.textContent = "⏳ Uploading...";
 
-      progress.style.display = "block";
-      progress.value = 0;
-      message.style.color = "#999";
-      message.textContent = "⏳ Uploading...";
-      try {
-        const res = await fetch("/api/upload-resumable", {
-          method: "POST",
-          body: formData,
-        });
+  try {
+    // 1. Send file and metadata to server
+    const metaForm = new FormData();
+    metaForm.append("file", file);
+    metaForm.append("userName", userName);
 
-        const data = await res.json();
-        if (!res.ok || !data.success) throw new Error("Upload failed");
-
-        message.style.color = "green";
-        message.textContent = "✅ Upload successful!";
-        fileInput.value = "";
-        progress.style.display = "none";
-
-        // ✅ Optional: add a quick visual "refreshing" indicator
-        const gallery = document.getElementById("gallery");
-        const originalContent = gallery.innerHTML;
-        await loadGallery(); // this already checks for and only adds new cards
-
-      } catch (err) {
-        message.style.color = "red";
-        message.textContent = "❌ Upload error.";
-        console.error(err);
-        progress.style.display = "none";
-      }
+    const initRes = await fetch("/api/upload-resumable", {
+      method: "POST",
+      body: metaForm,
     });
+
+    const data = await initRes.json();
+    if (!initRes.ok || !data.success) throw new Error("Upload failed");
+
+    // 2. All done — refresh UI
+    message.style.color = "green";
+    message.textContent = "✅ Upload successful!";
+    fileInput.value = "";
+    progress.style.display = "none";
+    await loadGallery();
+  } catch (err) {
+    message.style.color = "red";
+    message.textContent = "❌ Upload error.";
+    console.error(err);
+    progress.style.display = "none";
+  }
+});
 
     async function setHeadline() {
       try {
@@ -466,132 +464,132 @@
     }
 
     async function loadGallery() {
-  const gallery = document.getElementById("gallery");
-  const voted = getVotedImageIds();
-  const existingCards = new Map();
+      const gallery = document.getElementById("gallery");
+      const voted = getVotedImageIds();
+      const existingCards = new Map();
 
-  try {
-    const res = await fetch("/api/admin?action=list-drive-files");
-    const uploads = await res.json();
+      try {
+        const res = await fetch("/api/admin?action=list-drive-files");
+        const uploads = await res.json();
 
-    // Remove duplicates by file ID
-    const uniqueUploads = [];
-    const seenIds = new Set();
+        // Remove duplicates by file ID
+        const uniqueUploads = [];
+        const seenIds = new Set();
 
-    for (const u of uploads) {
-      if (!seenIds.has(u.id)) {
-        uniqueUploads.push(u);
-        seenIds.add(u.id);
-      }
-    }
-
-    gallery.querySelectorAll(".card").forEach(card => {
-      const id = card.dataset.id;
-      if (id) existingCards.set(id, card);
-    });
-
-    uniqueUploads
-      .sort((a, b) => new Date(b.createdTime) - new Date(a.createdTime))
-      .forEach((upload) => {
-        const existing = existingCards.get(upload.id);
-        if (existing) {
-          const voteInfo = existing.querySelector(".vote-info");
-          if (voteInfo) voteInfo.textContent = `👍 ${upload.votes || 0}`;
-          return;
+        for (const u of uploads) {
+          if (!seenIds.has(u.id)) {
+            uniqueUploads.push(u);
+            seenIds.add(u.id);
+          }
         }
 
-        const card = document.createElement("div");
-        card.className = "card";
-        card.dataset.id = upload.id;
+        gallery.querySelectorAll(".card").forEach(card => {
+          const id = card.dataset.id;
+          if (id) existingCards.set(id, card);
+        });
 
-        const info = document.createElement("div");
-        info.className = "info";
-        info.innerHTML = `<span style="font-weight: bold;">Uploaded by:</span><br>${upload.userName ?? "Anonymous"}`;
+        uniqueUploads
+          .sort((a, b) => new Date(b.createdTime) - new Date(a.createdTime))
+          .forEach((upload) => {
+            const existing = existingCards.get(upload.id);
+            if (existing) {
+              const voteInfo = existing.querySelector(".vote-info");
+              if (voteInfo) voteInfo.textContent = `👍 ${upload.votes || 0}`;
+              return;
+            }
 
-        const voteInfo = document.createElement("div");
-        voteInfo.className = "vote-info";
-        voteInfo.style.textAlign = "center";
-        voteInfo.style.marginBottom = "0.25rem";
-        voteInfo.textContent = `👍 ${upload.votes || 0}`;
+            const card = document.createElement("div");
+            card.className = "card";
+            card.dataset.id = upload.id;
 
-        const upvoteBtn = document.createElement("button");
-        upvoteBtn.textContent = voted.includes(upload.id) ? "Voted" : "Upvote";
-        upvoteBtn.disabled = voted.includes(upload.id);
-        upvoteBtn.style.margin = "0.5rem auto";
-        upvoteBtn.style.display = "block";
-        upvoteBtn.style.padding = "0.4rem 1rem";
-        upvoteBtn.style.border = "none";
-        upvoteBtn.style.borderRadius = "8px";
-        upvoteBtn.style.fontWeight = "bold";
-        upvoteBtn.style.background = voted.includes(upload.id) ? "#444" : "#e91e63";
-        upvoteBtn.style.color = "#fff";
+            const info = document.createElement("div");
+            info.className = "info";
+            info.innerHTML = `<span style="font-weight: bold;">Uploaded by:</span><br>${upload.userName ?? "Anonymous"}`;
 
-        upvoteBtn.addEventListener("click", async () => {
-          if (voted.includes(upload.id)) return;
+            const voteInfo = document.createElement("div");
+            voteInfo.className = "vote-info";
+            voteInfo.style.textAlign = "center";
+            voteInfo.style.marginBottom = "0.25rem";
+            voteInfo.textContent = `👍 ${upload.votes || 0}`;
 
-          upvoteBtn.disabled = true;
-          upvoteBtn.textContent = "⏳ Voting...";
-          upvoteBtn.style.background = "#888";
+            const upvoteBtn = document.createElement("button");
+            upvoteBtn.textContent = voted.includes(upload.id) ? "Voted" : "Upvote";
+            upvoteBtn.disabled = voted.includes(upload.id);
+            upvoteBtn.style.margin = "0.5rem auto";
+            upvoteBtn.style.display = "block";
+            upvoteBtn.style.padding = "0.4rem 1rem";
+            upvoteBtn.style.border = "none";
+            upvoteBtn.style.borderRadius = "8px";
+            upvoteBtn.style.fontWeight = "bold";
+            upvoteBtn.style.background = voted.includes(upload.id) ? "#444" : "#e91e63";
+            upvoteBtn.style.color = "#fff";
 
-          try {
-            const res = await fetch("/api/admin?action=upvote", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ fileId: upload.id }),
+            upvoteBtn.addEventListener("click", async () => {
+              if (voted.includes(upload.id)) return;
+
+              upvoteBtn.disabled = true;
+              upvoteBtn.textContent = "⏳ Voting...";
+              upvoteBtn.style.background = "#888";
+
+              try {
+                const res = await fetch("/api/admin?action=upvote", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ fileId: upload.id }),
+                });
+
+                const result = await res.json();
+                if (result.success) {
+                  voteInfo.textContent = `👍 ${result.votes}`;
+                  markImageVoted(upload.id);
+                  upvoteBtn.textContent = "✅ Voted";
+                  upvoteBtn.style.background = "#444";
+                } else {
+                  throw new Error("Vote failed");
+                }
+              } catch (err) {
+                alert("Voting failed. Try again.");
+                console.error(err);
+                upvoteBtn.disabled = false;
+                upvoteBtn.textContent = "Upvote";
+                upvoteBtn.style.background = "#e91e63";
+              }
             });
 
-            const result = await res.json();
-            if (result.success) {
-              voteInfo.textContent = `👍 ${result.votes}`;
-              markImageVoted(upload.id);
-              upvoteBtn.textContent = "✅ Voted";
-              upvoteBtn.style.background = "#444";
-            } else {
-              throw new Error("Vote failed");
-            }
-          } catch (err) {
-            alert("Voting failed. Try again.");
-            console.error(err);
-            upvoteBtn.disabled = false;
-            upvoteBtn.textContent = "Upvote";
-            upvoteBtn.style.background = "#e91e63";
-          }
-        });
+            const wrapper = document.createElement("div");
+            wrapper.style.position = "relative";
 
-        const wrapper = document.createElement("div");
-        wrapper.style.position = "relative";
+            const img = document.createElement("img");
+            img.src = upload.fileUrl;
+            img.loading = "lazy";
+            img.style.cursor = "pointer";
+            img.style.maxHeight = "220px";
+            img.style.width = "100%";
+            img.style.objectFit = "cover";
+            img.style.filter = "blur(8px)";
+            img.style.transition = "filter 0.5s";
 
-        const img = document.createElement("img");
-        img.src = upload.fileUrl;
-        img.loading = "lazy";
-        img.style.cursor = "pointer";
-        img.style.maxHeight = "220px";
-        img.style.width = "100%";
-        img.style.objectFit = "cover";
-        img.style.filter = "blur(8px)";
-        img.style.transition = "filter 0.5s";
+            img.addEventListener("load", () => {
+              img.style.filter = "none";
+            });
 
-        img.addEventListener("load", () => {
-          img.style.filter = "none";
-        });
+            img.addEventListener("click", () => {
+              const modal = document.getElementById("imageModal");
+              document.getElementById("fullImage").src = upload.fileUrl;
+              modal.classList.remove("hidden");
+            });
 
-        img.addEventListener("click", () => {
-          const modal = document.getElementById("imageModal");
-          document.getElementById("fullImage").src = upload.fileUrl;
-          modal.classList.remove("hidden");
-        });
-
-        wrapper.appendChild(img);
-        card.appendChild(wrapper);
-        card.appendChild(info);
-        card.appendChild(voteInfo);
-        card.appendChild(upvoteBtn);
-        gallery.appendChild(card);
-      });
-  } catch (err) {
-    console.error("Failed to load gallery", err);
-  }
-}
+            wrapper.appendChild(img);
+            card.appendChild(wrapper);
+            card.appendChild(info);
+            card.appendChild(voteInfo);
+            card.appendChild(upvoteBtn);
+            gallery.appendChild(card);
+          });
+      } catch (err) {
+        console.error("Failed to load gallery", err);
+      }
+    }
 
 
     setHeadline();

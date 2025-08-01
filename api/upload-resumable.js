@@ -1,4 +1,5 @@
 // /api/upload-resumable.js
+
 const { google } = require("googleapis");
 const path = require("path");
 const fs = require("fs");
@@ -21,12 +22,11 @@ module.exports.config = {
   api: { bodyParser: false },
 };
 
-// ✅ Utility to sanitize file names
 function sanitizeFileName(name) {
   return name
-    .replace(/[^\w.\- ]+/g, '')  // Remove special characters
-    .replace(/\s+/g, '_')        // Replace spaces with underscores
-    .substring(0, 100);          // Trim length
+    .replace(/[^\w.\- ]+/g, "")
+    .replace(/\s+/g, "_")
+    .substring(0, 100);
 }
 
 module.exports = async function handler(req, res) {
@@ -51,16 +51,16 @@ module.exports = async function handler(req, res) {
       return res.status(400).json({ error: "Missing userName or file" });
     }
 
-    const userName = sanitizeFileName(userNameRaw);
+    const sanitizedUserName = sanitizeFileName(userNameRaw);
     const originalFileName = sanitizeFileName(file.originalFilename || file.name || "upload");
-
     const filePath = file?.filepath || file?.path;
+
     if (!filePath) {
       console.error("❌ Filepath missing:", file);
       return res.status(400).json({ error: "Invalid file upload" });
     }
 
-    const fileName = `${userName}_${Date.now()}_${originalFileName}`;
+    const fileName = `${sanitizedUserName}_${Date.now()}_${originalFileName}`;
     const mimeType = file.mimetype || mime.lookup(filePath) || "application/octet-stream";
     const fileSize = fs.statSync(filePath).size;
 
@@ -99,7 +99,7 @@ module.exports = async function handler(req, res) {
         maxBodyLength: Infinity,
       });
 
-      // 3. Get the uploaded file ID
+      // 3. Get uploaded file ID
       const drive = google.drive({ version: "v3", auth: oauth2Client });
       const listRes = await drive.files.list({
         q: `name='${fileName}' and '${process.env.GOOGLE_DRIVE_FOLDER_ID}' in parents`,
@@ -109,18 +109,22 @@ module.exports = async function handler(req, res) {
       });
 
       const fileId = listRes.data.files[0]?.id;
-      if (!fileId) throw new Error("Could not retrieve uploaded file ID from Drive");
+      if (!fileId) throw new Error("Could not retrieve uploaded file ID");
 
-      // 4. Make file public
+      // 4. Make the file public
       await drive.permissions.create({
         fileId,
         requestBody: { role: "reader", type: "anyone" },
       });
 
-      // 5. Save metadata
+      // 5. Save metadata using original (unsanitized) user name
       const saveRes = await axios.post(
         `${req.headers.origin || "http://localhost:3000"}/api/save-upload-metadata`,
-        { userName: userNameRaw, driveFileId: fileId, mimeType },
+        {
+          userName: userNameRaw,
+          driveFileId: fileId,
+          mimeType,
+        },
         { headers: { "Content-Type": "application/json" } }
       );
 
