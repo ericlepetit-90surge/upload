@@ -181,20 +181,20 @@
     }
 
     .followers-wrapper {
-  display: flex;
-  gap: 1rem;
-  flex-wrap: wrap;
-  justify-content: center;
-  align-items: center;
-  margin-bottom: 1rem;
-}
+      display: flex;
+      gap: 1rem;
+      flex-wrap: wrap;
+      justify-content: center;
+      align-items: center;
+      margin-bottom: 1rem;
+    }
 
-.follower-block {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  font-size: 0.95rem;
-}
+    .follower-block {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      font-size: 0.95rem;
+    }
 
     progress {
       height: 10px;
@@ -240,28 +240,25 @@
 
 <body>
 
-  <img
-    src="https://static.wixstatic.com/media/1cc82f_3f31524539e0456d85e29eb49e640a7d~mv2.png/v1/crop/x_0,y_59,w_500,h_412/fill/w_374,h_308,al_c,q_85,usm_0.66_1.00_0.01,enc_avif,quality_auto/90-SURGE-3.png"
-    width="140" style="padding:10px">
-
   <form id="upload-form" enctype="multipart/form-data" method="POST">
     <div class="rules">
       <h1 id="headline">90 SURGE TONIGHT</h1>
-      <h2><strong>🎉 Win a 90 Surge t-shirt!</strong></h2>
+      <h2 style="text-align: center;"><strong>🎉 Win a 90 Surge t-shirt! 🎉</strong></h2>
+
       <ol>
         <li>Enter your name — best is your Instagram or Facebook handle</li>
         <li>Follow us on <b>Facebook</b> or <b>Instagram</b> (or both if you're that cool)</li>
-        <li>Upload your photo: crowd, band, selfie, dancing — show the energy</li>
-        <li>Each photo = 1 raffle entry</li>
-        <li>Winners are picked randomly based on number of entries</li>
+        <li>Upload your photo: crowd, band, selfie, dancing — show the energy!</li>
+        <li>Each upload = 1 raffle entry. More entries = more chances to win!</li>
+        <li>Upvote your favorites pics! 1 upvote = 1 additional entry</li>
         <li>The winner will announced during the last break 🎁</li>
         <li>Be cool — non-relevant uploads and entries may be deleted by our moderators</li>
       </ol>
     </div>
 
 
-  
- 
+
+
 
     <div style="display: flex; align-items: center; gap: 10px;">
       <label for="name" style="white-space: nowrap;">Your Name <span style="color: red">*</span>:</label>
@@ -275,21 +272,22 @@
         Follow us on Facebook or Instagram to enter the raffle.</strong>
       </p>
       <div style="display: flex; justify-content: center; gap: 1rem">
-               <a href="https://www.facebook.com/90surge" target="_blank" id="fb-btn" class="follow-btn-fb">Facebook</a>
-               <a href="https://www.instagram.com/90_surge" target="_blank" id="ig-btn" class="follow-btn-ig">Instagram</a>
+        <a href="https://www.facebook.com/90surge" target="_blank" id="fb-btn" class="follow-btn-fb">Facebook</a>
+        <a href="https://www.instagram.com/90_surge" target="_blank" id="ig-btn" class="follow-btn-ig">Instagram</a>
       </div>
     </div>
 
     <div class="followers-wrapper">
-  <div class="follower-block">
-    <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/c/c3/FB_Logo_PNG.png/640px-FB_Logo_PNG.png" width="16">
-    <span>Followers:</span> <span id="fb-count">—</span>
-  </div>
-  <div class="follower-block">
-    <img src="https://upload.wikimedia.org/wikipedia/commons/a/a5/Instagram_icon.png" width="16">
-    <span>Followers:</span> <span id="ig-count">—</span>
-  </div>
-</div>
+      <div class="follower-block">
+        <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/c/c3/FB_Logo_PNG.png/640px-FB_Logo_PNG.png"
+          width="16">
+        <span>Followers:</span> <span id="fb-count">—</span>
+      </div>
+      <div class="follower-block">
+        <img src="https://upload.wikimedia.org/wikipedia/commons/a/a5/Instagram_icon.png" width="16">
+        <span>Followers:</span> <span id="ig-count">—</span>
+      </div>
+    </div>
 
     <button type="submit" id="upload-btn" class="disabled-btn" disabled>Upload</button>
     <progress id="progress" value="0" max="100" style="display: none"></progress>
@@ -345,28 +343,34 @@
       }
     }
 
-    function maybeEnableUpload() {
-      const uploadBtn = document.getElementById("upload-btn");
-      const gate = document.getElementById("follow-gate");
 
-      if (localStorage.getItem("followed") === "true") {
-        uploadBtn.disabled = false;
-        uploadBtn.classList.remove("disabled-btn");
-        gate.innerHTML = '<p style="color: green; font-weight: bold;">✅ You can now upload.</p>';
-        return;
-      }
+  function maybeEnableUpload() {
+    const uploadBtn = document.getElementById("upload-btn");
+    const gate = document.getElementById("follow-gate");
 
-      // Replace buttons with new ones that use inline onclick to set localStorage before navigating
+    const followed = localStorage.getItem("followed") === "true";
+
+    if (followed) {
+      uploadBtn.disabled = false;
+      uploadBtn.classList.remove("disabled-btn");
+
+      // Replace gate with just confirmation message
+      gate.innerHTML = '<p style="color: green; font-weight: bold;">✅ You can now upload.</p>';
+    } else {
+      // Restore original follow gate with tracking
       gate.innerHTML = `
-    <p style="font-size: 1rem; color: #c96161">
-      🎁 <strong>Follow us on Facebook or Instagram to enter the raffle.</strong>
-    </p>
-    <div style="display: flex; justify-content: center; gap: 1rem">
-      <a href="#" onclick="localStorage.setItem('followed','true'); window.location.href='https://www.instagram.com/90_surge'; return false;" class="follow-btn">Instagram</a>
-      <a href="#" onclick="localStorage.setItem('followed','true'); window.location.href='https://www.facebook.com/90surge'; return false;" class="follow-btn">Facebook</a>
-    </div>
-  `;
+        <p style="font-size: 1rem; color: #c96161">
+          🎁 <strong>Follow us on Facebook or Instagram to enter the raffle.</strong>
+        </p>
+        <div style="display: flex; justify-content: center; gap: 1rem">
+          <a href="#" onclick="localStorage.setItem('followed','true'); localStorage.setItem('followedTime', Date.now()); window.location.href='https://www.instagram.com/90_surge'; return false;" class="follow-btn">Instagram</a>
+          <a href="#" onclick="localStorage.setItem('followed','true'); localStorage.setItem('followedTime', Date.now()); window.location.href='https://www.facebook.com/90surge'; return false;" class="follow-btn">Facebook</a>
+        </div>
+      `;
     }
+  }
+
+
 
     checkUploadWindow().then(() => {
       if (isWindowOpen) maybeEnableUpload();
@@ -398,7 +402,6 @@
       progress.value = 0;
       message.style.color = "#999";
       message.textContent = "⏳ Uploading...";
-
       try {
         const res = await fetch("/api/upload-resumable", {
           method: "POST",
@@ -412,7 +415,12 @@
         message.textContent = "✅ Upload successful!";
         fileInput.value = "";
         progress.style.display = "none";
-        loadGallery();
+
+        // ✅ Optional: add a quick visual "refreshing" indicator
+        const gallery = document.getElementById("gallery");
+        const originalContent = gallery.innerHTML;
+        await loadGallery(); // this already checks for and only adds new cards
+
       } catch (err) {
         message.style.color = "red";
         message.textContent = "❌ Upload error.";
@@ -432,6 +440,22 @@
     }
 
 
+  </script>
+  <script>
+    // If user returns within 60 seconds after clicking follow, auto-reload once
+    const followedTime = localStorage.getItem("followedTime");
+    const lastVisit = parseInt(followedTime || "0", 10);
+    const now = Date.now();
+
+    if (now - lastVisit < 60000 && !localStorage.getItem("reloadOnce")) {
+      localStorage.setItem("reloadOnce", "true");
+      location.reload();
+    }
+
+    // After reload, clear reload flag
+    window.addEventListener("load", () => {
+      localStorage.removeItem("reloadOnce");
+    });
   </script>
   <script>
     function getVotedImageIds() {
@@ -670,6 +694,22 @@
     setInterval(checkVoteReset, 10000); // check every 10 seconds
   </script>
 
+<script>
+  // Soft-refresh upload button if user returns after following
+  const followedTime = parseInt(localStorage.getItem("followedTime") || "0", 10);
+  const now = Date.now();
+  const alreadyChecked = localStorage.getItem("softRefreshDone");
+
+  if (now - followedTime < 60000 && !alreadyChecked) {
+    maybeEnableUpload();
+    localStorage.setItem("softRefreshDone", "true");
+  }
+
+  // Reset flag if more than 5 min has passed
+  if (now - followedTime > 300000) {
+    localStorage.removeItem("softRefreshDone");
+  }
+</script>
 
 </body>
 

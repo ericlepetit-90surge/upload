@@ -269,24 +269,30 @@ if (method === 'GET' && action === 'social-counts') {
     }
   }
 
-  // ----------------- RESET ALL VOTES -----------------
-    if (action === 'reset-votes' && req.method === 'POST') {
-    try {
-      if (!redis) return res.status(500).json({ error: 'Redis not initialized' });
-
-      const keys = await redis.keys('votes:*');
-      if (keys.length > 0) {
-        await redis.del(keys);
-      }
-
-      await redis.set('resetVotesTimestamp', Date.now().toString());
-
-      return res.json({ success: true });
-    } catch (err) {
-      console.error("🔥 reset-votes error:", err);
-      return res.status(500).json({ error: 'Failed to reset votes' });
+// ----------------- RESET ALL VOTES -----------------
+if (action === 'reset-votes' && req.method === 'POST') {
+  try {
+    const { role } = req.body;
+    if (role !== 'admin') {
+      return res.status(403).json({ error: 'Unauthorized' });
     }
+
+    if (!redis) return res.status(500).json({ error: 'Redis not initialized' });
+
+    const keys = await redis.keys('votes:*');
+    if (keys.length > 0) {
+      await redis.del(keys);
+    }
+
+    await redis.set('resetVotesTimestamp', Date.now().toString());
+
+    return res.json({ success: true });
+  } catch (err) {
+    console.error("🔥 reset-votes error:", err);
+    return res.status(500).json({ error: 'Failed to reset votes' });
   }
+}
+
 
   // ----------------- LIST FILES -----------------
   if (action === "list-drive-files" && req.method === "GET") {
