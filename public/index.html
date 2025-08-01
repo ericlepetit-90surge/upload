@@ -223,7 +223,7 @@
       }
 
       .rules h2 {
-        font-size: 1rem;
+        font-size: 2rem;
         margin-top: 0.25rem;
       }
 
@@ -246,7 +246,7 @@
       <h2 style="text-align: center;"><strong>🎉 Win a 90 Surge t-shirt! 🎉</strong></h2>
 
       <ol>
-        <li>Enter your name — best is your Instagram or Facebook handle</li>
+        <li>Enter your name below — make it unique (best is your Instagram or Facebook handle or FULL name)</li>
         <li>Follow us on <b>Facebook</b> or <b>Instagram</b> (or both if you're that cool)</li>
         <li>Upload your photo: crowd, band, selfie, dancing — show the energy!</li>
         <li>Each upload = 1 raffle entry. More entries = more chances to win!</li>
@@ -268,13 +268,8 @@
     <input type="file" id="file" name="file" accept="image/*,video/*" required />
 
     <div id="follow-gate">
-      <p style="font-size: 1rem; color: #c96161">
-        Follow us on Facebook or Instagram to enter the raffle.</strong>
-      </p>
-      <div style="display: flex; justify-content: center; gap: 1rem">
-        <a href="https://www.facebook.com/90surge" target="_blank" id="fb-btn" class="follow-btn-fb">Facebook</a>
-        <a href="https://www.instagram.com/90_surge" target="_blank" id="ig-btn" class="follow-btn-ig">Instagram</a>
-      </div>
+
+
     </div>
 
     <div class="followers-wrapper">
@@ -343,34 +338,44 @@
       }
     }
 
+    function maybeEnableUpload() {
+      const uploadBtn = document.getElementById("upload-btn");
+      const gate = document.getElementById("follow-gate");
 
-  function maybeEnableUpload() {
-    const uploadBtn = document.getElementById("upload-btn");
-    const gate = document.getElementById("follow-gate");
+      const followed = localStorage.getItem("followed") === "true";
 
-    const followed = localStorage.getItem("followed") === "true";
+      if (followed) {
+        uploadBtn.disabled = false;
+        uploadBtn.classList.remove("disabled-btn");
 
-    if (followed) {
-      uploadBtn.disabled = false;
-      uploadBtn.classList.remove("disabled-btn");
+        // Just hide the follow gate completely
+        gate.style.display = "none";
+      } else {
+        gate.style.display = "block";
+        gate.innerHTML = `
+      <p style="font-size: 1rem; color: #c96161">
+        <strong>Follow us on Facebook / Instagram to upload your image and enter the raffle.</strong>
+      </p>
+      <div style="display: flex; justify-content: center; gap: 1rem">
+  <a href="https://www.facebook.com/90surge" 
+     target="_blank" 
+     rel="noopener noreferrer"
+     class="follow-btn-fb"
+     onclick="localStorage.setItem('followed','true'); localStorage.setItem('followedTime', Date.now()); maybeEnableUpload();">
+     Facebook
+  </a>
+  <a href="https://www.instagram.com/90_surge" 
+     target="_blank" 
+     rel="noopener noreferrer"
+     class="follow-btn-ig"
+     onclick="localStorage.setItem('followed','true'); localStorage.setItem('followedTime', Date.now()); maybeEnableUpload();">
+     Instagram
+  </a>
+</div>
 
-      // Replace gate with just confirmation message
-      gate.innerHTML = '<p style="color: green; font-weight: bold;">✅ You can now upload.</p>';
-    } else {
-      // Restore original follow gate with tracking
-      gate.innerHTML = `
-        <p style="font-size: 1rem; color: #c96161">
-          🎁 <strong>Follow us on Facebook or Instagram to enter the raffle.</strong>
-        </p>
-        <div style="display: flex; justify-content: center; gap: 1rem">
-          <a href="#" onclick="localStorage.setItem('followed','true'); localStorage.setItem('followedTime', Date.now()); window.location.href='https://www.instagram.com/90_surge'; return false;" class="follow-btn">Instagram</a>
-          <a href="#" onclick="localStorage.setItem('followed','true'); localStorage.setItem('followedTime', Date.now()); window.location.href='https://www.facebook.com/90surge'; return false;" class="follow-btn">Facebook</a>
-        </div>
-      `;
+    `;
+      }
     }
-  }
-
-
 
     checkUploadWindow().then(() => {
       if (isWindowOpen) maybeEnableUpload();
@@ -441,22 +446,8 @@
 
 
   </script>
-  <script>
-    // If user returns within 60 seconds after clicking follow, auto-reload once
-    const followedTime = localStorage.getItem("followedTime");
-    const lastVisit = parseInt(followedTime || "0", 10);
-    const now = Date.now();
 
-    if (now - lastVisit < 60000 && !localStorage.getItem("reloadOnce")) {
-      localStorage.setItem("reloadOnce", "true");
-      location.reload();
-    }
 
-    // After reload, clear reload flag
-    window.addEventListener("load", () => {
-      localStorage.removeItem("reloadOnce");
-    });
-  </script>
   <script>
     function getVotedImageIds() {
       try {
@@ -475,130 +466,133 @@
     }
 
     async function loadGallery() {
-      const gallery = document.getElementById("gallery");
-      const voted = getVotedImageIds();
-      const existingCards = new Map();
+  const gallery = document.getElementById("gallery");
+  const voted = getVotedImageIds();
+  const existingCards = new Map();
 
-      gallery.querySelectorAll(".card").forEach(card => {
-        const id = card.dataset.id;
-        if (id) existingCards.set(id, card);
-      });
+  try {
+    const res = await fetch("/api/admin?action=list-drive-files");
+    const uploads = await res.json();
 
-      try {
-        const res = await fetch("/api/admin?action=list-drive-files");
-        const uploads = await res.json();
+    // Remove duplicates by file ID
+    const uniqueUploads = [];
+    const seenIds = new Set();
 
-        uploads
-          .sort((a, b) => new Date(b.createdTime) - new Date(a.createdTime))
-          .forEach((upload) => {
-            const existing = existingCards.get(upload.id);
-            if (existing) {
-              const voteInfo = existing.querySelector(".vote-info");
-              if (voteInfo) voteInfo.textContent = `👍 ${upload.votes || 0}`;
-              return;
-            }
-
-            const card = document.createElement("div");
-            card.className = "card";
-            card.dataset.id = upload.id;
-
-            const info = document.createElement("div");
-            info.className = "info";
-            info.innerHTML = `<span style="font-weight: bold;">Uploaded by:</span><br>${upload.userName ?? "Anonymous"}`;
-
-            const voteInfo = document.createElement("div");
-            voteInfo.className = "vote-info";
-            voteInfo.style.textAlign = "center";
-            voteInfo.style.marginBottom = "0.25rem";
-            voteInfo.textContent = `👍 ${upload.votes || 0}`;
-
-            const upvoteBtn = document.createElement("button");
-            upvoteBtn.textContent = voted.includes(upload.id) ? "Voted" : "Upvote";
-            upvoteBtn.disabled = voted.includes(upload.id);
-            upvoteBtn.style.margin = "0.5rem auto";
-            upvoteBtn.style.display = "block";
-            upvoteBtn.style.padding = "0.4rem 1rem";
-            upvoteBtn.style.border = "none";
-            upvoteBtn.style.borderRadius = "8px";
-            upvoteBtn.style.fontWeight = "bold";
-            upvoteBtn.style.background = voted.includes(upload.id) ? "#444" : "#e91e63";
-            upvoteBtn.style.color = "#fff";
-
-            upvoteBtn.addEventListener("click", async () => {
-              if (voted.includes(upload.id)) return; // Already voted for this image
-
-              // Optimistically disable to prevent rapid-fire clicks
-              upvoteBtn.disabled = true;
-              upvoteBtn.textContent = "⏳ Voting...";
-              upvoteBtn.style.background = "#888";
-
-              try {
-                const res = await fetch("/api/admin?action=upvote", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ fileId: upload.id }),
-                });
-
-                const result = await res.json();
-                if (result.success) {
-                  voteInfo.textContent = `👍 ${result.votes}`;
-                  markImageVoted(upload.id);
-
-                  upvoteBtn.textContent = "✅ Voted";
-                  upvoteBtn.style.background = "#444";
-                } else {
-                  throw new Error("Vote failed");
-                }
-              } catch (err) {
-                alert("Voting failed. Try again.");
-                console.error(err);
-
-                // Re-enable for retry
-                upvoteBtn.disabled = false;
-                upvoteBtn.textContent = "Upvote";
-                upvoteBtn.style.background = "#e91e63";
-              }
-            });
-
-
-            let media;
-            // Lazy-load full image, blurred with CSS until loaded
-            const wrapper = document.createElement("div");
-            wrapper.style.position = "relative";
-
-            const img = document.createElement("img");
-            img.src = upload.fileUrl;
-            img.loading = "lazy";
-            img.style.cursor = "pointer";
-            img.style.maxHeight = "220px";
-            img.style.width = "100%";
-            img.style.objectFit = "cover";
-            img.style.filter = "blur(8px)";
-            img.style.transition = "filter 0.5s";
-
-            img.addEventListener("load", () => {
-              img.style.filter = "none";
-            });
-
-            img.addEventListener("click", () => {
-              const modal = document.getElementById("imageModal");
-              document.getElementById("fullImage").src = upload.fileUrl;
-              modal.classList.remove("hidden");
-            });
-
-            wrapper.appendChild(img);
-            media = wrapper;
-
-            card.appendChild(media);
-            card.appendChild(info);
-            card.appendChild(voteInfo);
-            card.appendChild(upvoteBtn);
-            gallery.appendChild(card);
-          });
-      } catch (err) {
-        console.error("Failed to load gallery", err);
+    for (const u of uploads) {
+      if (!seenIds.has(u.id)) {
+        uniqueUploads.push(u);
+        seenIds.add(u.id);
       }
     }
+
+    gallery.querySelectorAll(".card").forEach(card => {
+      const id = card.dataset.id;
+      if (id) existingCards.set(id, card);
+    });
+
+    uniqueUploads
+      .sort((a, b) => new Date(b.createdTime) - new Date(a.createdTime))
+      .forEach((upload) => {
+        const existing = existingCards.get(upload.id);
+        if (existing) {
+          const voteInfo = existing.querySelector(".vote-info");
+          if (voteInfo) voteInfo.textContent = `👍 ${upload.votes || 0}`;
+          return;
+        }
+
+        const card = document.createElement("div");
+        card.className = "card";
+        card.dataset.id = upload.id;
+
+        const info = document.createElement("div");
+        info.className = "info";
+        info.innerHTML = `<span style="font-weight: bold;">Uploaded by:</span><br>${upload.userName ?? "Anonymous"}`;
+
+        const voteInfo = document.createElement("div");
+        voteInfo.className = "vote-info";
+        voteInfo.style.textAlign = "center";
+        voteInfo.style.marginBottom = "0.25rem";
+        voteInfo.textContent = `👍 ${upload.votes || 0}`;
+
+        const upvoteBtn = document.createElement("button");
+        upvoteBtn.textContent = voted.includes(upload.id) ? "Voted" : "Upvote";
+        upvoteBtn.disabled = voted.includes(upload.id);
+        upvoteBtn.style.margin = "0.5rem auto";
+        upvoteBtn.style.display = "block";
+        upvoteBtn.style.padding = "0.4rem 1rem";
+        upvoteBtn.style.border = "none";
+        upvoteBtn.style.borderRadius = "8px";
+        upvoteBtn.style.fontWeight = "bold";
+        upvoteBtn.style.background = voted.includes(upload.id) ? "#444" : "#e91e63";
+        upvoteBtn.style.color = "#fff";
+
+        upvoteBtn.addEventListener("click", async () => {
+          if (voted.includes(upload.id)) return;
+
+          upvoteBtn.disabled = true;
+          upvoteBtn.textContent = "⏳ Voting...";
+          upvoteBtn.style.background = "#888";
+
+          try {
+            const res = await fetch("/api/admin?action=upvote", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ fileId: upload.id }),
+            });
+
+            const result = await res.json();
+            if (result.success) {
+              voteInfo.textContent = `👍 ${result.votes}`;
+              markImageVoted(upload.id);
+              upvoteBtn.textContent = "✅ Voted";
+              upvoteBtn.style.background = "#444";
+            } else {
+              throw new Error("Vote failed");
+            }
+          } catch (err) {
+            alert("Voting failed. Try again.");
+            console.error(err);
+            upvoteBtn.disabled = false;
+            upvoteBtn.textContent = "Upvote";
+            upvoteBtn.style.background = "#e91e63";
+          }
+        });
+
+        const wrapper = document.createElement("div");
+        wrapper.style.position = "relative";
+
+        const img = document.createElement("img");
+        img.src = upload.fileUrl;
+        img.loading = "lazy";
+        img.style.cursor = "pointer";
+        img.style.maxHeight = "220px";
+        img.style.width = "100%";
+        img.style.objectFit = "cover";
+        img.style.filter = "blur(8px)";
+        img.style.transition = "filter 0.5s";
+
+        img.addEventListener("load", () => {
+          img.style.filter = "none";
+        });
+
+        img.addEventListener("click", () => {
+          const modal = document.getElementById("imageModal");
+          document.getElementById("fullImage").src = upload.fileUrl;
+          modal.classList.remove("hidden");
+        });
+
+        wrapper.appendChild(img);
+        card.appendChild(wrapper);
+        card.appendChild(info);
+        card.appendChild(voteInfo);
+        card.appendChild(upvoteBtn);
+        gallery.appendChild(card);
+      });
+  } catch (err) {
+    console.error("Failed to load gallery", err);
+  }
+}
+
 
     setHeadline();
     loadGallery();
@@ -694,22 +688,38 @@
     setInterval(checkVoteReset, 10000); // check every 10 seconds
   </script>
 
-<script>
-  // Soft-refresh upload button if user returns after following
-  const followedTime = parseInt(localStorage.getItem("followedTime") || "0", 10);
-  const now = Date.now();
-  const alreadyChecked = localStorage.getItem("softRefreshDone");
+  <script>
+    function waitForFollowGateAndEnable() {
+      const gate = document.getElementById("follow-gate");
+      if (gate) {
+        maybeEnableUpload();
+      } else {
+        setTimeout(waitForFollowGateAndEnable, 100);
+      }
+    }
 
-  if (now - followedTime < 60000 && !alreadyChecked) {
-    maybeEnableUpload();
-    localStorage.setItem("softRefreshDone", "true");
-  }
+    window.addEventListener("load", () => {
+      const followedTimeRaw = localStorage.getItem("followedTime");
+      const lastRefresh = localStorage.getItem("softRefreshDone");
 
-  // Reset flag if more than 5 min has passed
-  if (now - followedTime > 300000) {
-    localStorage.removeItem("softRefreshDone");
-  }
-</script>
+      const followedTime = parseInt(followedTimeRaw || "0", 10);
+      const now = Date.now();
+
+      const within1Min = now - followedTime < 60000;
+
+      if (within1Min && !lastRefresh) {
+        console.log("🔄 Soft-refresh triggered");
+        waitForFollowGateAndEnable();
+        localStorage.setItem("softRefreshDone", "true");
+      }
+
+      // For testing: allow refresh to re-trigger every 5 minutes
+      if (now - followedTime > 5 * 60 * 1000) {
+        localStorage.removeItem("softRefreshDone");
+      }
+    });
+  </script>
+
 
 </body>
 

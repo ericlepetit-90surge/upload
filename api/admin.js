@@ -198,12 +198,6 @@ export default async function handler(req, res) {
     if (role !== "admin") {
       return res.status(403).json({ error: "Unauthorized" });
     }
-if (method === 'GET' && action === 'social-counts') {
-    return res.status(200).json({
-      facebook: { followers: 1234 },
-      instagram: { followers: 5678 },
-    });
-  }
 
     try {
       if (!isLocal) {
@@ -269,30 +263,27 @@ if (method === 'GET' && action === 'social-counts') {
     }
   }
 
-// ----------------- RESET ALL VOTES -----------------
-if (action === 'reset-votes' && req.method === 'POST') {
-  try {
-    const { role } = req.body;
-    if (role !== 'admin') {
-      return res.status(403).json({ error: 'Unauthorized' });
+  // ----------------- RESET ALL VOTES -----------------
+  if (action === "reset-votes" && req.method === "POST") {
+    try {
+      const { role } = req.body;
+      if (role !== "admin") {
+        return res.status(403).json({ error: "Unauthorized" });
+      }
+
+      const keys = await redis.keys("votes:*");
+      if (keys.length > 0) {
+        await redis.del(keys);
+      }
+
+      await redis.set("resetVotesTimestamp", Date.now().toString());
+
+      return res.json({ success: true });
+    } catch (err) {
+      console.error("🔥 reset-votes error:", err);
+      return res.status(500).json({ error: "Failed to reset votes" });
     }
-
-    if (!redis) return res.status(500).json({ error: 'Redis not initialized' });
-
-    const keys = await redis.keys('votes:*');
-    if (keys.length > 0) {
-      await redis.del(keys);
-    }
-
-    await redis.set('resetVotesTimestamp', Date.now().toString());
-
-    return res.json({ success: true });
-  } catch (err) {
-    console.error("🔥 reset-votes error:", err);
-    return res.status(500).json({ error: 'Failed to reset votes' });
   }
-}
-
 
   // ----------------- LIST FILES -----------------
   if (action === "list-drive-files" && req.method === "GET") {
@@ -303,10 +294,31 @@ if (action === 'reset-votes' && req.method === 'POST') {
         fields: "files(id, name, mimeType, createdTime)",
       });
 
+      let uploads = [];
+
+      if (!isLocal) {
+        try {
+          const raw = await redis.lRange("uploads", 0, -1);
+          uploads = raw.map((entry) => JSON.parse(entry));
+        } catch (err) {
+          console.warn("⚠️ Failed to fetch uploads from Redis:", err);
+        }
+      } else {
+        try {
+          if (fs.existsSync(uploadsPath)) {
+            uploads = JSON.parse(fs.readFileSync(uploadsPath, "utf8"));
+          }
+        } catch (err) {
+          console.warn("⚠️ Failed to read uploads.json:", err);
+        }
+      }
+
       const files = await Promise.all(
         resp.data.files.map(async (file) => {
-          const fullName =
-            file.name?.split("_")?.slice(0, -2).join("_") || "Unknown";
+          const matchingMeta = uploads.find((u) => u.driveFileId === file.id);
+          const fullName = matchingMeta?.name ?? matchingMeta?.userName ?? "Anonymous";
+
+
           let votes = 0;
           try {
             votes = (await redis.get(`votes:${file.id}`)) || 0;
@@ -333,38 +345,47 @@ if (action === 'reset-votes' && req.method === 'POST') {
     }
   }
 
-    // ----------------- CHECK RESET -----------------
-  if (action === 'check-reset' && req.method === 'GET') {
+  // ----------------- CHECK RESET -----------------
+  if (action === "check-reset" && req.method === "GET") {
     try {
-      const resetTimestamp = await redis.get('resetVotesTimestamp');
+      const resetTimestamp = await redis.get("resetVotesTimestamp");
       return res.json({ resetTimestamp });
     } catch (err) {
       console.error("🔥 check-reset error:", err);
-      return res.status(500).json({ error: 'Failed to check reset timestamp' });
+      return res.status(500).json({ error: "Failed to check reset timestamp" });
     }
   }
-// ----------------- SOCIAL COUNTS -----------------
-if (action === 'followers' && req.method === 'GET') {
-  try {
-    const token = process.env.FB_PAGE_TOKEN;
-    const fbPageId = process.env.FB_PAGE_ID;
-    const igAccountId = process.env.IG_ACCOUNT_ID;
 
-    const fbRes = await fetch(`https://graph.facebook.com/v19.0/${fbPageId}?fields=fan_count&access_token=${token}`);
-    const fbJson = await fbRes.json();
-
-    const igRes = await fetch(`https://graph.facebook.com/v19.0/${igAccountId}?fields=followers_count&access_token=${token}`);
-    const igJson = await igRes.json();
-
-    return res.json({
-      facebook: fbJson.fan_count || 0,
-      instagram: igJson.followers_count || 0,
+  // ----------------- SOCIAL COUNTS (Mock) -----------------
+  if (action === "social-counts" && req.method === "GET") {
+    return res.status(200).json({
+      facebook: { followers: 1234 },
+      instagram: { followers: 5678 },
     });
-  } catch (err) {
-    console.error("🔥 followers fetch error:", err);
-    return res.status(500).json({ error: "Failed to fetch follower counts" });
   }
-}
+
+  // ----------------- REAL SOCIAL FOLLOWER COUNTS -----------------
+  if (action === "followers" && req.method === "GET") {
+    try {
+      const token = process.env.FB_PAGE_TOKEN;
+      const fbPageId = process.env.FB_PAGE_ID;
+      const igAccountId = process.env.IG_ACCOUNT_ID;
+
+      const fbRes = await fetch(`https://graph.facebook.com/v19.0/${fbPageId}?fields=fan_count&access_token=${token}`);
+      const fbJson = await fbRes.json();
+
+      const igRes = await fetch(`https://graph.facebook.com/v19.0/${igAccountId}?fields=followers_count&access_token=${token}`);
+      const igJson = await igRes.json();
+
+      return res.json({
+        facebook: fbJson.fan_count || 0,
+        instagram: igJson.followers_count || 0,
+      });
+    } catch (err) {
+      console.error("🔥 followers fetch error:", err);
+      return res.status(500).json({ error: "Failed to fetch follower counts" });
+    }
+  }
 
   res.status(400).json({ error: "Invalid action" });
 }

@@ -21,6 +21,14 @@ module.exports.config = {
   api: { bodyParser: false },
 };
 
+// ✅ Utility to sanitize file names
+function sanitizeFileName(name) {
+  return name
+    .replace(/[^\w.\- ]+/g, '')  // Remove special characters
+    .replace(/\s+/g, '_')        // Replace spaces with underscores
+    .substring(0, 100);          // Trim length
+}
+
 module.exports = async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).end("Method Not Allowed");
 
@@ -32,16 +40,19 @@ module.exports = async function handler(req, res) {
       return res.status(400).json({ error: "Failed to parse form data" });
     }
 
-    const userName = Array.isArray(fields.userName)
+    const userNameRaw = Array.isArray(fields.userName)
       ? fields.userName[0]?.toString().trim()
       : fields.userName?.toString().trim();
 
     const file = Array.isArray(files.file) ? files.file[0] : files.file;
 
-    if (!userName || !file) {
+    if (!userNameRaw || !file) {
       console.error("❌ Missing userName or file");
       return res.status(400).json({ error: "Missing userName or file" });
     }
+
+    const userName = sanitizeFileName(userNameRaw);
+    const originalFileName = sanitizeFileName(file.originalFilename || file.name || "upload");
 
     const filePath = file?.filepath || file?.path;
     if (!filePath) {
@@ -49,8 +60,7 @@ module.exports = async function handler(req, res) {
       return res.status(400).json({ error: "Invalid file upload" });
     }
 
-    const safeName = userName.replace(/[^a-z0-9_-]/gi, "_");
-    const fileName = `${safeName}_${Date.now()}_${file.originalFilename || file.name}`;
+    const fileName = `${userName}_${Date.now()}_${originalFileName}`;
     const mimeType = file.mimetype || mime.lookup(filePath) || "application/octet-stream";
     const fileSize = fs.statSync(filePath).size;
 
@@ -107,10 +117,10 @@ module.exports = async function handler(req, res) {
         requestBody: { role: "reader", type: "anyone" },
       });
 
-      // 5. Save metadata to /api/save-upload-metadata
+      // 5. Save metadata
       const saveRes = await axios.post(
         `${req.headers.origin || "http://localhost:3000"}/api/save-upload-metadata`,
-        { userName, driveFileId: fileId, mimeType },
+        { userName: userNameRaw, driveFileId: fileId, mimeType },
         { headers: { "Content-Type": "application/json" } }
       );
 
