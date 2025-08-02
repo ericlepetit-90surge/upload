@@ -2,9 +2,6 @@
 const { google } = require("googleapis");
 const path = require("path");
 const fs = require("fs");
-const formidable = require("formidable");
-const mime = require("mime-types");
-const axios = require("axios");
 
 const oauthPath = path.join(process.cwd(), "oauth-client.json");
 const oauthClient = JSON.parse(fs.readFileSync(oauthPath, "utf8"));
@@ -18,7 +15,7 @@ const oauth2Client = new google.auth.OAuth2(
 oauth2Client.setCredentials(tokenData);
 
 module.exports.config = {
-  api: { bodyParser: false },
+  api: { bodyParser: true }, // allow JSON
 };
 
 function sanitizeFileName(name) {
@@ -30,127 +27,55 @@ function sanitizeFileName(name) {
 
 module.exports = async function handler(req, res) {
   if (req.method !== "POST") {
-    return res.status(405).end("Method Not Allowed");
+    return res.status(405).json({ error: "Method Not Allowed" });
   }
 
-  const form = new formidable.IncomingForm({ keepExtensions: true });
+  const { fileName, mimeType, userName } = req.body;
 
-  form.parse(req, async (err, fields, files) => {
-    console.log("📥 Incoming form parse");
-    console.log("FIELDS:", fields);
-    console.log("FILES:", files);
+  if (!fileName || !mimeType || !userName) {
+    return res.status(400).json({ error: "Missing fileName, mimeType, or userName" });
+  }
 
-    if (err) {
-      console.error("❌ Form parse error:", err);
-      return res.status(400).json({ error: "Failed to parse form data" });
-    }
+  try {
+    const { token } = await oauth2Client.getAccessToken();
+    if (!token) throw new Error("No access token");
 
-    const userNameRaw = Array.isArray(fields.userName)
-      ? fields.userName[0]?.toString().trim()
-      : fields.userName?.toString().trim();
+    const cleanFileName = sanitizeFileName(`${userName}_${Date.now()}_${fileName}`);
 
-    const file = Array.isArray(files.file) ? files.file[0] : files.file;
+    // Start resumable upload session
+    const drive = google.drive({ version: "v3", auth: oauth2Client });
 
-    if (!userNameRaw || !file) {
-      console.error("❌ Missing userName or file");
-      return res.status(400).json({ error: "Missing userName or file" });
-    }
+    const fileMetadata = {
+      name: cleanFileName,
+      mimeType,
+      parents: [process.env.GOOGLE_DRIVE_FOLDER_ID],
+    };
 
-    const userName = sanitizeFileName(userNameRaw);
-    const originalFileName = sanitizeFileName(file.originalFilename || file.name || "upload");
-    const filePath = file?.filepath || file?.path;
-
-    if (!filePath) {
-      console.error("❌ Filepath missing:", file);
-      return res.status(400).json({ error: "Invalid file upload" });
-    }
-
-    const fileName = `${userName}_${Date.now()}_${originalFileName}`;
-    const mimeType = file.mimetype || mime.lookup(filePath) || "application/octet-stream";
-    const fileSize = fs.statSync(filePath).size;
-
-    console.log("🧾 Prepared Upload Info:");
-    console.log("👤 userNameRaw:", userNameRaw);
-    console.log("📄 fileName:", fileName);
-    console.log("📁 mimeType:", mimeType);
-    console.log("📦 fileSize:", fileSize);
-    console.log("📂 Folder ID:", process.env.GOOGLE_DRIVE_FOLDER_ID);
-
-    try {
-      const { token } = await oauth2Client.getAccessToken();
-      if (!token) throw new Error("No access token");
-
-      console.log("🔐 Using access token:", token.slice(0, 20) + "...");
-
-      // Start resumable upload session
-      const sessionRes = await axios.post(
-        "https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable",
-        {
-          name: fileName,
+    const resUpload = await drive.files.create(
+      {
+        requestBody: fileMetadata,
+        media: {
           mimeType,
-          parents: [process.env.GOOGLE_DRIVE_FOLDER_ID],
+          body: null, // No file yet
         },
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-            "X-Upload-Content-Type": mimeType,
-          },
-        }
-      );
-
-      const uploadUrl = sessionRes.headers.location;
-      if (!uploadUrl) {
-        console.error("❌ No upload URL returned");
-        return res.status(500).json({ error: "Failed to get upload URL" });
-      }
-
-      console.log("✅ Upload URL:", uploadUrl);
-
-      // Upload the file
-      const fileStream = fs.createReadStream(filePath);
-      await axios.put(uploadUrl, fileStream, {
+        fields: "id",
+      },
+      {
         headers: {
-          "Content-Length": fileSize,
-          "Content-Type": mimeType,
+          "X-Upload-Content-Type": mimeType,
         },
-        maxContentLength: Infinity,
-        maxBodyLength: Infinity,
-      });
-
-      // Get uploaded file ID
-      const drive = google.drive({ version: "v3", auth: oauth2Client });
-      const listRes = await drive.files.list({
-        q: `name='${fileName}' and '${process.env.GOOGLE_DRIVE_FOLDER_ID}' in parents`,
-        fields: "files(id)",
-        orderBy: "createdTime desc",
-        pageSize: 1,
-      });
-
-      const fileId = listRes.data.files[0]?.id;
-      if (!fileId) throw new Error("Could not retrieve uploaded file ID");
-
-      // Make the file public
-      await drive.permissions.create({
-        fileId,
-        requestBody: { role: "reader", type: "anyone" },
-      });
-
-      // Save metadata
-      const saveRes = await axios.post(
-        `${req.headers.origin || "http://localhost:3000"}/api/save-upload-metadata`,
-        { userName: userNameRaw, driveFileId: fileId, mimeType },
-        { headers: { "Content-Type": "application/json" } }
-      );
-
-      if (!saveRes.data.success) {
-        console.warn("⚠️ Metadata save failed:", saveRes.data);
       }
+    );
 
-      return res.status(200).json({ success: true, driveFileId: fileId });
-    } catch (err) {
-      console.error("🔥 Upload error:", err.response?.data || err.message || err);
-      return res.status(500).json({ error: "Upload failed" });
+    const uploadUrl = resUpload?.headers?.location;
+
+    if (!uploadUrl) {
+      return res.status(500).json({ error: "Failed to obtain upload URL" });
     }
-  });
+
+    res.status(200).json({ uploadUrl });
+  } catch (err) {
+    console.error("🔥 Error creating resumable upload URL:", err.message || err);
+    res.status(500).json({ error: "Upload session creation failed" });
+  }
 };

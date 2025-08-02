@@ -385,63 +385,67 @@
   const message = document.getElementById("message");
 
   form.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    message.textContent = "";
+  e.preventDefault();
+  message.textContent = "";
 
-    const fileInput = document.getElementById("file");
-    const nameInput = document.getElementById("name");
-    const progress = document.getElementById("progress");
-    const file = fileInput.files[0];
-    const userName = nameInput.value.trim();
+  const fileInput = document.getElementById("file");
+  const nameInput = document.getElementById("name");
+  const progress = document.getElementById("progress");
+  const file = fileInput.files[0];
+  const userName = nameInput.value.trim();
 
-    if (!file || !userName) {
-      message.textContent = "Name and file are required.";
-      return;
-    }
+  if (!file || !userName) {
+    message.textContent = "Name and file are required.";
+    return;
+  }
 
-    const maxSize = 15 * 1024 * 1024; // 15 MB
-    if (file.size > maxSize) {
-      message.textContent = "❌ File too large. Max size is 15MB.";
-      message.style.color = "red";
-      return;
-    }
+  progress.style.display = "block";
+  progress.value = 0;
+  message.style.color = "#999";
+  message.textContent = "⏳ Uploading...";
 
-    progress.style.display = "block";
-    progress.value = 0;
-    message.style.color = "#999";
-    message.textContent = "⏳ Uploading...";
+  try {
+    // Step 1: send metadata only
+    const metaRes = await fetch("/api/upload-resumable", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        fileName: file.name,
+        mimeType: file.type,
+        userName,
+      }),
+    });
 
-    try {
-      const formData = new FormData();
-      formData.append("file", file);
-      formData.append("userName", userName);
+    const { uploadUrl } = await metaRes.json();
 
-      const res = await fetch("/api/upload-resumable", {
-        method: "POST",
-        body: formData,
-      });
+    if (!uploadUrl) throw new Error("Invalid upload URL response");
 
-      const data = await res.json();
+    // Step 2: upload file directly to Google Drive
+    const uploadRes = await fetch(uploadUrl, {
+      method: "PUT",
+      headers: {
+        "Content-Type": file.type,
+        "Content-Length": file.size,
+      },
+      body: file,
+    });
 
-      if (!res.ok || !data.success) {
-        throw new Error("Upload failed");
-      }
+    if (!uploadRes.ok) throw new Error("Upload failed");
 
-      message.style.color = "green";
-      message.textContent = "✅ Upload successful!";
-      fileInput.value = "";
-      progress.style.display = "none";
-      await loadGallery();
-    } catch (err) {
-      console.error(err);
-      message.style.color = "red";
-      message.textContent = "❌ Upload error.";
-      progress.style.display = "none";
-    }
-  });
-  </script>
+    message.style.color = "green";
+    message.textContent = "✅ Upload successful!";
+    fileInput.value = "";
+    progress.style.display = "none";
+    await loadGallery(); // refresh user's view
+  } catch (err) {
+    console.error(err);
+    message.style.color = "red";
+    message.textContent = "❌ Upload error.";
+    progress.style.display = "none";
+  }
+});
 
-  <script>
+
     function getVotedImageIds() {
       try {
         return JSON.parse(localStorage.getItem("votedImages") || "[]");
