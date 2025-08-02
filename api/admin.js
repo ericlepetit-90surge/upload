@@ -388,6 +388,39 @@ console.log("✅ Matched metadata:", matchingMeta);
       return res.status(500).json({ error: "Failed to fetch follower counts" });
     }
   }
+  // ----------------- SAVE UPLOAD METADATA -----------------
+  if (action === "save-upload" && req.method === "POST") {
+    try {
+      const { fileId, fileName, mimeType, userName } = req.body;
+      if (!fileId || !mimeType || !userName) {
+        console.warn("❌ Missing userName or fileId", req.body);
+        return res.status(400).json({ error: "Missing userName or fileId" });
+      }
+
+      const uploadData = {
+        userName,
+        driveFileId: fileId,
+        mimeType,
+        timestamp: Date.now(),
+      };
+
+      if (isLocal) {
+        let uploads = [];
+        if (fs.existsSync(uploadsPath)) {
+          uploads = JSON.parse(fs.readFileSync(uploadsPath, "utf8"));
+        }
+        uploads.push(uploadData);
+        fs.writeFileSync(uploadsPath, JSON.stringify(uploads, null, 2));
+      } else {
+        await redis.rPush("uploads", JSON.stringify(uploadData));
+      }
+
+      return res.status(200).json({ success: true });
+    } catch (err) {
+      console.error("🔥 save-upload error:", err);
+      return res.status(500).json({ error: "Failed to save metadata" });
+    }
+  }
 
   res.status(400).json({ error: "Invalid action" });
 }

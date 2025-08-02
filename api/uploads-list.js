@@ -31,7 +31,7 @@ module.exports = function handler(req, res) {
       const type = mimeType?.startsWith('video/') ? 'video' : 'image';
 
       return {
-        name: name || 'Anonymous',
+        userName: userName || 'Anonymous',
         fileUrl,
         type,
         timestamp

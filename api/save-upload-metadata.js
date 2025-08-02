@@ -1,4 +1,3 @@
-// /api/save-upload-metadata.js
 import fs from 'fs';
 import path from 'path';
 import { createClient } from 'redis';
@@ -15,7 +14,8 @@ export default async function handler(req, res) {
   const isLocal = process.env.VERCEL_ENV !== 'production';
 
   try {
-    const { userName, driveFileId, mimeType } = req.body;
+    const { userName, fileId, fileName, mimeType } = req.body;
+const driveFileId = fileId;
 
     if (!userName || !driveFileId) {
       console.warn("Missing userName or driveFileId", req.body);
@@ -23,10 +23,11 @@ export default async function handler(req, res) {
     }
 
     const newEntry = {
-      name: userName.toString().trim(), // preserve full name
+      userName: userName.toString().trim(),
       driveFileId,
+      fileName: fileName || 'unknown',
       mimeType: mimeType || 'unknown',
-      timestamp: Date.now()
+      timestamp: Date.now(),
     };
 
     if (isLocal) {
@@ -38,12 +39,19 @@ export default async function handler(req, res) {
     } else {
       const redis = createClient({ url: process.env.REDIS_URL });
       await redis.connect();
-      await redis.rpush("uploads", JSON.stringify({
-  fileId,
+      await redis.rPush("uploads", JSON.stringify({
+        fileId: driveFileId,
+        fileName: fileName || 'unknown',
+        userName,
+        mimeType: mimeType || 'unknown',
+        createdTime: new Date().toISOString(),
+      }));
+      console.log("📦 Saved to Redis:", {
+  fileId: driveFileId,
   fileName,
-  userName, // ✅ include this!
-  createdTime: new Date().toISOString(),
-}));
+  userName,
+  mimeType,
+});
       await redis.disconnect();
     }
 

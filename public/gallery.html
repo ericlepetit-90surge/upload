@@ -80,7 +80,8 @@
 
           const info = document.createElement('div');
           info.className = 'info';
-          info.textContent = upload.name || 'Anonymous';
+          console.log(upload)
+          info.textContent = upload.userName || 'Anonymous';
 
           card.appendChild(media);
           card.appendChild(info);

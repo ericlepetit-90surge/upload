@@ -85,6 +85,14 @@ export default async function handler(req, res) {
       if (!fileId) throw new Error("No file ID returned");
 
       // Save metadata (optional, based on your system)
+
+      console.log("📤 Sending metadata:", {
+  fileId,
+  fileName: cleanFileName,
+  userName,
+  mimeType,
+});
+
       await fetch(`${req.headers.origin}/api/save-upload-metadata`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -92,6 +100,7 @@ export default async function handler(req, res) {
           fileId,
           fileName: cleanFileName,
           userName,
+          mimeType,
         }),
       });
 

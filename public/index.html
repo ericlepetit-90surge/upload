@@ -421,6 +421,18 @@
     message.style.color = "green";
     message.textContent = "✅ Upload successful!";
     fileInput.value = "";
+    // Save metadata after upload
+await fetch("/api/admin?action=save-upload", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    fileId: result.fileId, // must be returned by /api/upload-resumable
+    fileName: file.name,
+    mimeType: file.type,
+    userName,
+  }),
+});
+
     progress.style.display = "none";
     await loadGallery();
   } catch (err) {
