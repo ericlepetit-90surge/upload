@@ -1,3 +1,5 @@
+// /api/start-resumable-upload.js
+
 import { google } from "googleapis";
 import { IncomingForm } from "formidable";
 import path from "path";
@@ -49,15 +51,15 @@ export default async function handler(req, res) {
     }
 
     const userName = (fields.userName || "").toString().trim();
-    const file = files.file;
+    const file = files.file?.[0] || files.file;
 
-    if (!file || !userName) {
-      console.error("❌ Missing file or name", { file, userName });
-      return res.status(400).json({ error: "Missing file or name" });
+    if (!userName || !file) {
+      return res.status(400).json({ error: "Missing file or userName" });
     }
 
-    const fileName = `${sanitize(userName)}_${Date.now()}_${sanitize(file.originalFilename || file.name)}`;
     const mimeType = file.mimetype || "application/octet-stream";
+    const originalName = file.originalFilename || file.name || "upload.jpg";
+    const fileName = `${sanitize(userName)}_${Date.now()}_${sanitize(originalName)}`;
     const folderId = process.env.GOOGLE_DRIVE_FOLDER_ID;
 
     try {
@@ -81,15 +83,11 @@ export default async function handler(req, res) {
       );
 
       const uploadUrl = response.headers.location;
-      console.log("✅ Upload URL:", uploadUrl);
-
-      if (!uploadUrl) {
-        throw new Error("No upload URL returned from Drive");
-      }
+      if (!uploadUrl) throw new Error("No upload URL returned");
 
       return res.status(200).json({ uploadUrl, fileName });
     } catch (err) {
-      console.error("🔥 Google Drive upload session failed:", err?.response?.data || err);
+      console.error("🔥 Failed to create upload session:", err?.response?.data || err);
       return res.status(500).json({ error: "Failed to create upload session" });
     }
   });

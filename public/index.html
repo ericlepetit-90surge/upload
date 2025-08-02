@@ -403,11 +403,11 @@
   try {
     // STEP 1: Get resumable upload URL
     const startForm = new FormData();
-    startForm.append('file', file);
-    startForm.append('userName', userName);
+    startForm.append("file", file);
+    startForm.append("userName", userName);
 
-    const startRes = await fetch('/api/start-resumable-upload', {
-      method: 'POST',
+    const startRes = await fetch("/api/start-resumable-upload", {
+      method: "POST",
       body: startForm,
     });
 
@@ -416,7 +416,7 @@
       startData = await startRes.json();
     } catch (err) {
       const text = await startRes.text();
-      console.error("❌ Failed to get upload URL. Response was not JSON:", text);
+      console.error("❌ Failed to get upload URL. Not JSON:", text);
       throw new Error("Server error: " + text);
     }
 
@@ -425,29 +425,34 @@
 
     // STEP 2: Upload file via proxy
     const proxyForm = new FormData();
-    proxyForm.append('file', file);
+    proxyForm.append("file", file);
 
-    const proxyRes = await fetch('/api/upload-resumable-proxy', {
-      method: 'POST',
+    const proxyRes = await fetch("/api/upload-resumable-proxy", {
+      method: "POST",
       headers: {
-        'x-upload-url': uploadUrl,
+        "x-upload-url": uploadUrl,
       },
       body: proxyForm,
     });
 
-    if (!proxyRes.ok) {
-      const errorText = await proxyRes.text();
+    const proxyData = await proxyRes.json();
+
+    if (!proxyRes.ok || !proxyData.driveFileId) {
+      const errorText = proxyData?.error || "Unknown error";
       throw new Error("Proxy upload failed: " + errorText);
     }
 
+    const driveFileId = proxyData.driveFileId;
+
     // STEP 3: Save metadata
-    const metaRes = await fetch('/api/admin?action=save-upload', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+    const metaRes = await fetch("/api/admin?action=save-upload", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         fileName,
         mimeType: file.type,
         userName,
+        driveFileId,
       }),
     });
 
@@ -462,9 +467,7 @@
     nameInput.value = "";
     progress.value = 100;
 
-    // Reload gallery
     if (typeof loadGallery === "function") loadGallery();
-
   } catch (err) {
     console.error("❌ Upload error:", err);
     message.style.color = "red";
@@ -472,6 +475,7 @@
     progress.style.display = "none";
   }
 });
+
 
     function getVotedImageIds() {
       try {
