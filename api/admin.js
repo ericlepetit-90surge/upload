@@ -3,22 +3,12 @@ import path from "path";
 import { google } from "googleapis";
 import { createClient } from "redis";
 
-let globalForRedis = globalThis.__redis || null;
-
-if (!globalForRedis && process.env.REDIS_URL) {
-  const client = createClient({ url: process.env.REDIS_URL });
-  globalForRedis = client;
-  globalThis.__redis = client;
-  client.connect().catch(console.error);
-}
-
-const redis = globalForRedis;
-
 const ADMIN_PASS = process.env.ADMIN_PASS;
 const MODERATOR_PASS = process.env.MODERATOR_PASS;
 const uploadsPath = path.join(process.cwd(), "uploads.json");
 const folderId = process.env.GOOGLE_DRIVE_FOLDER_ID;
 
+// Setup OAuth2
 const oauthClient = JSON.parse(
   fs.readFileSync(path.join(process.cwd(), "oauth-client.json"), "utf8")
 );
@@ -31,13 +21,23 @@ const oauth2Client = new google.auth.OAuth2(
 );
 oauth2Client.setCredentials(tokenData);
 
+// Redis client
+let globalForRedis = globalThis.__redis || null;
+if (!globalForRedis && process.env.REDIS_URL) {
+  const client = createClient({ url: process.env.REDIS_URL });
+  globalForRedis = client;
+  globalThis.__redis = client;
+  client.connect().catch(console.error);
+}
+const redis = globalForRedis;
+
 export default async function handler(req, res) {
   const action = req.query.action;
-  const isLocal = true;
+  const isLocal = process.env.NODE_ENV !== "production";
 
   console.log("➡️ Incoming admin action:", req.method, action);
 
-
+  // JSON body parser for POST requests
   if (
     req.method === "POST" &&
     req.headers["content-type"]?.includes("application/json")
@@ -54,6 +54,7 @@ export default async function handler(req, res) {
     }
   }
 
+  // Login
   if (action === "login" && req.method === "POST") {
     const { password } = req.body;
     if (password === ADMIN_PASS)
@@ -63,43 +64,61 @@ export default async function handler(req, res) {
     return res.status(401).json({ success: false, error: "Invalid password" });
   }
 
-  if (action === "config" && req.method === "GET") {
-    try {
-      if (isLocal) {
-        const config = JSON.parse(
-          fs.readFileSync(path.join(process.cwd(), "config.json"), "utf8")
-        );
-        return res.status(200).json(config);
-      } else {
-        const showName = await redis.get("showName");
-        const startTime = await redis.get("startTime");
-        const endTime = await redis.get("endTime");
-        return res.status(200).json({ showName, startTime, endTime });
+  // Config load/save
+  if (action === "config") {
+    if (req.method === "GET") {
+      try {
+        if (isLocal) {
+          const config = JSON.parse(
+            fs.readFileSync(path.join(process.cwd(), "config.json"), "utf8")
+          );
+          return res.status(200).json(config);
+        } else {
+          const showName = await redis.get("showName");
+          const startTime = await redis.get("startTime");
+          const endTime = await redis.get("endTime");
+          return res.status(200).json({ showName, startTime, endTime });
+        }
+      } catch {
+        return res.status(500).json({ error: "Failed to load config" });
       }
-    } catch {
-      return res.status(500).json({ error: "Failed to load config" });
+    }
+
+    if (req.method === "POST") {
+      try {
+        const { showName, startTime, endTime } = req.body;
+        if (isLocal) {
+          fs.writeFileSync(
+            path.join(process.cwd(), "config.json"),
+            JSON.stringify({ showName, startTime, endTime }, null, 2)
+          );
+        } else {
+          await redis.set("showName", showName || "");
+          await redis.set("startTime", startTime || "");
+          await redis.set("endTime", endTime || "");
+        }
+        return res.status(200).json({ success: true });
+      } catch {
+        return res.status(500).json({ error: "Failed to save config" });
+      }
     }
   }
 
-  if (action === "config" && req.method === "POST") {
+  // Load saved winner
+  if (action === "winner" && req.method === "GET") {
     try {
-      const { showName, startTime, endTime } = req.body;
-      if (isLocal) {
-        fs.writeFileSync(
-          path.join(process.cwd(), "config.json"),
-          JSON.stringify({ showName, startTime, endTime }, null, 2)
-        );
-      } else {
-        await redis.set("showName", showName || "");
-        await redis.set("startTime", startTime || "");
-        await redis.set("endTime", endTime || "");
+      const winnerData = await redis.get("raffle_winner");
+      if (!winnerData) {
+        return res.status(200).json({ winner: null });
       }
-      return res.status(200).json({ success: true });
-    } catch {
-      return res.status(500).json({ error: "Failed to save config" });
+      return res.status(200).json({ winner: JSON.parse(winnerData) });
+    } catch (err) {
+      console.error("❌ Failed to fetch winner:", err);
+      return res.status(500).json({ error: "Failed to get winner" });
     }
   }
 
+  // Pick random winner
   if (action === "pick-winner" && req.method === "POST") {
     try {
       let allUploads = [];
@@ -123,8 +142,6 @@ export default async function handler(req, res) {
       });
 
       const liveFileIds = new Set(resp.data.files.map((f) => String(f.id)));
-
-      // Add logs for debugging
       console.log("📂 Live files on Drive:", [...liveFileIds]);
 
       const eligibleUploads = allUploads.filter((entry) => {
@@ -147,7 +164,7 @@ export default async function handler(req, res) {
 
         const fileId = entry.driveFileId || entry.fileId || entry.id;
         const voteKey = `votes:${fileId}`;
-        let count = parseInt((await redis.get(voteKey)) || "1");
+        let count = parseInt(await redis.get(voteKey));
         if (isNaN(count) || count < 1) count = 1;
 
         console.log(`🎟️ ${name} gets ${count} entries`);
@@ -179,90 +196,129 @@ export default async function handler(req, res) {
     }
   }
 
-  if (action === "winner" && req.method === "GET") {
+  // Save upload metadata
+  if (action === "save-upload" && req.method === "POST") {
     try {
-      const winnerData = await redis.get("raffle_winner");
-      if (!winnerData) {
-        return res.status(404).json({ error: "No winner yet" });
-      }
-      return res.status(200).json(JSON.parse(winnerData));
-    } catch (err) {
-      console.error("❌ Failed to fetch winner:", err);
-      return res.status(500).json({ error: "Failed to get winner" });
-    }
-  }
-
-  if (req.method === "GET" && action === "winner") {
-      console.log("🟡 GET /api/admin?action=winner hit");
-
-    try {
-      const winner = await redis.get("raffle_winner");
-      if (!winner) {
-        return res.status(404).json({ error: "No winner picked yet" });
-      }
-      return res.status(200).json({ winner: { name: JSON.parse(winner)} });
-    } catch (err) {
-      console.error("❌ Failed to fetch winner:", err);
-      return res.status(500).json({ error: "Failed to load winner" });
-    }
-  }
-
-  if (action === "delete-file" && req.method === "POST") {
-    const { fileId } = req.body;
-    if (!fileId) return res.status(400).json({ error: "Missing file ID" });
-
-    try {
-      const drive = google.drive({ version: "v3", auth: oauth2Client });
-      await drive.files.delete({ fileId });
-      return res.json({ success: true });
-    } catch {
-      return res.status(500).json({ error: "Failed to delete file" });
-    }
-  }
-
-  if (action === "dump-uploads") {
-    try {
-      if (!isLocal) {
-        const raw = await redis.lRange("uploads", 0, -1);
-        return res.json(raw.map(JSON.parse));
-      } else {
-        const fileData = fs.readFileSync(uploadsPath, "utf8");
-        return res.json(JSON.parse(fileData));
-      }
-    } catch {
-      return res.status(500).json({ error: "Failed to dump uploads" });
-    }
-  }
-
-  if (action === "clear-all" && req.method === "POST") {
-    const { role } = req.body;
-    if (role !== "admin")
-      return res.status(403).json({ error: "Unauthorized" });
-
-    try {
-      if (!isLocal) {
-        await redis.del("uploads");
-      } else {
-        fs.writeFileSync(uploadsPath, "[]");
+      const { fileName, mimeType, userName } = req.body;
+      if (!fileName || !mimeType || !userName) {
+        console.warn("❌ Missing fields:", { fileName, mimeType, userName });
+        return res.status(400).json({ error: "Missing required fields" });
       }
 
       const drive = google.drive({ version: "v3", auth: oauth2Client });
-      const result = await drive.files.list({
-        q: `'${folderId}' in parents and trashed = false`,
+      const lookup = await drive.files.list({
+        q: `name = '${fileName}' and '${folderId}' in parents and trashed = false`,
         fields: "files(id)",
       });
 
-      await Promise.all(
-        result.data.files.map((file) => drive.files.delete({ fileId: file.id }))
-      );
+      const fileId = lookup.data.files?.[0]?.id;
+      if (!fileId) {
+        return res.status(404).json({ error: "File not found on Drive" });
+      }
 
-      return res.json({ success: true });
+      try {
+        await drive.permissions.create({
+          fileId,
+          requestBody: { role: "reader", type: "anyone" },
+        });
+      } catch (err) {
+        console.warn("⚠️ Could not make file public:", err.message);
+      }
+
+      const upload = {
+        id: fileId,
+        fileId,
+        fileName,
+        mimeType,
+        userName,
+        fileUrl: `https://drive.google.com/uc?id=${fileId}`,
+        createdTime: new Date().toISOString(),
+        votes: 0,
+        count: 1,
+      };
+
+      console.log("📥 Saving upload metadata:", upload);
+
+      const existing = await redis.lRange("uploads", 0, -1);
+      const alreadyExists = existing.some((item) => {
+        try {
+          return JSON.parse(item).fileId === fileId;
+        } catch {
+          return false;
+        }
+      });
+
+      if (!alreadyExists) {
+        await redis.rPush("uploads", JSON.stringify(upload));
+        console.log("✅ Saved to Redis:", fileId);
+      } else {
+        console.log("⏩ Already exists in Redis:", fileId);
+      }
+
+      if (isLocal) {
+        const fileData = fs.existsSync(uploadsPath)
+          ? JSON.parse(fs.readFileSync(uploadsPath, "utf8"))
+          : [];
+
+        const alreadyInFile = fileData.some((item) => item.fileId === fileId);
+        if (!alreadyInFile) {
+          fileData.push(upload);
+          fs.writeFileSync(uploadsPath, JSON.stringify(fileData, null, 2));
+          console.log("💾 Also saved locally:", upload.fileName);
+        }
+      }
+
+      const voteKey = `votes:${fileId}`;
+      const existingVotes = await redis.get(voteKey);
+      if (!existingVotes) {
+        await redis.set(voteKey, "1");
+      }
+
+      return res.status(200).json({ success: true });
     } catch (err) {
-      console.error("🔥 clear-all error:", err);
-      return res.status(500).json({ error: "Failed to clear all data" });
+      console.error("❌ Failed to save upload:", err);
+      return res.status(500).json({ error: "Failed to save upload" });
     }
   }
 
+  // 🔥 Clear all uploads (super admin only)
+  if ((action === "clear" || action === "clear-all") && req.method === "POST") {
+  try {
+    const auth = req.headers.authorization || "";
+    const isSuperAdmin =
+      auth.startsWith("Bearer:super:") &&
+      auth.split("Bearer:super:")[1] === ADMIN_PASS;
+
+    if (!isSuperAdmin) {
+      console.warn("⛔ Unauthorized clear-all attempt:", auth);
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    // Clear Redis uploads
+    await redis.del("uploads");
+
+    // Delete all files in the Drive folder
+    const drive = google.drive({ version: "v3", auth: oauth2Client });
+    const list = await drive.files.list({
+      q: `'${folderId}' in parents and trashed = false`,
+      fields: "files(id)",
+    });
+
+    const deletePromises = list.data.files.map((file) =>
+      drive.files.delete({ fileId: file.id })
+    );
+    await Promise.all(deletePromises);
+
+    console.log("✅ All uploads and Drive files cleared");
+    return res.status(200).json({ success: true });
+  } catch (err) {
+    console.error("🔥 clear-all error:", err);
+    return res.status(500).json({ error: "Failed to clear all" });
+  }
+}
+
+
+  // List Google Drive files with metadata
   if (action === "list-drive-files" && req.method === "GET") {
     try {
       const drive = google.drive({ version: "v3", auth: oauth2Client });
@@ -302,91 +358,38 @@ export default async function handler(req, res) {
     }
   }
 
-  if (action === "save-upload" && req.method === "POST") {
+  // Upvote file
+  if (action === "upvote" && req.method === "POST") {
     try {
-      const { fileName, mimeType, userName } = req.body;
-      if (!fileName || !mimeType || !userName) {
-        return res.status(400).json({ error: "Missing required fields" });
-      }
+      const { fileId } = req.body;
+      if (!fileId) return res.status(400).json({ error: "Missing fileId" });
 
-      const drive = google.drive({ version: "v3", auth: oauth2Client });
-      const lookup = await drive.files.list({
-        q: `name = '${fileName}' and '${folderId}' in parents and trashed = false`,
-        fields: "files(id)",
-      });
-
-      const fileId = lookup.data.files?.[0]?.id;
-      if (!fileId) {
-        return res.status(404).json({ error: "File not found on Drive" });
-      }
-
-      try {
-        await drive.permissions.create({
-          fileId,
-          requestBody: { role: "reader", type: "anyone" },
-        });
-      } catch (err) {
-        console.warn("⚠️ Could not make file public:", err.message);
-      }
-
-      const upload = {
-        id: fileId,
-        fileId,
-        fileName,
-        mimeType,
-        userName,
-        fileUrl: `https://drive.google.com/uc?id=${fileId}`,
-        createdTime: new Date().toISOString(),
-        votes: 0,
-        count: 1, // 🟢 Raffle count starts at 1
-      };
-
-      console.log("📥 Saving upload metadata:", upload);
-
-      // Save to Redis always
-      const existing = await redis.lRange("uploads", 0, -1);
-      const alreadyExists = existing.some((item) => {
-        try {
-          return JSON.parse(item).fileId === fileId;
-        } catch {
-          return false;
-        }
-      });
-
-      if (!alreadyExists) {
-        await redis.rPush("uploads", JSON.stringify(upload));
-        console.log("✅ Saved to Redis:", fileId);
-      } else {
-        console.log("⏩ Already exists in Redis:", fileId);
-      }
-
-      // Optional: also save locally for debugging
-      if (isLocal) {
-        const fileData = fs.existsSync(uploadsPath)
-          ? JSON.parse(fs.readFileSync(uploadsPath, "utf8"))
-          : [];
-
-        const alreadyInFile = fileData.some((item) => item.fileId === fileId);
-        if (!alreadyInFile) {
-          fileData.push(upload);
-          fs.writeFileSync(uploadsPath, JSON.stringify(fileData, null, 2));
-          console.log("💾 Also saved locally:", upload.fileName);
-        }
-      }
-
-      const voteKey = `votes:${fileId}`;
-      const existingVotes = await redis.get(voteKey);
-      if (!existingVotes) {
-        await redis.set(voteKey, "0");
-      }
-
-      return res.status(200).json({ success: true, upload });
-    } catch (err) {
-      console.error("❌ Failed to save upload metadata:", err);
-      return res.status(500).json({ error: "Failed to save metadata" });
+      const key = `votes:${fileId}`;
+      const newCount = await redis.incr(key);
+      return res.json({ success: true, votes: newCount });
+    } catch {
+      return res.status(500).json({ error: "Failed to upvote" });
     }
   }
 
+  // Reset all votes
+  if (action === "reset-votes" && req.method === "POST") {
+    try {
+      const { role } = req.body;
+      if (role !== "admin")
+        return res.status(403).json({ error: "Unauthorized" });
+
+      const keys = await redis.keys("votes:*");
+      if (keys.length > 0) await redis.del(keys);
+      await redis.set("resetVotesTimestamp", Date.now().toString());
+
+      return res.json({ success: true });
+    } catch {
+      return res.status(500).json({ error: "Failed to reset votes" });
+    }
+  }
+
+  // Check reset timestamp
   if (action === "check-reset" && req.method === "GET") {
     try {
       const resetTimestamp = await redis.get("resetVotesTimestamp");
@@ -396,6 +399,7 @@ export default async function handler(req, res) {
     }
   }
 
+  // Dummy fallback follower counts
   if (action === "social-counts" && req.method === "GET") {
     return res.status(200).json({
       facebook: { followers: 1234 },
@@ -403,6 +407,7 @@ export default async function handler(req, res) {
     });
   }
 
+  // Fetch real follower counts
   if (action === "followers" && req.method === "GET") {
     try {
       const token = process.env.FB_PAGE_TOKEN;
@@ -428,34 +433,6 @@ export default async function handler(req, res) {
     }
   }
 
-  if (action === "upvote" && req.method === "POST") {
-    try {
-      const { fileId } = req.body;
-      if (!fileId) return res.status(400).json({ error: "Missing fileId" });
-
-      const key = `votes:${fileId}`;
-      const newCount = await redis.incr(key);
-      return res.json({ success: true, votes: newCount });
-    } catch {
-      return res.status(500).json({ error: "Failed to upvote" });
-    }
-  }
-
-  if (action === "reset-votes" && req.method === "POST") {
-    try {
-      const { role } = req.body;
-      if (role !== "admin")
-        return res.status(403).json({ error: "Unauthorized" });
-
-      const keys = await redis.keys("votes:*");
-      if (keys.length > 0) await redis.del(keys);
-      await redis.set("resetVotesTimestamp", Date.now().toString());
-
-      return res.json({ success: true });
-    } catch {
-      return res.status(500).json({ error: "Failed to reset votes" });
-    }
-  }
-
+  // Catch-all fallback
   return res.status(400).json({ error: "Invalid action" });
 }

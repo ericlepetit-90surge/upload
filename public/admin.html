@@ -198,11 +198,15 @@
       const data = await res.json();
       if (data.success) {
         localStorage.setItem('role', data.role);
+        if (data.role === 'admin') {
+          localStorage.setItem('adminKey', password); // ✅ only for full admin
+        }
         location.reload();
       } else {
         document.getElementById('login-error').textContent = '❌ Incorrect password';
       }
     }
+
 
     function logout() {
       localStorage.removeItem('role');
@@ -254,27 +258,27 @@
     }
 
     async function pickWinner() {
-  try {
-    const res = await fetch("/api/admin?action=pick-winner", {
-      method: "POST",
-    });
+      try {
+        const res = await fetch("/api/admin?action=pick-winner", {
+          method: "POST",
+        });
 
-    if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`Failed: ${res.status} – ${text}`);
-    }
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(`Failed: ${res.status} – ${text}`);
+        }
 
-    const data = await res.json();
-    if (data.winner) {
-      document.getElementById("winnerDisplay").textContent = `🎉 Winner: ${data.winner}`;
-    } else {
-      document.getElementById("winnerDisplay").textContent = "No entries found.";
+        const data = await res.json();
+        if (data.winner) {
+          document.getElementById("winnerDisplay").textContent = `🎉 Winner: ${data.winner}`;
+        } else {
+          document.getElementById("winnerDisplay").textContent = "No entries found.";
+        }
+      } catch (err) {
+        document.getElementById("winnerDisplay").textContent = "❌ Error picking winner";
+        console.error(err);
+      }
     }
-  } catch (err) {
-    document.getElementById("winnerDisplay").textContent = "❌ Error picking winner";
-    console.error(err);
-  }
-}
 
 
     async function loadAdminGallery() {
@@ -344,25 +348,38 @@
 
     document.getElementById('clearAllBtn')?.addEventListener('click', async () => {
       if (!confirm("Are you sure you want to delete ALL uploads and Drive files?")) return;
-
+      console.log("🔐 Sending auth:", localStorage.getItem('adminKey'));
       const res = await fetch('/api/admin?action=clear-all', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ role: localStorage.getItem('role') })
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'admin:' + localStorage.getItem('adminKey')
+        },
+        body: JSON.stringify({})
       });
 
-      const result = await res.json();
-      if (result.success) {
-        alert('✅ All uploads and Drive files cleared!');
-        location.reload();
-      } else {
-        alert('❌ Failed to clear all: ' + (result.error || 'unknown error'));
+      try {
+        const result = await res.json();
+        if (result.success) {
+          alert('✅ All uploads and Drive files cleared!');
+          location.reload();
+        } else {
+          alert('❌ Failed to clear all: ' + (result.error || 'unknown error'));
+        }
+      } catch (err) {
+        alert('❌ Failed to clear all: Invalid JSON');
+        console.error(err);
       }
     });
+
   </script>
   <script>
     document.addEventListener("DOMContentLoaded", () => {
       const role = localStorage.getItem("role");
+      if (role === 'admin' && !localStorage.getItem('adminKey')) {
+  const keyFromPrompt = prompt("Re-enter admin password to enable full access:");
+  if (keyFromPrompt) localStorage.setItem('adminKey', keyFromPrompt);
+}
 
       // Show button only for super admins
       if (role !== "admin") {

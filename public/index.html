@@ -112,6 +112,10 @@
       color: green;
     }
 
+    #winnerModal {
+  transition: opacity 0.3s ease;
+}
+
     .gallery-title {
       margin-top: 2rem;
       font-size: 1.2rem;
@@ -239,12 +243,10 @@
 </head>
 
 <body>
-
   <form id="upload-form" enctype="multipart/form-data" method="POST">
     <div class="rules">
       <h1 id="headline">90 SURGE TONIGHT</h1>
       <h2 style="text-align: center;"><strong>🎉 Win a 90 Surge t-shirt! 🎉</strong></h2>
-
       <ol>
         <li>Enter your name below — make it unique (best is your Instagram or Facebook handle or FULL name)</li>
         <li>Follow us on <b>Facebook</b> or <b>Instagram</b> (or both if you're that cool)</li>
@@ -255,11 +257,6 @@
         <li>Be cool — non-relevant uploads and entries may be deleted by our moderators</li>
       </ol>
     </div>
-
-
-
-
-
     <div style="display: flex; align-items: center; gap: 10px;">
       <label for="name" style="white-space: nowrap;">Your Name <span style="color: red">*</span>:</label>
       <input type="text" id="name" name="userName" required placeholder="Full Name" style="flex: 1;" />
@@ -267,10 +264,7 @@
 
     <input type="file" id="file" name="file" accept="image/*" required />
 
-    <div id="follow-gate">
-
-
-    </div>
+    <div id="follow-gate"></div>
 
     <div class="followers-wrapper">
       <div class="follower-block">
@@ -304,7 +298,6 @@
     <button onclick="hideWinnerModal()"
       style="margin-top:2rem; padding:0.8rem 1.5rem; font-size:1rem; background:#e91e63; border:none; color:white; border-radius:8px;">Close</button>
   </div>
-
   <script>
     async function loadFollowerCounts() {
       const res = await fetch("/api/admin?action=followers");
@@ -317,7 +310,7 @@
   </script>
 
   <script>
-    let isWindowOpen = true;
+    let isWindowOpen = false;
 
     async function checkUploadWindow() {
       try {
@@ -326,152 +319,140 @@
         const now = new Date();
         const start = new Date(config.startTime);
         const end = new Date(config.endTime);
-        if (now < start || now > end) {
+        isWindowOpen = now >= start && now <= end;
+
+        if (!isWindowOpen) {
           document.getElementById("upload-form").innerHTML = `
-              <p style="color: #e91e63; text-align: center; font-weight: bold;">
-                🚫 Uploads are currently closed.
-              </p>`;
-          isWindowOpen = false;
+          <p style="color: #e91e63; text-align: center; font-weight: bold;">
+            🚫 Uploads are currently closed.
+          </p>`;
         }
-      } catch {
-        console.warn("Failed to check config");
+      } catch (err) {
+        console.warn("Failed to check upload window", err);
       }
     }
 
     function maybeEnableUpload() {
       const uploadBtn = document.getElementById("upload-btn");
       const gate = document.getElementById("follow-gate");
-
       const followed = localStorage.getItem("followed") === "true";
+
+      if (!isWindowOpen) return;
 
       if (followed) {
         uploadBtn.disabled = false;
         uploadBtn.classList.remove("disabled-btn");
-
-        // Just hide the follow gate completely
         gate.style.display = "none";
       } else {
-        gate.style.display = "block";
         gate.innerHTML = `
-      <p style="font-size: 1rem; color: #c96161">
-        <strong>Follow us on Facebook / Instagram to upload your image and enter the raffle.</strong>
-      </p>
-      <div style="display: flex; justify-content: center; gap: 1rem">
-  <a href="https://www.facebook.com/90surge" 
-     target="_blank" 
-     rel="noopener noreferrer"
-     class="follow-btn-fb"
-     onclick="localStorage.setItem('followed','true'); localStorage.setItem('followedTime', Date.now()); maybeEnableUpload();">
-     Facebook
-  </a>
-  <a href="https://www.instagram.com/90_surge" 
-     target="_blank" 
-     rel="noopener noreferrer"
-     class="follow-btn-ig"
-     onclick="localStorage.setItem('followed','true'); localStorage.setItem('followedTime', Date.now()); maybeEnableUpload();">
-     Instagram
-  </a>
-</div>
-
-    `;
+          <p style="font-size: 1rem; color: #c96161">
+            <strong>Follow us on Facebook / Instagram to upload your image and enter the raffle.</strong>
+          </p>
+          <div style="display: flex; justify-content: center; gap: 1rem">
+            <a href="https://www.facebook.com/90surge"
+               target="_blank"
+               class="follow-btn-fb"
+               onclick="localStorage.setItem('followed','true'); localStorage.setItem('followedTime', Date.now()); maybeEnableUpload();">
+               Facebook
+            </a>
+            <a href="https://www.instagram.com/90_surge"
+               target="_blank"
+               class="follow-btn-ig"
+               onclick="localStorage.setItem('followed','true'); localStorage.setItem('followedTime', Date.now()); maybeEnableUpload();">
+               Instagram
+            </a>
+          </div>`;
+        gate.style.display = "block";
       }
     }
 
-    checkUploadWindow().then(() => {
-      if (isWindowOpen) maybeEnableUpload();
-    });
+    async function init() {
+      await checkUploadWindow();
+      maybeEnableUpload();
+      await loadFollowerCounts();
+      await setHeadline();
+      await loadGallery();
+      checkWinner();
+    }
+
+    window.addEventListener("DOMContentLoaded", init);
 
     const form = document.getElementById("upload-form");
-  const message = document.getElementById("message");
+const message = document.getElementById("message");
 
-  form.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    message.textContent = "";
+form.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  message.textContent = "";
 
-    const fileInput = document.getElementById("file");
-    const nameInput = document.getElementById("name");
-    const progress = document.getElementById("progress");
-    const file = fileInput.files[0];
-    const userName = nameInput.value.trim();
+  const fileInput = document.getElementById("file");
+  const nameInput = document.getElementById("name");
+  const progress = document.getElementById("progress");
+  const file = fileInput.files[0];
+  const userName = nameInput.value.trim();
 
-    if (!file || !userName) {
-      message.textContent = "Name and file are required.";
-      return;
-    }
+  if (!file || !userName) {
+    message.textContent = "Name and file are required.";
+    return;
+  }
 
-    progress.style.display = "block";
-    progress.value = 0;
-    message.style.color = "#999";
-    message.textContent = "⏳ Uploading...";
+  progress.style.display = "block";
+  progress.value = 0;
+  message.style.color = "#999";
+  message.textContent = "⏳ Uploading...";
 
-    try {
-      // 1. Start resumable upload session
-      const startRes = await fetch("/api/start-resumable-upload", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          fileName: file.name,
-          mimeType: file.type,
-          userName,
-        }),
-      });
+  try {
+    // STEP 1: Get resumable upload URL
+    const startForm = new FormData();
+    startForm.append('file', file);
+    startForm.append('userName', userName);
 
-      if (!startRes.ok) {
-        const errText = await startRes.text();
-        throw new Error(`Failed to start upload session: ${errText}`);
-      }
+    const startRes = await fetch('/api/start-resumable-upload', {
+      method: 'POST',
+      body: startForm,
+    });
 
-      const { uploadUrl, fileName: cleanFileName } = await startRes.json();
+    const { uploadUrl, fileName } = await startRes.json();
+    if (!uploadUrl) throw new Error("Upload URL missing");
 
-      if (!uploadUrl) {
-        throw new Error("Upload URL missing in response");
-      }
+    // STEP 2: Upload file via proxy
+    const proxyForm = new FormData();
+    proxyForm.append('file', file);
 
-      // 2. Upload file to proxy using FormData
-      const formData = new FormData();
-      formData.append("file", file);
+    const proxyRes = await fetch('/api/upload-resumable-proxy', {
+      method: 'POST',
+      headers: {
+        'x-upload-url': uploadUrl,
+      },
+      body: proxyForm,
+    });
 
-      const uploadRes = await fetch("/api/upload-resumable-proxy", {
-        method: "POST",
-        headers: {
-          "x-upload-url": uploadUrl,
-        },
-        body: formData,
-      });
+    if (!proxyRes.ok) throw new Error("Proxy upload failed");
 
-      if (!uploadRes.ok) {
-        const errorBody = await uploadRes.text();
-        throw new Error(`Upload failed: ${uploadRes.status} ${errorBody}`);
-      }
+    // STEP 3: Save metadata
+    await fetch('/api/admin?action=save-upload', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    fileName,
+    mimeType: file.type,  // <- This must be present
+    userName,
+  })
+});
 
-      // 3. Success message
-      message.style.color = "green";
-      message.textContent = "✅ Upload successful!";
-      fileInput.value = "";
+    progress.style.display = "none";
+    message.style.color = "green";
+    message.textContent = "✅ Upload successful!";
+    fileInput.value = "";
+    nameInput.value = "";
 
-      // 4. Save metadata
-      await fetch("/api/admin?action=save-upload", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          fileId: cleanFileName,
-          fileName: cleanFileName,
-          mimeType: file.type,
-          userName,
-        }),
-      });
-
-      progress.style.display = "none";
-      await loadGallery();
-    } catch (err) {
-      console.error(err);
-      message.style.color = "red";
-      message.textContent = "❌ Upload error.";
-      progress.style.display = "none";
-    }
-  });
+    await loadGallery(); // ✅ optional — if this exists
+  } catch (err) {
+    console.error("❌ Upload error:", err);
+    message.style.color = "red";
+    message.textContent = "❌ Upload failed: " + err.message;
+    progress.style.display = "none";
+  }
+});
 
     function getVotedImageIds() {
       try {
@@ -489,7 +470,6 @@
       }
     }
 
-
     async function setHeadline() {
       try {
         const res = await fetch('/api/admin?action=config');
@@ -500,7 +480,6 @@
       }
     }
 
-
     async function loadGallery() {
       const gallery = document.getElementById("gallery");
       const voted = getVotedImageIds();
@@ -510,7 +489,6 @@
         const res = await fetch("/api/admin?action=list-drive-files");
         const uploads = await res.json();
 
-        // Remove duplicates by file ID
         const uniqueUploads = [];
         const seenIds = new Set();
 
@@ -542,8 +520,8 @@
 
             const info = document.createElement("div");
             info.className = "info";
-const displayName = upload.userName || upload.userNameRaw || upload.fileName.split("_").slice(2).join("_").replace(/_/g, " ") || "Anonymous";
-info.innerHTML = `<span style="font-weight: bold;">Uploaded by:</span><br>${displayName}`;
+            const displayName = upload.userName || upload.userNameRaw || upload.fileName.split("_").slice(2).join("_").replace(/_/g, " ") || "Anonymous";
+            info.innerHTML = `<span style="font-weight: bold;">Uploaded by:</span><br>${displayName}`;
 
             const voteInfo = document.createElement("div");
             voteInfo.className = "vote-info";
@@ -630,10 +608,6 @@ info.innerHTML = `<span style="font-weight: bold;">Uploaded by:</span><br>${disp
       }
     }
 
-
-    setHeadline();
-    loadGallery();
-
     window.addEventListener("storage", (event) => {
       if (event.key === "galleryRefresh") loadGallery();
     });
@@ -660,49 +634,6 @@ info.innerHTML = `<span style="font-weight: bold;">Uploaded by:</span><br>${disp
   </script>
 
 
-  <script type="module">
-    import confetti from 'https://cdn.skypack.dev/canvas-confetti';
-
-    let hasShownWinner = false;
-
-    function showWinnerModal(name) {
-      const modal = document.getElementById('winnerModal');
-      document.getElementById('winnerName').textContent = name;
-      modal.style.display = 'flex';
-      triggerConfetti();
-    }
-
-    function hideWinnerModal() {
-      document.getElementById('winnerModal').style.display = 'none';
-    }
-
-    function triggerConfetti() {
-      const duration = 3 * 1000;
-      const end = Date.now() + duration;
-      (function frame() {
-        confetti({ particleCount: 4, angle: 60, spread: 60, origin: { x: 0 } });
-        confetti({ particleCount: 4, angle: 120, spread: 60, origin: { x: 1 } });
-        if (Date.now() < end) requestAnimationFrame(frame);
-      })();
-    }
-
-    async function checkWinner() {
-      try {
-        const res = await fetch('/api/admin?action=winner');
-        const data = await res.json();
-        if (data?.winner?.name && !hasShownWinner) {
-          hasShownWinner = true;
-          showWinnerModal(data.winner.name);
-        }
-      } catch (err) {
-        console.warn('No winner or failed to fetch', err);
-      }
-    }
-
-    setInterval(checkWinner, 10000); // check every 10s
-    window.hideWinnerModal = hideWinnerModal;
-
-  </script>
   <script>
     let lastResetCheck = localStorage.getItem('lastResetTimestamp') || null;
 
@@ -756,35 +687,62 @@ info.innerHTML = `<span style="font-weight: bold;">Uploaded by:</span><br>${disp
       }
     });
   </script>
-  
 
-  <div id="winnerModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.85); color:white; z-index:9999; align-items:center; justify-content:center; flex-direction:column; font-size:1.5rem; text-align:center;">
-  <div>
-    🏆 <strong id="winnerName"></strong> won the raffle!
-  </div>
-  <button onclick="document.getElementById('winnerModal').style.display='none'" style="margin-top:1rem; padding:0.5rem 1rem; font-size:1rem;">Close</button>
-</div>
 
+<!-- Load confetti globally -->
+<script type="module">
+  import confetti from 'https://cdn.skypack.dev/canvas-confetti';
+  window.confetti = confetti;
+</script>
+
+<!-- Winner + confetti logic in global script -->
 <script>
-  async function checkForWinner() {
+  let hasShownWinner = false;
+
+  function showWinnerModal(name) {
+    const modal = document.getElementById('winnerModal');
+    document.getElementById('winnerName').textContent = name;
+    modal.style.display = 'flex';
+    triggerConfetti();
+  }
+
+  function hideWinnerModal() {
+    document.getElementById('winnerModal').style.display = 'none';
+  }
+
+  function triggerConfetti() {
+    if (!window.confetti) return;
+    const duration = 3 * 1000;
+    const end = Date.now() + duration;
+    (function frame() {
+      confetti({ particleCount: 4, angle: 60, spread: 60, origin: { x: 0 } });
+      confetti({ particleCount: 4, angle: 120, spread: 60, origin: { x: 1 } });
+      if (Date.now() < end) requestAnimationFrame(frame);
+    })();
+  }
+
+  async function checkWinner() {
     try {
       const res = await fetch("/api/admin?action=winner");
       if (!res.ok) return;
-      const { winner } = await res.json();
-      if (winner?.name) {
-        document.getElementById("winnerName").textContent = winner.name;
-        const modal = document.getElementById("winnerModal");
-        modal.style.display = "flex";
-        modal.style.display = "flex";
-        modal.style.alignItems = "center";
-        modal.style.justifyContent = "center";
+      const data = await res.json();
+      if (data.winner && data.winner.name) {
+        console.log("🎉 Winner is:", data.winner.name);
+        // optionally show modal or update UI
       }
     } catch (err) {
-      console.warn("No winner yet or fetch failed:", err);
+      console.warn("Failed to fetch winner:", err);
     }
   }
 
-  window.addEventListener("DOMContentLoaded", checkForWinner);
+  function init() {
+    checkWinner(); // ← this should now work
+  }
+
+  init();
+
+  setInterval(checkWinner, 10000); // 🔁 check every 10 seconds
+  window.hideWinnerModal = hideWinnerModal;
 </script>
 
 

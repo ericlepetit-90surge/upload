@@ -1,6 +1,7 @@
 // /api/upload-resumable-proxy.js
-import formidable from 'formidable';
-import { readFile } from 'fs/promises';
+
+import { IncomingForm } from 'formidable';
+import fs from 'fs';
 
 export const config = {
   api: {
@@ -9,48 +10,53 @@ export const config = {
 };
 
 export default async function handler(req, res) {
-  const uploadUrl = req.headers['x-upload-url'];
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
 
+  const uploadUrl = req.headers['x-upload-url'];
   if (!uploadUrl) {
     return res.status(400).json({ error: 'Missing upload URL' });
   }
 
-  const form = formidable({ multiples: false });
+  const form = new IncomingForm();
 
   form.parse(req, async (err, fields, files) => {
-    if (err) {
-      console.error("❌ Form parsing failed:", err);
-      return res.status(500).json({ error: 'Failed to parse form data' });
+    if (err || !files.file || !files.file[0]) {
+      console.error("❌ Error parsing file:", err);
+      return res.status(400).json({ error: 'Missing or invalid file' });
     }
 
-    const fileData = files.file?.[0] || files.file; // depending on whether it's an array or object
-    if (!fileData || !fileData.filepath) {
-      return res.status(400).json({ error: 'File upload failed — no filepath found' });
+    const file = files.file[0];
+    const filePath = file.filepath;
+
+    if (!filePath) {
+      return res.status(400).json({ error: 'File path not found' });
     }
 
     try {
-      const buffer = await readFile(fileData.filepath);
+      const stat = await fs.promises.stat(filePath);
+      const stream = fs.createReadStream(filePath);
 
-      console.log("➡️ Uploading to:", uploadUrl);
-      console.log("📦 File name:", fileData.originalFilename);
-      console.log("📦 File type:", fileData.mimetype);
-      console.log("🧱 Buffer size:", buffer.length);
+      const response = await fetch(uploadUrl, {
+  method: 'PUT',
+  headers: {
+    'Content-Length': stat.size,
+    'Content-Type': file.mimetype || 'application/octet-stream',
+  },
+  body: stream,
+  duplex: 'half', // ✅ Required for ReadableStream in Node.js
+});
 
-      const googleRes = await fetch(uploadUrl, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': fileData.mimetype,
-          'Content-Length': buffer.length.toString(),
-        },
-        body: buffer,
-      });
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Upload failed: ${response.status} ${errorText}`);
+      }
 
-      const text = await googleRes.text();
-      console.log("✅ Upload success:", googleRes.status);
-      res.status(googleRes.status).send(text);
-    } catch (uploadErr) {
-      console.error("❌ Upload to Google failed:", uploadErr);
-      res.status(500).json({ error: 'Upload proxy error', details: uploadErr.message });
+      return res.status(200).json({ success: true });
+    } catch (err) {
+      console.error("🔥 Upload to Google failed:", err);
+      return res.status(500).json({ error: 'Upload failed' });
     }
   });
 }
