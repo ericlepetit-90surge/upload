@@ -4,7 +4,7 @@ import { google } from "googleapis";
 import { IncomingForm } from "formidable";
 import path from "path";
 import fs from "fs";
-import axios from "axios";
+import { Readable } from "stream";
 
 export const config = {
   api: {
@@ -70,24 +70,30 @@ export default async function handler(req, res) {
         parents: [folderId],
       };
 
-      const response = await axios.post(
+      const fetchRes = await fetch(
         "https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable",
-        metadata,
         {
+          method: "POST",
           headers: {
             Authorization: `Bearer ${accessToken}`,
             "Content-Type": "application/json; charset=UTF-8",
             "X-Upload-Content-Type": mimeType,
           },
+          body: JSON.stringify(metadata),
         }
       );
 
-      const uploadUrl = response.headers.location;
+      if (!fetchRes.ok) {
+        const errorText = await fetchRes.text();
+        throw new Error("Resumable upload init failed: " + errorText);
+      }
+
+      const uploadUrl = fetchRes.headers.get("location");
       if (!uploadUrl) throw new Error("No upload URL returned");
 
       return res.status(200).json({ uploadUrl, fileName });
     } catch (err) {
-      console.error("🔥 Failed to create upload session:", err?.response?.data || err);
+      console.error("🔥 Failed to create upload session:", err.message || err);
       return res.status(500).json({ error: "Failed to create upload session" });
     }
   });
