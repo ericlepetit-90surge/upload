@@ -382,9 +382,9 @@
     });
 
     const form = document.getElementById("upload-form");
-  const message = document.getElementById("message");
+    const message = document.getElementById("message");
 
-  form.addEventListener("submit", async (e) => {
+    form.addEventListener("submit", async (e) => {
   e.preventDefault();
   message.textContent = "";
 
@@ -399,44 +399,32 @@
     return;
   }
 
+  const formData = new FormData();
+  formData.append("file", file);
+  formData.append("userName", userName);
+
   progress.style.display = "block";
   progress.value = 0;
   message.style.color = "#999";
   message.textContent = "⏳ Uploading...";
 
   try {
-    // Step 1: send metadata only
-    const metaRes = await fetch("/api/upload-resumable", {
+    const res = await fetch("/api/upload-resumable", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        fileName: file.name,
-        mimeType: file.type,
-        userName,
-      }),
+      body: formData,
     });
 
-    const { uploadUrl } = await metaRes.json();
+    const result = await res.json();
 
-    if (!uploadUrl) throw new Error("Invalid upload URL response");
-
-    // Step 2: upload file directly to Google Drive
-    const uploadRes = await fetch(uploadUrl, {
-      method: "PUT",
-      headers: {
-        "Content-Type": file.type,
-        "Content-Length": file.size,
-      },
-      body: file,
-    });
-
-    if (!uploadRes.ok) throw new Error("Upload failed");
-
-    message.style.color = "green";
-    message.textContent = "✅ Upload successful!";
-    fileInput.value = "";
-    progress.style.display = "none";
-    await loadGallery(); // refresh user's view
+    if (res.ok && result.success) {
+      message.style.color = "green";
+      message.textContent = "✅ Upload successful!";
+      fileInput.value = "";
+      progress.style.display = "none";
+      await loadGallery(); // refresh view
+    } else {
+      throw new Error(result.error || "Upload failed");
+    }
   } catch (err) {
     console.error(err);
     message.style.color = "red";
@@ -463,15 +451,15 @@
     }
 
 
-  async function setHeadline() {
-    try {
-      const res = await fetch('/api/admin?action=config');
-      const config = await res.json();
-      document.getElementById("headline").textContent = config?.showName || "90 Surge";
-    } catch {
-      document.getElementById("headline").textContent = "Upload to 90 Surge";
+    async function setHeadline() {
+      try {
+        const res = await fetch('/api/admin?action=config');
+        const config = await res.json();
+        document.getElementById("headline").textContent = config?.showName || "90 Surge";
+      } catch {
+        document.getElementById("headline").textContent = "Upload to 90 Surge";
+      }
     }
-  }
 
 
     async function loadGallery() {
