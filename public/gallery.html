@@ -60,7 +60,7 @@
   <script>
     async function loadGallery() {
       try {
-        const res = await fetch('/api/uploads');
+        const res = await fetch('/api/admin?action=list-drive-files');
         const uploads = await res.json();
         const gallery = document.getElementById('gallery');
 

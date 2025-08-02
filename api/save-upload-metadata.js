@@ -1,35 +1,31 @@
+// /api/save-upload-metadata.js
 import fs from 'fs';
 import path from 'path';
 import { createClient } from 'redis';
 
 export const config = {
-  api: {
-    bodyParser: true,
-  },
+  api: { bodyParser: true },
 };
 
 const uploadsPath = path.join(process.cwd(), 'uploads.json');
 
 export default async function handler(req, res) {
   const isLocal = process.env.VERCEL_ENV !== 'production';
+  const { userName, driveFileId, fileName, mimeType } = req.body;
+
+  if (!userName || !driveFileId) {
+    return res.status(400).json({ error: 'Missing userName or driveFileId' });
+  }
+
+  const newEntry = {
+    userName: userName.trim(),
+    driveFileId,
+    fileName,
+    mimeType,
+    timestamp: Date.now(),
+  };
 
   try {
-    const { userName, fileId, fileName, mimeType } = req.body;
-const driveFileId = fileId;
-
-    if (!userName || !driveFileId) {
-      console.warn("Missing userName or driveFileId", req.body);
-      return res.status(400).json({ error: 'Missing userName or driveFileId' });
-    }
-
-    const newEntry = {
-      userName: userName.toString().trim(),
-      driveFileId,
-      fileName: fileName || 'unknown',
-      mimeType: mimeType || 'unknown',
-      timestamp: Date.now(),
-    };
-
     if (isLocal) {
       const data = fs.existsSync(uploadsPath)
         ? JSON.parse(fs.readFileSync(uploadsPath, 'utf8'))
@@ -39,26 +35,13 @@ const driveFileId = fileId;
     } else {
       const redis = createClient({ url: process.env.REDIS_URL });
       await redis.connect();
-      await redis.rPush("uploads", JSON.stringify({
-        fileId: driveFileId,
-        fileName: fileName || 'unknown',
-        userName,
-        mimeType: mimeType || 'unknown',
-        createdTime: new Date().toISOString(),
-      }));
-      console.log("📦 Saved to Redis:", {
-  fileId: driveFileId,
-  fileName,
-  userName,
-  mimeType,
-});
+      await redis.rPush('uploads', JSON.stringify(newEntry));
       await redis.disconnect();
     }
 
-    console.log("✅ Metadata saved:", newEntry);
-    return res.status(200).json({ success: true });
+    res.status(200).json({ success: true });
   } catch (err) {
-    console.error('❌ Failed to save upload metadata:', err);
-    return res.status(500).json({ error: 'Internal server error' });
+    console.error('❌ Failed to save metadata:', err);
+    res.status(500).json({ error: 'Internal server error' });
   }
 }
