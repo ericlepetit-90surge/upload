@@ -381,100 +381,113 @@
     const message = document.getElementById("message");
 
     form.addEventListener("submit", async (e) => {
-  e.preventDefault();
-  message.textContent = "";
+      e.preventDefault();
+      message.textContent = "";
 
-  const fileInput = document.getElementById("file");
-  const nameInput = document.getElementById("name");
-  const progress = document.getElementById("progress");
-  const file = fileInput.files[0];
-  const userName = nameInput.value.trim();
+      const fileInput = document.getElementById("file");
+      const nameInput = document.getElementById("name");
+      const progress = document.getElementById("progress");
+      const file = fileInput.files[0];
+      const userName = nameInput.value.trim();
 
-  if (!file || !userName) {
-    message.textContent = "Name and file are required.";
-    return;
-  }
+      if (!file || !userName) {
+        message.textContent = "Name and file are required.";
+        return;
+      }
 
-  progress.style.display = "block";
-  progress.value = 0;
-  message.style.color = "#999";
-  message.textContent = "⏳ Uploading...";
+      progress.style.display = "block";
+      progress.value = 0;
+      message.style.color = "#999";
+      message.textContent = "⏳ Uploading...";
 
-  try {
-    // STEP 1: Get resumable upload URL
-    const startForm = new FormData();
-    startForm.append("file", file);
-    startForm.append("userName", userName);
+      try {
+        // STEP 1: Get resumable upload URL
+        const startForm = new FormData();
+        startForm.append("file", file);
+        startForm.append("userName", userName);
 
-    const startRes = await fetch("/api/start-resumable-upload", {
-      method: "POST",
-      body: startForm,
+        const startRes = await fetch("/api/start-resumable-upload", {
+          method: "POST",
+          body: startForm,
+        });
+
+        let uploadUrl, fileName;
+
+        if (startRes.ok) {
+          const startData = await startRes.json();
+          uploadUrl = startData.uploadUrl;
+          fileName = startData.fileName;
+        } else {
+          const errorText = await startRes.text();
+          throw new Error("Start upload failed: " + errorText);
+        }
+
+        if (!uploadUrl) throw new Error("Upload URL missing");
+
+        // STEP 2: Upload file via proxy
+        const proxyForm = new FormData();
+        proxyForm.append("file", file);
+
+        const proxyRes = await fetch("/api/upload-resumable-proxy", {
+          method: "POST",
+          headers: {
+            "x-upload-url": uploadUrl,
+          },
+          body: proxyForm,
+        });
+
+        let driveFileId;
+
+        if (proxyRes.ok) {
+          const proxyData = await proxyRes.json();
+          driveFileId = proxyData.driveFileId;
+        } else {
+          const errorText = await proxyRes.text();
+          throw new Error("Proxy upload failed: " + errorText);
+        }
+
+        if (!driveFileId) {
+          throw new Error("Missing driveFileId from proxy response");
+        }
+
+        // STEP 3: Save metadata
+        const metaRes = await fetch("/api/admin?action=save-upload", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            fileName,
+            mimeType: file.type,
+            userName,
+            driveFileId,
+          }),
+        });
+
+        if (!metaRes.ok) {
+          const errorText = await metaRes.text();
+          throw new Error("Save metadata failed: " + errorText);
+        }
+
+        const metaData = await metaRes.json();
+        if (!metaData.success) {
+          throw new Error("Failed to save metadata: " + (metaData.error || "Unknown error"));
+        }
+
+        // ✅ All good
+        message.style.color = "#4caf50";
+        message.textContent = "✅ Upload complete!";
+        fileInput.value = "";
+        nameInput.value = "";
+        progress.value = 100;
+
+        if (typeof loadGallery === "function") loadGallery();
+      } catch (err) {
+        console.error("❌ Upload error:", err);
+        message.style.color = "red";
+        message.textContent = "❌ Upload failed: " + err.message;
+        progress.style.display = "none";
+      }
     });
 
-    let startData;
-    try {
-      startData = await startRes.json();
-    } catch (err) {
-      const text = await startRes.text();
-      console.error("❌ Failed to get upload URL. Not JSON:", text);
-      throw new Error("Server error: " + text);
-    }
-
-    const { uploadUrl, fileName } = startData;
-    if (!uploadUrl) throw new Error("Upload URL missing");
-
-    // STEP 2: Upload file via proxy
-    const proxyForm = new FormData();
-    proxyForm.append("file", file);
-
-    const proxyRes = await fetch("/api/upload-resumable-proxy", {
-      method: "POST",
-      headers: {
-        "x-upload-url": uploadUrl,
-      },
-      body: proxyForm,
-    });
-
-    const proxyData = await proxyRes.json();
-
-    if (!proxyRes.ok || !proxyData.driveFileId) {
-      const errorText = proxyData?.error || "Unknown error";
-      throw new Error("Proxy upload failed: " + errorText);
-    }
-
-    const driveFileId = proxyData.driveFileId;
-
-    // STEP 3: Save metadata
-    const metaRes = await fetch("/api/admin?action=save-upload", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        fileName,
-        mimeType: file.type,
-        userName,
-        driveFileId,
-      }),
-    });
-
-    const metaData = await metaRes.json();
-    if (!metaRes.ok || !metaData.success) {
-      throw new Error("Failed to save metadata: " + (metaData.error || "Unknown error"));
-    }
-
-    message.style.color = "#4caf50";
-    message.textContent = "✅ Upload complete!";
-    fileInput.value = "";
-    nameInput.value = "";
-    progress.value = 100;
-
-    if (typeof loadGallery === "function") loadGallery();
-  } catch (err) {
-    console.error("❌ Upload error:", err);
-    message.style.color = "red";
-    message.textContent = "❌ Upload failed: " + err.message;
-    progress.style.display = "none";
-  }
-});
 
 
     function getVotedImageIds() {
