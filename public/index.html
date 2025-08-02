@@ -382,70 +382,64 @@
     });
 
     const form = document.getElementById("upload-form");
-    const message = document.getElementById("message");
+  const message = document.getElementById("message");
 
-    form.addEventListener("submit", async (e) => {
-  e.preventDefault();
-  message.textContent = "";
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    message.textContent = "";
 
-  const fileInput = document.getElementById("file");
-  const nameInput = document.getElementById("name");
-  const progress = document.getElementById("progress");
-  const file = fileInput.files[0];
-  const userName = nameInput.value.trim();
+    const fileInput = document.getElementById("file");
+    const nameInput = document.getElementById("name");
+    const progress = document.getElementById("progress");
+    const file = fileInput.files[0];
+    const userName = nameInput.value.trim();
 
-  if (!file || !userName) {
-    message.textContent = "Name and file are required.";
-    return;
-  }
-
-  progress.style.display = "block";
-  progress.value = 0;
-  message.style.color = "#999";
-  message.textContent = "⏳ Uploading...";
-
-  try {
-    const metaForm = new FormData();
-    metaForm.append("file", file);
-    metaForm.append("userName", userName);
-
-    const res = await fetch("/api/upload-resumable", {
-      method: "POST",
-      body: metaForm,
-    });
-
-    const data = await res.json();
-    if (!res.ok || !data.success) {
-      throw new Error("Upload failed");
+    if (!file || !userName) {
+      message.textContent = "Name and file are required.";
+      return;
     }
 
-    message.style.color = "green";
-    message.textContent = "✅ Upload successful!";
-    fileInput.value = "";
-    progress.style.display = "none";
-    await loadGallery(); // refresh user's view
-  } catch (err) {
-    console.error(err);
-    message.style.color = "red";
-    message.textContent = "❌ Upload error.";
-    progress.style.display = "none";
-  }
-});
+    const maxSize = 15 * 1024 * 1024; // 15 MB
+    if (file.size > maxSize) {
+      message.textContent = "❌ File too large. Max size is 15MB.";
+      message.style.color = "red";
+      return;
+    }
 
+    progress.style.display = "block";
+    progress.value = 0;
+    message.style.color = "#999";
+    message.textContent = "⏳ Uploading...";
 
-    async function setHeadline() {
-      try {
-        const res = await fetch('/api/admin?action=config');
-        const config = await res.json();
-        document.getElementById("headline").textContent = config?.showName || "90 Surge";
-      } catch {
-        document.getElementById("headline").textContent = "Upload to 90 Surge";
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("userName", userName);
+
+      const res = await fetch("/api/upload-resumable", {
+        method: "POST",
+        body: formData,
+      });
+
+      const data = await res.json();
+
+      if (!res.ok || !data.success) {
+        throw new Error("Upload failed");
       }
+
+      message.style.color = "green";
+      message.textContent = "✅ Upload successful!";
+      fileInput.value = "";
+      progress.style.display = "none";
+      await loadGallery();
+    } catch (err) {
+      console.error(err);
+      message.style.color = "red";
+      message.textContent = "❌ Upload error.";
+      progress.style.display = "none";
     }
-
-
+  });
   </script>
-
 
   <script>
     function getVotedImageIds() {
@@ -463,6 +457,18 @@
         localStorage.setItem("votedImages", JSON.stringify(voted));
       }
     }
+
+
+  async function setHeadline() {
+    try {
+      const res = await fetch('/api/admin?action=config');
+      const config = await res.json();
+      document.getElementById("headline").textContent = config?.showName || "90 Surge";
+    } catch {
+      document.getElementById("headline").textContent = "Upload to 90 Surge";
+    }
+  }
+
 
     async function loadGallery() {
       const gallery = document.getElementById("gallery");
