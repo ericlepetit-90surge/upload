@@ -18,11 +18,12 @@ export default async function handler(req, res) {
     const { userName, driveFileId, mimeType } = req.body;
 
     if (!userName || !driveFileId) {
+      console.warn("Missing userName or driveFileId", req.body);
       return res.status(400).json({ error: 'Missing userName or driveFileId' });
     }
 
     const newEntry = {
-      name: userName.toString(), // preserve full name as provided
+      name: userName.toString().trim(), // preserve full name
       driveFileId,
       mimeType: mimeType || 'unknown',
       timestamp: Date.now()
@@ -35,10 +36,13 @@ export default async function handler(req, res) {
       data.push(newEntry);
       fs.writeFileSync(uploadsPath, JSON.stringify(data, null, 2));
     } else {
-      const redis = await createClient({ url: process.env.REDIS_URL }).connect();
+      const redis = createClient({ url: process.env.REDIS_URL });
+      await redis.connect();
       await redis.rPush('uploads', JSON.stringify(newEntry));
+      await redis.disconnect();
     }
 
+    console.log("✅ Metadata saved:", newEntry);
     return res.status(200).json({ success: true });
   } catch (err) {
     console.error('❌ Failed to save upload metadata:', err);

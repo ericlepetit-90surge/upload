@@ -262,10 +262,10 @@
 
     <div style="display: flex; align-items: center; gap: 10px;">
       <label for="name" style="white-space: nowrap;">Your Name <span style="color: red">*</span>:</label>
-      <input type="text" id="name" name="userName" required placeholder="Name" style="flex: 1;" />
+      <input type="text" id="name" name="userName" required placeholder="Full Name" style="flex: 1;" />
     </div>
 
-    <input type="file" id="file" name="file" accept="image/*,video/*" required />
+    <input type="file" id="file" name="file" accept="image/*" required />
 
     <div id="follow-gate">
 
@@ -405,32 +405,33 @@
   message.textContent = "⏳ Uploading...";
 
   try {
-    // 1. Send file and metadata to server
     const metaForm = new FormData();
     metaForm.append("file", file);
     metaForm.append("userName", userName);
 
-    const initRes = await fetch("/api/upload-resumable", {
+    const res = await fetch("/api/upload-resumable", {
       method: "POST",
       body: metaForm,
     });
 
-    const data = await initRes.json();
-    if (!initRes.ok || !data.success) throw new Error("Upload failed");
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      throw new Error("Upload failed");
+    }
 
-    // 2. All done — refresh UI
     message.style.color = "green";
     message.textContent = "✅ Upload successful!";
     fileInput.value = "";
     progress.style.display = "none";
-    await loadGallery();
+    await loadGallery(); // refresh user's view
   } catch (err) {
+    console.error(err);
     message.style.color = "red";
     message.textContent = "❌ Upload error.";
-    console.error(err);
     progress.style.display = "none";
   }
 });
+
 
     async function setHeadline() {
       try {

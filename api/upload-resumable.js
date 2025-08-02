@@ -1,11 +1,10 @@
 // /api/upload-resumable.js
-
 const { google } = require("googleapis");
 const path = require("path");
 const fs = require("fs");
-const axios = require("axios");
 const formidable = require("formidable");
 const mime = require("mime-types");
+const axios = require("axios");
 
 const oauthPath = path.join(process.cwd(), "oauth-client.json");
 const oauthClient = JSON.parse(fs.readFileSync(oauthPath, "utf8"));
@@ -30,11 +29,17 @@ function sanitizeFileName(name) {
 }
 
 module.exports = async function handler(req, res) {
-  if (req.method !== "POST") return res.status(405).end("Method Not Allowed");
+  if (req.method !== "POST") {
+    return res.status(405).end("Method Not Allowed");
+  }
 
   const form = new formidable.IncomingForm({ keepExtensions: true });
 
   form.parse(req, async (err, fields, files) => {
+    console.log("📥 Incoming form parse");
+    console.log("FIELDS:", fields);
+    console.log("FILES:", files);
+
     if (err) {
       console.error("❌ Form parse error:", err);
       return res.status(400).json({ error: "Failed to parse form data" });
@@ -51,7 +56,7 @@ module.exports = async function handler(req, res) {
       return res.status(400).json({ error: "Missing userName or file" });
     }
 
-    const sanitizedUserName = sanitizeFileName(userNameRaw);
+    const userName = sanitizeFileName(userNameRaw);
     const originalFileName = sanitizeFileName(file.originalFilename || file.name || "upload");
     const filePath = file?.filepath || file?.path;
 
@@ -60,16 +65,25 @@ module.exports = async function handler(req, res) {
       return res.status(400).json({ error: "Invalid file upload" });
     }
 
-    const fileName = `${sanitizedUserName}_${Date.now()}_${originalFileName}`;
+    const fileName = `${userName}_${Date.now()}_${originalFileName}`;
     const mimeType = file.mimetype || mime.lookup(filePath) || "application/octet-stream";
     const fileSize = fs.statSync(filePath).size;
+
+    console.log("🧾 Prepared Upload Info:");
+    console.log("👤 userNameRaw:", userNameRaw);
+    console.log("📄 fileName:", fileName);
+    console.log("📁 mimeType:", mimeType);
+    console.log("📦 fileSize:", fileSize);
+    console.log("📂 Folder ID:", process.env.GOOGLE_DRIVE_FOLDER_ID);
 
     try {
       const { token } = await oauth2Client.getAccessToken();
       if (!token) throw new Error("No access token");
 
-      // 1. Start resumable upload session
-      const session = await axios.post(
+      console.log("🔐 Using access token:", token.slice(0, 20) + "...");
+
+      // Start resumable upload session
+      const sessionRes = await axios.post(
         "https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable",
         {
           name: fileName,
@@ -85,12 +99,17 @@ module.exports = async function handler(req, res) {
         }
       );
 
-      const uploadUrl = session.headers.location;
-      if (!uploadUrl) throw new Error("No upload URL returned");
+      const uploadUrl = sessionRes.headers.location;
+      if (!uploadUrl) {
+        console.error("❌ No upload URL returned");
+        return res.status(500).json({ error: "Failed to get upload URL" });
+      }
 
-      // 2. Upload the file to the session
-      const stream = fs.createReadStream(filePath);
-      await axios.put(uploadUrl, stream, {
+      console.log("✅ Upload URL:", uploadUrl);
+
+      // Upload the file
+      const fileStream = fs.createReadStream(filePath);
+      await axios.put(uploadUrl, fileStream, {
         headers: {
           "Content-Length": fileSize,
           "Content-Type": mimeType,
@@ -99,7 +118,7 @@ module.exports = async function handler(req, res) {
         maxBodyLength: Infinity,
       });
 
-      // 3. Get uploaded file ID
+      // Get uploaded file ID
       const drive = google.drive({ version: "v3", auth: oauth2Client });
       const listRes = await drive.files.list({
         q: `name='${fileName}' and '${process.env.GOOGLE_DRIVE_FOLDER_ID}' in parents`,
@@ -111,20 +130,16 @@ module.exports = async function handler(req, res) {
       const fileId = listRes.data.files[0]?.id;
       if (!fileId) throw new Error("Could not retrieve uploaded file ID");
 
-      // 4. Make the file public
+      // Make the file public
       await drive.permissions.create({
         fileId,
         requestBody: { role: "reader", type: "anyone" },
       });
 
-      // 5. Save metadata using original (unsanitized) user name
+      // Save metadata
       const saveRes = await axios.post(
         `${req.headers.origin || "http://localhost:3000"}/api/save-upload-metadata`,
-        {
-          userName: userNameRaw,
-          driveFileId: fileId,
-          mimeType,
-        },
+        { userName: userNameRaw, driveFileId: fileId, mimeType },
         { headers: { "Content-Type": "application/json" } }
       );
 
