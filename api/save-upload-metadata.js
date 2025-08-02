@@ -38,7 +38,12 @@ export default async function handler(req, res) {
     } else {
       const redis = createClient({ url: process.env.REDIS_URL });
       await redis.connect();
-      await redis.rPush('uploads', JSON.stringify(newEntry));
+      await redis.rpush("uploads", JSON.stringify({
+  fileId,
+  fileName,
+  userName, // ✅ include this!
+  createdTime: new Date().toISOString(),
+}));
       await redis.disconnect();
     }
 

@@ -315,10 +315,12 @@ export default async function handler(req, res) {
 
       const files = await Promise.all(
         resp.data.files.map(async (file) => {
+          console.log("🔍 Searching metadata for file.id:", file.id);
+console.log("📦 All uploads:", uploads);
           const matchingMeta = uploads.find((u) => u.driveFileId === file.id);
-          const fullName = matchingMeta?.name ?? matchingMeta?.userName ?? "Anonymous";
+const fullName = matchingMeta?.userName ?? "Anonymous";
 
-
+console.log("✅ Matched metadata:", matchingMeta);
           let votes = 0;
           try {
             votes = (await redis.get(`votes:${file.id}`)) || 0;

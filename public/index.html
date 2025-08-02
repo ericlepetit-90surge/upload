@@ -416,15 +416,13 @@
 
     const result = await res.json();
 
-    if (res.ok && result.success) {
-      message.style.color = "green";
-      message.textContent = "✅ Upload successful!";
-      fileInput.value = "";
-      progress.style.display = "none";
-      await loadGallery(); // refresh view
-    } else {
-      throw new Error(result.error || "Upload failed");
-    }
+    if (!res.ok || !result.success) throw new Error("Upload failed");
+
+    message.style.color = "green";
+    message.textContent = "✅ Upload successful!";
+    fileInput.value = "";
+    progress.style.display = "none";
+    await loadGallery();
   } catch (err) {
     console.error(err);
     message.style.color = "red";
@@ -432,6 +430,7 @@
     progress.style.display = "none";
   }
 });
+
 
 
     function getVotedImageIds() {
