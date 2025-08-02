@@ -113,8 +113,8 @@
     }
 
     #winnerModal {
-  transition: opacity 0.3s ease;
-}
+      transition: opacity 0.3s ease;
+    }
 
     .gallery-title {
       margin-top: 2rem;
@@ -378,9 +378,9 @@
     window.addEventListener("DOMContentLoaded", init);
 
     const form = document.getElementById("upload-form");
-const message = document.getElementById("message");
+    const message = document.getElementById("message");
 
-form.addEventListener("submit", async (e) => {
+    form.addEventListener("submit", async (e) => {
   e.preventDefault();
   message.textContent = "";
 
@@ -411,7 +411,16 @@ form.addEventListener("submit", async (e) => {
       body: startForm,
     });
 
-    const { uploadUrl, fileName } = await startRes.json();
+    let startData;
+    try {
+      startData = await startRes.json();
+    } catch (err) {
+      const text = await startRes.text();
+      console.error("❌ Failed to get upload URL. Response was not JSON:", text);
+      throw new Error("Server error: " + text);
+    }
+
+    const { uploadUrl, fileName } = startData;
     if (!uploadUrl) throw new Error("Upload URL missing");
 
     // STEP 2: Upload file via proxy
@@ -426,26 +435,36 @@ form.addEventListener("submit", async (e) => {
       body: proxyForm,
     });
 
-    if (!proxyRes.ok) throw new Error("Proxy upload failed");
+    if (!proxyRes.ok) {
+      const errorText = await proxyRes.text();
+      throw new Error("Proxy upload failed: " + errorText);
+    }
 
     // STEP 3: Save metadata
-    await fetch('/api/admin?action=save-upload', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({
-    fileName,
-    mimeType: file.type,  // <- This must be present
-    userName,
-  })
-});
+    const metaRes = await fetch('/api/admin?action=save-upload', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        fileName,
+        mimeType: file.type,
+        userName,
+      }),
+    });
 
-    progress.style.display = "none";
-    message.style.color = "green";
-    message.textContent = "✅ Upload successful!";
+    const metaData = await metaRes.json();
+    if (!metaRes.ok || !metaData.success) {
+      throw new Error("Failed to save metadata: " + (metaData.error || "Unknown error"));
+    }
+
+    message.style.color = "#4caf50";
+    message.textContent = "✅ Upload complete!";
     fileInput.value = "";
     nameInput.value = "";
+    progress.value = 100;
 
-    await loadGallery(); // ✅ optional — if this exists
+    // Reload gallery
+    if (typeof loadGallery === "function") loadGallery();
+
   } catch (err) {
     console.error("❌ Upload error:", err);
     message.style.color = "red";
@@ -689,61 +708,61 @@ form.addEventListener("submit", async (e) => {
   </script>
 
 
-<!-- Load confetti globally -->
-<script type="module">
-  import confetti from 'https://cdn.skypack.dev/canvas-confetti';
-  window.confetti = confetti;
-</script>
+  <!-- Load confetti globally -->
+  <script type="module">
+    import confetti from 'https://cdn.skypack.dev/canvas-confetti';
+    window.confetti = confetti;
+  </script>
 
-<!-- Winner + confetti logic in global script -->
-<script>
-  let hasShownWinner = false;
+  <!-- Winner + confetti logic in global script -->
+  <script>
+    let hasShownWinner = false;
 
-  function showWinnerModal(name) {
-    const modal = document.getElementById('winnerModal');
-    document.getElementById('winnerName').textContent = name;
-    modal.style.display = 'flex';
-    triggerConfetti();
-  }
-
-  function hideWinnerModal() {
-    document.getElementById('winnerModal').style.display = 'none';
-  }
-
-  function triggerConfetti() {
-    if (!window.confetti) return;
-    const duration = 3 * 1000;
-    const end = Date.now() + duration;
-    (function frame() {
-      confetti({ particleCount: 4, angle: 60, spread: 60, origin: { x: 0 } });
-      confetti({ particleCount: 4, angle: 120, spread: 60, origin: { x: 1 } });
-      if (Date.now() < end) requestAnimationFrame(frame);
-    })();
-  }
-
-  async function checkWinner() {
-    try {
-      const res = await fetch("/api/admin?action=winner");
-      if (!res.ok) return;
-      const data = await res.json();
-      if (data.winner && data.winner.name) {
-        console.log("🎉 Winner is:", data.winner.name);
-        // optionally show modal or update UI
-      }
-    } catch (err) {
-      console.warn("Failed to fetch winner:", err);
+    function showWinnerModal(name) {
+      const modal = document.getElementById('winnerModal');
+      document.getElementById('winnerName').textContent = name;
+      modal.style.display = 'flex';
+      triggerConfetti();
     }
-  }
 
-  function init() {
-    checkWinner(); // ← this should now work
-  }
+    function hideWinnerModal() {
+      document.getElementById('winnerModal').style.display = 'none';
+    }
 
-  init();
+    function triggerConfetti() {
+      if (!window.confetti) return;
+      const duration = 3 * 1000;
+      const end = Date.now() + duration;
+      (function frame() {
+        confetti({ particleCount: 4, angle: 60, spread: 60, origin: { x: 0 } });
+        confetti({ particleCount: 4, angle: 120, spread: 60, origin: { x: 1 } });
+        if (Date.now() < end) requestAnimationFrame(frame);
+      })();
+    }
 
-  setInterval(checkWinner, 10000); // 🔁 check every 10 seconds
-  window.hideWinnerModal = hideWinnerModal;
-</script>
+    async function checkWinner() {
+      try {
+        const res = await fetch("/api/admin?action=winner");
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.winner && data.winner.name) {
+          console.log("🎉 Winner is:", data.winner.name);
+          // optionally show modal or update UI
+        }
+      } catch (err) {
+        console.warn("Failed to fetch winner:", err);
+      }
+    }
+
+    function init() {
+      checkWinner(); // ← this should now work
+    }
+
+    init();
+
+    setInterval(checkWinner, 10000); // 🔁 check every 10 seconds
+    window.hideWinnerModal = hideWinnerModal;
+  </script>
 
 
 </body>
