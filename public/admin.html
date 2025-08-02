@@ -347,40 +347,53 @@
     }
 
     document.getElementById('clearAllBtn')?.addEventListener('click', async () => {
-      if (!confirm("Are you sure you want to delete ALL uploads and Drive files?")) return;
-      console.log("🔐 Sending auth:", localStorage.getItem('adminKey'));
-      const res = await fetch('/api/admin?action=clear-all', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer:super:' + localStorage.getItem('adminKey')
+  if (!confirm("Are you sure you want to delete ALL uploads and Drive files?")) return;
 
-        },
-        body: JSON.stringify({})
-      });
+  console.log("🔐 Sending auth:", localStorage.getItem('adminKey'));
 
-      try {
-        const result = await res.json();
-        if (result.success) {
-          alert('✅ All uploads and Drive files cleared!');
-          location.reload();
-        } else {
-          alert('❌ Failed to clear all: ' + (result.error || 'unknown error'));
-        }
-      } catch (err) {
-        alert('❌ Failed to clear all: Invalid JSON');
-        console.error(err);
-      }
-    });
+  try {
+    const res = await fetch('/api/admin?action=clear-all', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    'Authorization': 'Bearer:super:' + localStorage.getItem('adminKey'),
+  },
+  body: JSON.stringify({}) // ← this is the missing piece!
+});
+
+
+    const text = await res.text();
+    let result;
+
+    try {
+      result = JSON.parse(text);
+    } catch (e) {
+      console.error("❌ Invalid JSON from server:", text);
+      throw new Error("Server error: " + text);
+    }
+
+    if (!res.ok || !result.success) {
+      throw new Error(result?.error || "Unknown server error");
+    }
+
+    alert('✅ All uploads and Drive files cleared!');
+    location.reload();
+
+  } catch (err) {
+    console.error("❌ Failed to clear all:", err);
+    alert('❌ Failed to clear all: ' + err.message);
+  }
+});
+
 
   </script>
   <script>
     document.addEventListener("DOMContentLoaded", () => {
       const role = localStorage.getItem("role");
       if (role === 'admin' && !localStorage.getItem('adminKey')) {
-  const keyFromPrompt = prompt("Re-enter admin password to enable full access:");
-  if (keyFromPrompt) localStorage.setItem('adminKey', keyFromPrompt);
-}
+        const keyFromPrompt = prompt("Re-enter admin password to enable full access:");
+        if (keyFromPrompt) localStorage.setItem('adminKey', keyFromPrompt);
+      }
 
       // Show button only for super admins
       if (role !== "admin") {

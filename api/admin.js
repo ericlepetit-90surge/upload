@@ -283,40 +283,52 @@ export default async function handler(req, res) {
 
   // 🔥 Clear all uploads (super admin only)
   if ((action === "clear" || action === "clear-all") && req.method === "POST") {
-  try {
-    const auth = req.headers.authorization || "";
-    const isSuperAdmin =
-      auth.startsWith("Bearer:super:") &&
-      auth.split("Bearer:super:")[1] === ADMIN_PASS;
+    try {
+      const auth = req.headers.authorization || "";
+      const isSuperAdmin =
+        auth.startsWith("Bearer:super:") &&
+        auth.split("Bearer:super:")[1] === ADMIN_PASS;
 
-    if (!isSuperAdmin) {
-      console.warn("⛔ Unauthorized clear-all attempt:", auth);
-      return res.status(401).json({ error: "Unauthorized" });
+      if (!isSuperAdmin) {
+        console.warn("⛔ Unauthorized clear-all attempt:", auth);
+        return res.status(401).json({ success: false, error: "Unauthorized" });
+      }
+
+      // 🔥 Clear Redis
+      await redis.del("uploads", "raffle_winner", "resetVotesTimestamp");
+      const voteKeys = await redis.keys("votes:*");
+      if (voteKeys.length > 0) {
+        await redis.del(voteKeys);
+      }
+
+      // 🗑️ Delete all Google Drive files in the folder
+      const drive = google.drive({ version: "v3", auth: oauth2Client });
+      const files = await drive.files.list({
+        q: `'${folderId}' in parents and trashed = false`,
+        fields: "files(id)",
+      });
+
+      for (const file of files.data.files) {
+        try {
+          await drive.files.delete({ fileId: file.id });
+          console.log("🗑️ Deleted file:", file.id);
+        } catch (err) {
+          console.warn("⚠️ Failed to delete file:", file.id, err.message);
+        }
+      }
+
+      // 💾 Clear local uploads.json if in local mode
+      if (isLocal && fs.existsSync(uploadsPath)) {
+        fs.writeFileSync(uploadsPath, "[]");
+        console.log("🧹 Local uploads.json cleared");
+      }
+
+      return res.status(200).json({ success: true });
+    } catch (err) {
+      console.error("🔥 clear-all error:", err);
+      return res.status(500).json({ success: false, error: "Server error" });
     }
-
-    // Clear Redis uploads
-    await redis.del("uploads");
-
-    // Delete all files in the Drive folder
-    const drive = google.drive({ version: "v3", auth: oauth2Client });
-    const list = await drive.files.list({
-      q: `'${folderId}' in parents and trashed = false`,
-      fields: "files(id)",
-    });
-
-    const deletePromises = list.data.files.map((file) =>
-      drive.files.delete({ fileId: file.id })
-    );
-    await Promise.all(deletePromises);
-
-    console.log("✅ All uploads and Drive files cleared");
-    return res.status(200).json({ success: true });
-  } catch (err) {
-    console.error("🔥 clear-all error:", err);
-    return res.status(500).json({ error: "Failed to clear all" });
   }
-}
-
 
   // List Google Drive files with metadata
   if (action === "list-drive-files" && req.method === "GET") {
@@ -343,7 +355,7 @@ export default async function handler(req, res) {
 
         return {
           id: file.id,
-          fileUrl: `https://lh3.googleusercontent.com/d/${file.id}`,
+          fileUrl: `https://drive.google.com/uc?export=view&id=${file.id}`, // ✅ fixed
           userName: meta?.userName || "Anonymous",
           type: file.mimeType.startsWith("video") ? "video" : "image",
           createdTime: file.createdTime,
