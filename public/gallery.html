@@ -31,14 +31,19 @@
       border-radius: 12px;
       overflow: hidden;
       box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
     }
 
-    .card img {
+    .card img,
+    .card video {
       width: 100% !important;
       max-height: 300px !important;
       display: block !important;
       filter: none !important;
       opacity: 1 !important;
+      object-fit: cover;
     }
 
     .card .info {
@@ -46,6 +51,37 @@
       padding: 0.5rem;
       color: #666;
       text-align: center;
+      width: 100%;
+    }
+
+    .vote-area {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      margin-bottom: 0.6rem;
+    }
+
+    .like-count {
+      font-size: 0.85rem;
+      font-weight: bold;
+      color: #444;
+      transition: transform 0.2s ease;
+    }
+
+    .vote-btn {
+      background: #e91e63;
+      border: none;
+      color: white;
+      font-size: 1.2rem;
+      padding: 0.3rem 0.6rem;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+
+    .vote-btn.voted {
+      opacity: 0.5;
+      cursor: not-allowed;
     }
 
     @media (max-width: 480px) {
@@ -63,42 +99,99 @@
   <script>
     async function loadGallery() {
       try {
-        const res = await fetch('/api/admin?action=list-drive-files');
-        const uploads = await res.json();
+        const uploadsRes = await fetch("/api/admin?action=uploads");
+        const uploads = await uploadsRes.json();
+
         const gallery = document.getElementById('gallery');
+        gallery.innerHTML = '';
 
-        uploads.forEach(upload => {
-          console.log("Rendering upload:", upload);
-          const card = document.createElement('div');
-          card.className = 'card';
+        uploads
+          .sort((a, b) => {
+  const aTime = new Date(a.createdTime || 0).getTime();
+  const bTime = new Date(b.createdTime || 0).getTime();
+  return bTime - aTime;
+})
+          .forEach(upload => {
+            const card = document.createElement('div');
+            card.className = 'card';
+            card.setAttribute('data-id', upload.fileName);
 
-          const media = upload.type === 'video'
-            ? document.createElement('video')
-            : document.createElement('img');
+            const media = upload.type === 'video'
+              ? document.createElement('video')
+              : document.createElement('img');
 
-          const fileId = upload.driveFileId || upload.fileId;
-          media.src = `https://drive.google.com/uc?export=view&id=${fileId}`;
-          if (upload.type === 'video') {
-            media.controls = true;
-            media.muted = true;
-          }
+            media.src = upload.fileUrl;
+            if (upload.type === 'video') {
+              media.controls = true;
+              media.muted = true;
+            }
 
-          const info = document.createElement('div');
-          info.className = 'info';
-          info.textContent = upload.userName || 'Anonymous';
+            const info = document.createElement('div');
+            info.className = 'info';
+            info.textContent = `uploaded by ${upload.userName || 'Anonymous'}`;
 
-          card.appendChild(media);
-          card.appendChild(info);
-          gallery.appendChild(card);
-        });
+            const voteArea = document.createElement('div');
+            voteArea.className = 'vote-area';
 
+            const likeCount = document.createElement('div');
+            likeCount.className = 'like-count';
+            likeCount.textContent = upload.votes || 0;
+
+            const voteBtn = document.createElement('button');
+            voteBtn.className = 'vote-btn';
+            voteBtn.textContent = '👍';
+            voteBtn.onclick = () => upvote(upload.fileName, voteBtn, likeCount);
+
+            if (localStorage.getItem(`voted_${upload.fileName}`)) {
+              voteBtn.classList.add('voted');
+              voteBtn.disabled = true;
+            }
+
+            voteArea.appendChild(voteBtn);
+            voteArea.appendChild(likeCount);
+
+            card.appendChild(media);
+            card.appendChild(info);
+            card.appendChild(voteArea);
+            gallery.appendChild(card);
+          });
       } catch (err) {
+        console.error("❌ Failed to load gallery", err);
         document.getElementById('gallery').textContent = 'Failed to load gallery.';
+      }
+    }
+
+    async function upvote(fileId, button, countEl) {
+      const key = `voted_${fileId}`;
+      if (localStorage.getItem(key)) return;
+
+      localStorage.setItem(key, "1");
+
+      if (button) {
+        button.classList.add('voted');
+        button.disabled = true;
+      }
+
+      if (countEl) {
+        countEl.textContent = parseInt(countEl.textContent || "0") + 1;
+        countEl.style.transform = 'scale(1.3)';
+        setTimeout(() => countEl.style.transform = 'scale(1)', 200);
+      }
+
+      try {
+        await fetch("/api/admin?action=upvote", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ fileId }),
+        });
+      } catch (err) {
+        console.error("❌ Failed to upvote:", err);
       }
     }
 
     loadGallery();
   </script>
+
 </body>
 
 </html>

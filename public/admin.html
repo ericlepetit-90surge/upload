@@ -283,15 +283,15 @@
 
     async function loadAdminGallery() {
       try {
-        const res = await fetch('/api/admin?action=list-drive-files');
-        const files = await res.json();
+        const uploadsRes = await fetch("/api/uploads");
+        const uploads = await uploadsRes.json();
 
-        if (!Array.isArray(files)) throw new Error("Response was not an array");
+        if (!Array.isArray(uploads)) throw new Error("Response was not an array");
 
         const gallery = document.getElementById("admin-gallery");
         gallery.innerHTML = '';
 
-        files.forEach(file => {
+        uploads.forEach(file => {
           const card = document.createElement("div");
           card.className = "card";
 
@@ -309,11 +309,11 @@
 
           const info = document.createElement("div");
           info.className = "info";
-          info.textContent = file.name;
+          info.textContent = file.userName || "Anonymous";
 
           const deleteBtn = document.createElement("button");
           deleteBtn.textContent = "🗑 Delete";
-          deleteBtn.onclick = () => deleteFile(file.driveFileId, file.name || "this file");
+          deleteBtn.onclick = () => deleteFile(file.fileName, file.userName);
 
           card.appendChild(media);
           card.appendChild(info);
@@ -326,6 +326,7 @@
         document.getElementById("admin-gallery").innerHTML = "<p style='color:red'>Failed to load gallery</p>";
       }
     }
+
 
     async function deleteFile(fileId, name) {
       if (!fileId) return alert('Invalid file ID');
@@ -347,43 +348,43 @@
     }
 
     document.getElementById('clearAllBtn')?.addEventListener('click', async () => {
-  if (!confirm("Are you sure you want to delete ALL uploads and Drive files?")) return;
+      if (!confirm("Are you sure you want to delete ALL uploads and Drive files?")) return;
 
-  console.log("🔐 Sending auth:", localStorage.getItem('adminKey'));
+      console.log("🔐 Sending auth:", localStorage.getItem('adminKey'));
 
-  try {
-    const res = await fetch('/api/admin?action=clear-all', {
-  method: 'POST',
-  headers: {
-    'Content-Type': 'application/json',
-    'Authorization': 'Bearer:super:' + localStorage.getItem('adminKey'),
-  },
-  body: JSON.stringify({}) // ← this is the missing piece!
-});
+      try {
+        const res = await fetch('/api/admin?action=clear-all', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer:super:' + localStorage.getItem('adminKey'),
+          },
+          body: JSON.stringify({}) // ← this is the missing piece!
+        });
 
 
-    const text = await res.text();
-    let result;
+        const text = await res.text();
+        let result;
 
-    try {
-      result = JSON.parse(text);
-    } catch (e) {
-      console.error("❌ Invalid JSON from server:", text);
-      throw new Error("Server error: " + text);
-    }
+        try {
+          result = JSON.parse(text);
+        } catch (e) {
+          console.error("❌ Invalid JSON from server:", text);
+          throw new Error("Server error: " + text);
+        }
 
-    if (!res.ok || !result.success) {
-      throw new Error(result?.error || "Unknown server error");
-    }
+        if (!res.ok || !result.success) {
+          throw new Error(result?.error || "Unknown server error");
+        }
 
-    alert('✅ All uploads and Drive files cleared!');
-    location.reload();
+        alert('✅ All uploads and Drive files cleared!');
+        location.reload();
 
-  } catch (err) {
-    console.error("❌ Failed to clear all:", err);
-    alert('❌ Failed to clear all: ' + err.message);
-  }
-});
+      } catch (err) {
+        console.error("❌ Failed to clear all:", err);
+        alert('❌ Failed to clear all: ' + err.message);
+      }
+    });
 
 
   </script>

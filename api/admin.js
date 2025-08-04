@@ -1,25 +1,15 @@
 import fs from "fs";
 import path from "path";
-import { google } from "googleapis";
 import { createClient } from "redis";
+import {
+  S3Client,
+  ListObjectsV2Command,
+  DeleteObjectCommand,
+} from "@aws-sdk/client-s3";
 
 const ADMIN_PASS = process.env.ADMIN_PASS;
 const MODERATOR_PASS = process.env.MODERATOR_PASS;
 const uploadsPath = path.join(process.cwd(), "uploads.json");
-const folderId = process.env.GOOGLE_DRIVE_FOLDER_ID;
-
-// Setup OAuth2
-const oauthClient = JSON.parse(
-  fs.readFileSync(path.join(process.cwd(), "oauth-client.json"), "utf8")
-);
-const tokenData = JSON.parse(process.env.GOOGLE_TOKEN_JSON || "{}");
-
-const oauth2Client = new google.auth.OAuth2(
-  oauthClient.web.client_id,
-  oauthClient.web.client_secret,
-  oauthClient.web.redirect_uris[0]
-);
-oauth2Client.setCredentials(tokenData);
 
 // Redis client
 let globalForRedis = globalThis.__redis || null;
@@ -30,6 +20,15 @@ if (!globalForRedis && process.env.REDIS_URL) {
   client.connect().catch(console.error);
 }
 const redis = globalForRedis;
+
+const s3 = new S3Client({
+  region: "auto",
+  endpoint: `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+  credentials: {
+    accessKeyId: process.env.R2_ACCESS_KEY_ID,
+    secretAccessKey: process.env.R2_SECRET_ACCESS_KEY,
+  },
+});
 
 export default async function handler(req, res) {
   const action = req.query.action;
@@ -118,7 +117,7 @@ export default async function handler(req, res) {
     }
   }
 
-  // Pick random winner
+  // Pick random winner (R2-based)
   if (action === "pick-winner" && req.method === "POST") {
     try {
       let allUploads = [];
@@ -135,26 +134,12 @@ export default async function handler(req, res) {
         return res.status(404).json({ error: "No entries found" });
       }
 
-      const drive = google.drive({ version: "v3", auth: oauth2Client });
-      const resp = await drive.files.list({
-        q: `'${folderId}' in parents and trashed=false`,
-        fields: "files(id, name)",
-      });
-
-      const liveFileIds = new Set(resp.data.files.map((f) => String(f.id)));
-      console.log("📂 Live files on Drive:", [...liveFileIds]);
-
       const eligibleUploads = allUploads.filter((entry) => {
-        const id = String(
-          entry.driveFileId || entry.fileId || entry.id || ""
-        ).trim();
-        const isLive = id && liveFileIds.has(id);
+        const isValid = entry.userName && entry.fileUrl;
         console.log(
-          `🔍 Checking entry "${entry.userName}" with id "${id}" → ${
-            isLive ? "✅" : "❌"
-          }`
+          `🔍 Checking entry "${entry.userName}" → ${isValid ? "✅" : "❌"}`
         );
-        return isLive;
+        return isValid;
       });
 
       const allEntries = [];
@@ -162,7 +147,7 @@ export default async function handler(req, res) {
         const name = entry.userName || entry.name;
         if (!name) continue;
 
-        const fileId = entry.driveFileId || entry.fileId || entry.id;
+        const fileId = entry.fileName;
         const voteKey = `votes:${fileId}`;
         let count = parseInt(await redis.get(voteKey));
         if (isNaN(count) || count < 1) count = 1;
@@ -205,33 +190,14 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: "Missing required fields" });
       }
 
-      const drive = google.drive({ version: "v3", auth: oauth2Client });
-      const lookup = await drive.files.list({
-        q: `name = '${fileName}' and '${folderId}' in parents and trashed = false`,
-        fields: "files(id)",
-      });
-
-      const fileId = lookup.data.files?.[0]?.id;
-      if (!fileId) {
-        return res.status(404).json({ error: "File not found on Drive" });
-      }
-
-      try {
-        await drive.permissions.create({
-          fileId,
-          requestBody: { role: "reader", type: "anyone" },
-        });
-      } catch (err) {
-        console.warn("⚠️ Could not make file public:", err.message);
-      }
+      const fileUrl = `https://${process.env.R2_PUBLIC_DOMAIN}/${fileName}`;
 
       const upload = {
-        id: fileId,
-        fileId,
+        id: fileName,
         fileName,
         mimeType,
         userName,
-        fileUrl: `https://drive.google.com/uc?id=${fileId}`,
+        fileUrl,
         createdTime: new Date().toISOString(),
         votes: 0,
         count: 1,
@@ -242,7 +208,7 @@ export default async function handler(req, res) {
       const existing = await redis.lRange("uploads", 0, -1);
       const alreadyExists = existing.some((item) => {
         try {
-          return JSON.parse(item).fileId === fileId;
+          return JSON.parse(item).fileName === fileName;
         } catch {
           return false;
         }
@@ -250,9 +216,9 @@ export default async function handler(req, res) {
 
       if (!alreadyExists) {
         await redis.rPush("uploads", JSON.stringify(upload));
-        console.log("✅ Saved to Redis:", fileId);
+        console.log("✅ Saved to Redis:", fileName);
       } else {
-        console.log("⏩ Already exists in Redis:", fileId);
+        console.log("⏩ Already exists in Redis:", fileName);
       }
 
       if (isLocal) {
@@ -260,7 +226,9 @@ export default async function handler(req, res) {
           ? JSON.parse(fs.readFileSync(uploadsPath, "utf8"))
           : [];
 
-        const alreadyInFile = fileData.some((item) => item.fileId === fileId);
+        const alreadyInFile = fileData.some(
+          (item) => item.fileName === fileName
+        );
         if (!alreadyInFile) {
           fileData.push(upload);
           fs.writeFileSync(uploadsPath, JSON.stringify(fileData, null, 2));
@@ -268,7 +236,7 @@ export default async function handler(req, res) {
         }
       }
 
-      const voteKey = `votes:${fileId}`;
+      const voteKey = `votes:${fileName}`;
       const existingVotes = await redis.get(voteKey);
       if (!existingVotes) {
         await redis.set(voteKey, "1");
@@ -301,20 +269,37 @@ export default async function handler(req, res) {
         await redis.del(voteKeys);
       }
 
-      // 🗑️ Delete all Google Drive files in the folder
-      const drive = google.drive({ version: "v3", auth: oauth2Client });
-      const files = await drive.files.list({
-        q: `'${folderId}' in parents and trashed = false`,
-        fields: "files(id)",
-      });
+      // 🗑️ Delete all files from R2 bucket
+      try {
+        const list = await s3.send(
+          new ListObjectsV2Command({
+            Bucket: process.env.R2_BUCKET_NAME,
+          })
+        );
 
-      for (const file of files.data.files) {
-        try {
-          await drive.files.delete({ fileId: file.id });
-          console.log("🗑️ Deleted file:", file.id);
-        } catch (err) {
-          console.warn("⚠️ Failed to delete file:", file.id, err.message);
+        if (list.Contents?.length) {
+          for (const item of list.Contents) {
+            try {
+              await s3.send(
+                new DeleteObjectCommand({
+                  Bucket: process.env.R2_BUCKET_NAME,
+                  Key: item.Key,
+                })
+              );
+              console.log("🗑️ Deleted from R2:", item.Key);
+            } catch (err) {
+              console.warn(
+                "⚠️ Failed to delete R2 object:",
+                item.Key,
+                err.message
+              );
+            }
+          }
+        } else {
+          console.log("📭 No objects found in R2 to delete.");
         }
+      } catch (err) {
+        console.error("❌ Failed to list R2 objects:", err.message);
       }
 
       // 💾 Clear local uploads.json if in local mode
@@ -330,59 +315,59 @@ export default async function handler(req, res) {
     }
   }
 
-  // List Google Drive files with metadata
-  if (action === "list-drive-files" && req.method === "GET") {
-    try {
-      const drive = google.drive({ version: "v3", auth: oauth2Client });
-      const filesRes = await drive.files.list({
-        q: `'${folderId}' in parents and trashed = false`,
-        fields: "files(id, name, mimeType, createdTime)",
-      });
+  // uploads
 
-      const rawUploads = await redis.lRange("uploads", 0, -1);
-      const uploads = rawUploads.map((entry) => JSON.parse(entry));
-      const uploadMap = Object.fromEntries(uploads.map((u) => [u.fileId, u]));
-
-      const result = filesRes.data.files.map((file) => {
-        const meta = uploadMap[file.id];
-
-        console.log(
-          "🧩 FILE:",
-          file.name,
-          "→ matched to:",
-          meta?.userName || "❌ no match"
-        );
-
-        return {
-          id: file.id,
-          fileUrl: `https://drive.google.com/uc?export=view&id=${file.id}`, // ✅ fixed
-          userName: meta?.userName || "Anonymous",
-          type: file.mimeType.startsWith("video") ? "video" : "image",
-          createdTime: file.createdTime,
-          votes: meta?.votes || 0,
-        };
-      });
-
-      return res.status(200).json(result);
-    } catch (err) {
-      console.error("🔥 list-drive-files error:", err);
-      return res.status(500).json({ error: "Failed to list drive files" });
-    }
-  }
+  if (action === "uploads" && req.method === "GET") {
+  const raw = await redis.lRange("uploads", 0, -1);
+  const uploads = raw.map((entry) => JSON.parse(entry));
+  return res.json(uploads);
+}
 
   // Upvote file
-  if (action === "upvote" && req.method === "POST") {
-    try {
-      const { fileId } = req.body;
-      if (!fileId) return res.status(400).json({ error: "Missing fileId" });
+  if (req.method === "POST" && action === "upvote") {
+  const { fileId } = req.body;
+  if (!fileId) return res.status(400).json({ error: "Missing fileId" });
 
-      const key = `votes:${fileId}`;
-      const newCount = await redis.incr(key);
-      return res.json({ success: true, votes: newCount });
-    } catch {
-      return res.status(500).json({ error: "Failed to upvote" });
-    }
+  if (isLocal) {
+    const raw = fs.readFileSync(uploadsPath, "utf8");
+    const entries = JSON.parse(raw);
+    let currentVotes = 0;
+
+    const updated = entries.map((entry) => {
+      if (entry.fileName === fileId || entry.id === fileId) {
+        entry.votes = (entry.votes || 0) + 1;
+        currentVotes = entry.votes;
+      }
+      return entry;
+    });
+
+    fs.writeFileSync(uploadsPath, JSON.stringify(updated, null, 2));
+    return res.status(200).json({ success: true, votes: currentVotes });
+  } else {
+    const voteKey = `votes:${fileId}`;
+    await redis.incr(voteKey); // ✅ increment actual Redis vote count
+
+    const raw = await redis.lRange("uploads", 0, -1);
+    let currentVotes = 0;
+
+    const updated = raw
+      .map((str) => JSON.parse(str))
+      .map((entry) => {
+        if (entry.fileName === fileId || entry.id === fileId) {
+          entry.votes = (entry.votes || 0) + 1;
+          currentVotes = entry.votes;
+        }
+        return entry;
+      });
+
+    await redis.del("uploads");
+    await redis.rPush("uploads", updated.map((e) => JSON.stringify(e)));
+
+    const updatedVotes = await redis.get(voteKey);
+    return res.status(200).json({ success: true, votes: parseInt(updatedVotes || "0") });
   }
+}
+
 
   // Reset all votes
   if (action === "reset-votes" && req.method === "POST") {
@@ -400,6 +385,15 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: "Failed to reset votes" });
     }
   }
+
+    // get vote
+  if (action === "get-vote" && req.method === "GET") {
+  const fileId = req.query.fileId;
+  if (!fileId) return res.status(400).json({ error: "Missing fileId" });
+  const key = `votes:${fileId}`;
+  const count = await redis.get(key);
+  return res.json({ votes: parseInt(count || "0") });
+}
 
   // Check reset timestamp
   if (action === "check-reset" && req.method === "GET") {
