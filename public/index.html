@@ -758,15 +758,34 @@
     let hasShownWinner = false;
 
     function showWinnerModal(name) {
-      const modal = document.getElementById('winnerModal');
-      document.getElementById('winnerName').textContent = name;
-      modal.style.display = 'flex';
-      triggerConfetti();
-    }
+  const modal = document.getElementById('winnerModal');
+  document.getElementById('winnerName').textContent = name;
+  modal.style.display = 'flex';
+  triggerConfetti();
+}
+
+function hideWinnerModal() {
+  document.getElementById('winnerModal').style.display = 'none';
+  document.getElementById('winnerName').textContent = '';
+}
+
+function triggerConfetti() {
+  if (!window.confetti) return;
+  const duration = 3 * 1000;
+  const end = Date.now() + duration;
+  (function frame() {
+    confetti({ particleCount: 5, angle: 60, spread: 55, origin: { x: 0 } });
+    confetti({ particleCount: 5, angle: 120, spread: 55, origin: { x: 1 } });
+    if (Date.now() < end) requestAnimationFrame(frame);
+  })();
+}
+
 
     function hideWinnerModal() {
-      document.getElementById('winnerModal').style.display = 'none';
-    }
+  const modal = document.getElementById('winnerModal');
+  modal.style.display = 'none';
+  document.getElementById('winnerName').textContent = '';
+}
 
     function triggerConfetti() {
       if (!window.confetti) return;
@@ -780,18 +799,18 @@
     }
 
     async function checkWinner() {
-      try {
-        const res = await fetch("/api/admin?action=winner");
-        if (!res.ok) return;
-        const data = await res.json();
-        if (data.winner && data.winner.name) {
-          console.log("🎉 Winner is:", data.winner.name);
-          // optionally show modal or update UI
-        }
-      } catch (err) {
-        console.warn("Failed to fetch winner:", err);
-      }
+  try {
+    const res = await fetch("/api/admin?action=winner");
+    if (!res.ok) return;
+    const data = await res.json();
+    if (data.winner && data.winner.name && !hasShownWinner) {
+      showWinnerModal(data.winner.name);
+      hasShownWinner = true;
     }
+  } catch (err) {
+    console.warn("Failed to fetch winner:", err);
+  }
+}
 
     function init() {
       checkWinner(); // ← this should now work
@@ -811,7 +830,7 @@
       localStorage.setItem(key, "1");
 
       const countEl = document.querySelector(`[data-id="${fileId}"] .like-count`);
-      
+
       try {
         await fetch("/api/admin?action=upvote", {
           method: "POST",
@@ -824,22 +843,35 @@
     }
   </script>
   
-  <script>
+ <script>
   document.addEventListener('DOMContentLoaded', () => {
     const nameInput = document.querySelector('input[name="userName"]') || document.getElementById('name-input');
+    const fileInput = document.getElementById('file');
 
     if (nameInput) {
-      // When focus is lost (keyboard closes), reset viewport
+      // When keyboard closes (blur), reset viewport
       nameInput.addEventListener('blur', () => {
         setTimeout(() => {
           window.scrollTo(0, 0); // reset scroll position
-          document.body.style.height = 'auto'; // restore height
-          document.body.style.overflow = 'auto'; // enable scrolling
+          document.body.style.height = 'auto';
+          document.body.style.overflow = 'auto';
         }, 200);
+      });
+    }
+
+    if (fileInput) {
+      fileInput.addEventListener('click', (e) => {
+        // prevent viewport jumping (iOS quirk)
+        e.preventDefault();
+        e.target.blur();
+        setTimeout(() => {
+          e.target.click();
+        }, 50);
       });
     }
   });
 </script>
+
 
 </body>
 
