@@ -811,8 +811,7 @@
       localStorage.setItem(key, "1");
 
       const countEl = document.querySelector(`[data-id="${fileId}"] .like-count`);
-      if (countEl) countEl.textContent = parseInt(countEl.textContent || "0") + 1;
-
+      
       try {
         await fetch("/api/admin?action=upvote", {
           method: "POST",
