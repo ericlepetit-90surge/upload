@@ -4,7 +4,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>U90 Surge Upload - Free T-shirt!</title>
+  <title>90 Surge - Free T-shirt!</title>
+
   <style>
     :root {
       --primary-bg: #0d0d0d;
@@ -29,6 +30,28 @@
       flex-direction: column;
       align-items: center;
     }
+
+    html,
+    body {
+      overflow-x: hidden;
+      max-width: 100vw;
+    }
+
+    body {
+      font-family: Arial, sans-serif;
+      background: #121212;
+      color: #f0f0f0;
+      margin: 0;
+      padding: 20px;
+      overflow-x: hidden;
+      /* 💡 Prevent horizontal scroll */
+      max-width: 100vw;
+      /* 💡 Prevent stretching beyond screen */
+    }
+
+    * {
+  box-sizing: border-box;
+}
 
     h1 {
       font-size: 1.6rem;
@@ -408,77 +431,77 @@
     }
 
     async function loadGallery() {
-  try {
-    const uploadsRes = await fetch("/api/admin?action=uploads");
-    const uploads = await uploadsRes.json();
+      try {
+        const uploadsRes = await fetch("/api/admin?action=uploads");
+        const uploads = await uploadsRes.json();
 
-    const gallery = document.getElementById("gallery");
-    gallery.innerHTML = "";
+        const gallery = document.getElementById("gallery");
+        gallery.innerHTML = "";
 
-    // 🧼 Deduplicate by ID
-    const uniqueMap = new Map();
-    uploads.forEach(upload => {
-      const id = upload.id || upload.fileName;
-      if (!uniqueMap.has(id)) uniqueMap.set(id, upload);
-    });
+        // 🧼 Deduplicate by ID
+        const uniqueMap = new Map();
+        uploads.forEach(upload => {
+          const id = upload.id || upload.fileName;
+          if (!uniqueMap.has(id)) uniqueMap.set(id, upload);
+        });
 
-    // 📦 Convert map to array and sort by newest first
-    const uniqueUploads = Array.from(uniqueMap.values()).sort((a, b) => {
-      const aTime = new Date(a.createdTime || 0).getTime();
-      const bTime = new Date(b.createdTime || 0).getTime();
-      return bTime - aTime;
-    });
+        // 📦 Convert map to array and sort by newest first
+        const uniqueUploads = Array.from(uniqueMap.values()).sort((a, b) => {
+          const aTime = new Date(a.createdTime || 0).getTime();
+          const bTime = new Date(b.createdTime || 0).getTime();
+          return bTime - aTime;
+        });
 
-    // 🧱 Render each card
-    uniqueUploads.forEach(upload => {
-      const card = document.createElement("div");
-      card.className = "card";
-      card.dataset.id = upload.id || upload.fileName;
+        // 🧱 Render each card
+        uniqueUploads.forEach(upload => {
+          const card = document.createElement("div");
+          card.className = "card";
+          card.dataset.id = upload.id || upload.fileName;
 
-      const wrapper = document.createElement("div");
-      wrapper.style.position = "relative";
+          const wrapper = document.createElement("div");
+          wrapper.style.position = "relative";
 
-      const img = document.createElement("img");
-      img.src = upload.fileUrl;
-      img.loading = "lazy";
-      img.style.cursor = "pointer";
-      img.style.maxHeight = "220px";
-      img.style.width = "100%";
-      img.style.objectFit = "cover";
-      img.style.filter = "blur(8px)";
-      img.style.transition = "filter 0.5s";
+          const img = document.createElement("img");
+          img.src = upload.fileUrl;
+          img.loading = "lazy";
+          img.style.cursor = "pointer";
+          img.style.maxHeight = "220px";
+          img.style.width = "100%";
+          img.style.objectFit = "cover";
+          img.style.filter = "blur(8px)";
+          img.style.transition = "filter 0.5s";
 
-      img.addEventListener("load", () => {
-        img.style.filter = "none";
-      });
+          img.addEventListener("load", () => {
+            img.style.filter = "none";
+          });
 
-      img.addEventListener("click", () => {
-        const modal = document.getElementById("imageModal");
-        document.getElementById("fullImage").src = upload.fileUrl;
-        modal.classList.remove("hidden");
-      });
+          img.addEventListener("click", () => {
+            const modal = document.getElementById("imageModal");
+            document.getElementById("fullImage").src = upload.fileUrl;
+            modal.classList.remove("hidden");
+          });
 
-      const info = document.createElement("div");
-      info.className = "info";
-      const displayName =
-        upload.userName ||
-        upload.userNameRaw ||
-        upload.fileName.split("_").slice(2).join("_").replace(/_/g, " ") ||
-        "Anonymous";
-      info.innerHTML = `Uploaded by @${displayName}`;
+          const info = document.createElement("div");
+          info.className = "info";
+          const displayName =
+            upload.userName ||
+            upload.userNameRaw ||
+            upload.fileName.split("_").slice(2).join("_").replace(/_/g, " ") ||
+            "Anonymous";
+          info.innerHTML = `Uploaded by @${displayName}`;
 
-      const voteInfo = document.createElement("div");
-      voteInfo.className = "vote-info";
-      voteInfo.style.textAlign = "center";
-      voteInfo.style.marginBottom = "0.25rem";
-      voteInfo.textContent = `👍 ${upload.votes || 0}`;
+          const voteInfo = document.createElement("div");
+          voteInfo.className = "vote-info";
+          voteInfo.style.textAlign = "center";
+          voteInfo.style.marginBottom = "0.25rem";
+          voteInfo.textContent = `👍 ${upload.votes || 0}`;
 
-      const voted = localStorage.getItem(`voted_${upload.id || upload.fileName}`);
-      const upvoteBtn = document.createElement("button");
-      const hasVoted = !!voted;
-      upvoteBtn.textContent = hasVoted ? "Voted" : "Upvote";
-      upvoteBtn.disabled = hasVoted;
-      upvoteBtn.style.cssText = `
+          const voted = localStorage.getItem(`voted_${upload.id || upload.fileName}`);
+          const upvoteBtn = document.createElement("button");
+          const hasVoted = !!voted;
+          upvoteBtn.textContent = hasVoted ? "Voted" : "Upvote";
+          upvoteBtn.disabled = hasVoted;
+          upvoteBtn.style.cssText = `
         margin: 0.5rem auto;
         display: block;
         padding: 0.4rem 1rem;
@@ -489,50 +512,50 @@
         color: white;
       `;
 
-      upvoteBtn.addEventListener("click", async () => {
-        if (hasVoted) return;
+          upvoteBtn.addEventListener("click", async () => {
+            if (hasVoted) return;
 
-        upvoteBtn.disabled = true;
-        upvoteBtn.textContent = "⏳ Voting...";
-        upvoteBtn.style.background = "#888";
+            upvoteBtn.disabled = true;
+            upvoteBtn.textContent = "⏳ Voting...";
+            upvoteBtn.style.background = "#888";
 
-        try {
-          const res = await fetch("/api/admin?action=upvote", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ fileId: upload.id || upload.fileName }),
+            try {
+              const res = await fetch("/api/admin?action=upvote", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ fileId: upload.id || upload.fileName }),
+              });
+
+              const result = await res.json();
+              if (result.success) {
+                voteInfo.textContent = `👍 ${result.votes}`;
+                localStorage.setItem(`voted_${upload.id || upload.fileName}`, "1");
+                upvoteBtn.textContent = "✅ Voted";
+                upvoteBtn.style.background = "#444";
+              } else {
+                throw new Error("Vote failed");
+              }
+            } catch (err) {
+              alert("Voting failed. Try again.");
+              console.error(err);
+              upvoteBtn.disabled = false;
+              upvoteBtn.textContent = "Upvote";
+              upvoteBtn.style.background = "#e91e63";
+            }
           });
 
-          const result = await res.json();
-          if (result.success) {
-            voteInfo.textContent = `👍 ${result.votes}`;
-            localStorage.setItem(`voted_${upload.id || upload.fileName}`, "1");
-            upvoteBtn.textContent = "✅ Voted";
-            upvoteBtn.style.background = "#444";
-          } else {
-            throw new Error("Vote failed");
-          }
-        } catch (err) {
-          alert("Voting failed. Try again.");
-          console.error(err);
-          upvoteBtn.disabled = false;
-          upvoteBtn.textContent = "Upvote";
-          upvoteBtn.style.background = "#e91e63";
-        }
-      });
-
-      wrapper.appendChild(img);
-      card.appendChild(wrapper);
-      card.appendChild(info);
-      card.appendChild(voteInfo);
-      card.appendChild(upvoteBtn);
-      gallery.appendChild(card);
-    });
-  } catch (err) {
-    console.error("❌ Failed to load gallery", err);
-    document.getElementById("gallery").textContent = "Failed to load gallery.";
-  }
-}
+          wrapper.appendChild(img);
+          card.appendChild(wrapper);
+          card.appendChild(info);
+          card.appendChild(voteInfo);
+          card.appendChild(upvoteBtn);
+          gallery.appendChild(card);
+        });
+      } catch (err) {
+        console.error("❌ Failed to load gallery", err);
+        document.getElementById("gallery").textContent = "Failed to load gallery.";
+      }
+    }
 
     window.addEventListener("storage", (event) => {
       if (event.key === "galleryRefresh") loadGallery();
@@ -565,24 +588,24 @@
     let lastResetCheck = localStorage.getItem('lastResetTimestamp') || null;
 
     async function checkVoteReset() {
-  try {
-    const res = await fetch('/api/admin?action=check-reset');
-    if (!res.ok) throw new Error("Bad response");
+      try {
+        const res = await fetch('/api/admin?action=check-reset');
+        if (!res.ok) throw new Error("Bad response");
 
-    const data = await res.json(); // ✅ define data first
-    const resetTimestamp = data.resetTimestamp;
+        const data = await res.json(); // ✅ define data first
+        const resetTimestamp = data.resetTimestamp;
 
-    if (resetTimestamp && resetTimestamp !== lastResetCheck) {
-      localStorage.removeItem('votedImages');
-      localStorage.setItem('lastResetTimestamp', resetTimestamp);
-      lastResetCheck = resetTimestamp;
-      console.log("🧹 Vote history reset");
-      loadGallery(); // refresh with updated state
+        if (resetTimestamp && resetTimestamp !== lastResetCheck) {
+          localStorage.removeItem('votedImages');
+          localStorage.setItem('lastResetTimestamp', resetTimestamp);
+          lastResetCheck = resetTimestamp;
+          console.log("🧹 Vote history reset");
+          loadGallery(); // refresh with updated state
+        }
+      } catch (err) {
+        console.warn("⚠️ Could not check vote reset", err);
+      }
     }
-  } catch (err) {
-    console.warn("⚠️ Could not check vote reset", err);
-  }
-}
 
     setInterval(checkVoteReset, 10000); // check every 10 seconds
   </script>
@@ -801,10 +824,20 @@
       }
     }
   </script>
-</body>
-
-</html>
-
+<script>
+  document.addEventListener('DOMContentLoaded', () => {
+    const fileInput = document.getElementById('file-input');
+    if (fileInput) {
+      fileInput.addEventListener('change', () => {
+        setTimeout(() => {
+          window.scrollTo(0, 0); // reset scroll position
+          document.body.style.height = 'auto'; // fix any stretched height
+          document.body.style.overflow = 'auto'; // re-enable scrolling
+        }, 200);
+      });
+    }
+  });
+</script>
 </body>
 
 </html>
