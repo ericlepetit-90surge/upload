@@ -560,7 +560,6 @@
     });
 
     // 🟡 Keep vote reset detection (optional feature)
-    let lastResetCheck = null;
     setInterval(async () => {
       try {
         const res = await fetch('/api/admin?action=check-reset');

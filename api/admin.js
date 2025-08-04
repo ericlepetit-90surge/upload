@@ -353,7 +353,7 @@ export default async function handler(req, res) {
       const remaining = uploads.filter((u) => u.fileName !== fileId);
       await redis.del("uploads");
       for (const u of remaining) {
-        await redis.rpush("uploads", JSON.stringify(u));
+        await redis.rPush("uploads", JSON.stringify(u));
       }
 
       await redis.del(`votes:${fileId}`);
