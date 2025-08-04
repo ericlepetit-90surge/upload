@@ -824,20 +824,24 @@
       }
     }
   </script>
-<script>
+  
+  <script>
   document.addEventListener('DOMContentLoaded', () => {
-    const fileInput = document.getElementById('file-input');
-    if (fileInput) {
-      fileInput.addEventListener('change', () => {
+    const nameInput = document.querySelector('input[name="userName"]') || document.getElementById('name-input');
+
+    if (nameInput) {
+      // When focus is lost (keyboard closes), reset viewport
+      nameInput.addEventListener('blur', () => {
         setTimeout(() => {
           window.scrollTo(0, 0); // reset scroll position
-          document.body.style.height = 'auto'; // fix any stretched height
-          document.body.style.overflow = 'auto'; // re-enable scrolling
+          document.body.style.height = 'auto'; // restore height
+          document.body.style.overflow = 'auto'; // enable scrolling
         }, 200);
       });
     }
   });
 </script>
+
 </body>
 
 </html>
