@@ -209,9 +209,10 @@
 
 
     function logout() {
-      localStorage.removeItem('role');
-      window.location.href = window.location.origin + '/admin';
-    }
+  localStorage.clear(); // more reliable than removing one key
+  window.location.href = "/admin?ts=" + Date.now(); // bypass cache
+}
+
 
     async function loadConfig(currentRole) {
       if (currentRole !== 'admin') return;

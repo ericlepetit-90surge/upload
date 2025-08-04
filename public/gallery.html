@@ -106,57 +106,6 @@
 
         const gallery = document.getElementById('gallery');
         gallery.innerHTML = '';
-
-        uploads
-          .sort((a, b) => {
-            const aTime = new Date(a.createdTime || 0).getTime();
-            const bTime = new Date(b.createdTime || 0).getTime();
-            return bTime - aTime;
-          })
-          .forEach(upload => {
-            const card = document.createElement('div');
-            card.className = 'card';
-            card.setAttribute('data-id', upload.fileName);
-
-            const media = upload.type === 'video'
-              ? document.createElement('video')
-              : document.createElement('img');
-
-            media.src = upload.fileUrl;
-            if (upload.type === 'video') {
-              media.controls = true;
-              media.muted = true;
-            }
-
-            const info = document.createElement('div');
-            info.className = 'info';
-            info.textContent = `uploaded by ${upload.userName || 'Anonymous'}`;
-
-            const voteArea = document.createElement('div');
-            voteArea.className = 'vote-area';
-
-            const likeCount = document.createElement('div');
-            likeCount.className = 'like-count';
-            likeCount.textContent = upload.votes || 0;
-
-            const voteBtn = document.createElement('button');
-            voteBtn.className = 'vote-btn';
-            voteBtn.textContent = '👍';
-            voteBtn.onclick = () => upvote(upload.fileName, voteBtn, likeCount);
-
-            if (localStorage.getItem(`voted_${upload.fileName}`)) {
-              voteBtn.classList.add('voted');
-              voteBtn.disabled = true;
-            }
-
-            voteArea.appendChild(voteBtn);
-            voteArea.appendChild(likeCount);
-
-            card.appendChild(media);
-            card.appendChild(info);
-            card.appendChild(voteArea);
-            gallery.appendChild(card);
-          });
       } catch (err) {
         console.error("❌ Failed to load gallery", err);
         document.getElementById('gallery').textContent = 'Failed to load gallery.';
@@ -181,11 +130,16 @@
       }
 
       try {
-        await fetch("/api/admin?action=upvote", {
+        const res = await fetch("/api/admin?action=upvote", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ fileId }),
         });
+
+        const result = await res.json();
+        if (result.success) {
+          countEl.textContent = result.votes;
+        }
       } catch (err) {
         console.error("❌ Failed to upvote:", err);
       }

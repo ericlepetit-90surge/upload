@@ -408,132 +408,131 @@
     }
 
     async function loadGallery() {
-      const gallery = document.getElementById("gallery");
-      const voted = getVotedImageIds();
-      const existingCards = new Map();
+  try {
+    const uploadsRes = await fetch("/api/admin?action=uploads");
+    const uploads = await uploadsRes.json();
 
-      try {
-        const uploadsRes = await fetch("/api/uploads");
-        const uploads = await uploadsRes.json();
+    const gallery = document.getElementById("gallery");
+    gallery.innerHTML = "";
 
-        const uniqueUploads = [];
-        const seenIds = new Set();
+    // 🧼 Deduplicate by ID
+    const uniqueMap = new Map();
+    uploads.forEach(upload => {
+      const id = upload.id || upload.fileName;
+      if (!uniqueMap.has(id)) uniqueMap.set(id, upload);
+    });
 
-        for (const u of uploads) {
-          if (!seenIds.has(u.id)) {
-            uniqueUploads.push(u);
-            seenIds.add(u.id);
-          }
-        }
+    // 📦 Convert map to array and sort by newest first
+    const uniqueUploads = Array.from(uniqueMap.values()).sort((a, b) => {
+      const aTime = new Date(a.createdTime || 0).getTime();
+      const bTime = new Date(b.createdTime || 0).getTime();
+      return bTime - aTime;
+    });
 
-        gallery.querySelectorAll(".card").forEach(card => {
-          const id = card.dataset.id;
-          if (id) existingCards.set(id, card);
-        });
+    // 🧱 Render each card
+    uniqueUploads.forEach(upload => {
+      const card = document.createElement("div");
+      card.className = "card";
+      card.dataset.id = upload.id || upload.fileName;
 
-        uniqueUploads
-          .sort((a, b) => new Date(b.createdTime) - new Date(a.createdTime))
-          .forEach((upload) => {
-            const existing = existingCards.get(upload.id);
-            if (existing) {
-              const voteInfo = existing.querySelector(".vote-info");
-              if (voteInfo) voteInfo.textContent = `👍 ${upload.votes || 0}`;
-              return;
-            }
+      const wrapper = document.createElement("div");
+      wrapper.style.position = "relative";
 
-            const card = document.createElement("div");
-            card.className = "card";
-            card.dataset.id = upload.id;
+      const img = document.createElement("img");
+      img.src = upload.fileUrl;
+      img.loading = "lazy";
+      img.style.cursor = "pointer";
+      img.style.maxHeight = "220px";
+      img.style.width = "100%";
+      img.style.objectFit = "cover";
+      img.style.filter = "blur(8px)";
+      img.style.transition = "filter 0.5s";
 
-            const info = document.createElement("div");
-            info.className = "info";
-            const displayName = upload.userName || upload.userNameRaw || upload.fileName.split("_").slice(2).join("_").replace(/_/g, " ") || "Anonymous";
-            info.innerHTML = `Uploaded by @${displayName}`;
+      img.addEventListener("load", () => {
+        img.style.filter = "none";
+      });
 
-            const voteInfo = document.createElement("div");
-            voteInfo.className = "vote-info";
-            voteInfo.style.textAlign = "center";
-            voteInfo.style.marginBottom = "0.25rem";
-            voteInfo.textContent = `👍 ${upload.votes || 0}`;
+      img.addEventListener("click", () => {
+        const modal = document.getElementById("imageModal");
+        document.getElementById("fullImage").src = upload.fileUrl;
+        modal.classList.remove("hidden");
+      });
 
-            const upvoteBtn = document.createElement("button");
-            upvoteBtn.textContent = voted.includes(upload.id) ? "Voted" : "Upvote";
-            upvoteBtn.disabled = voted.includes(upload.id);
-            upvoteBtn.style.margin = "0.5rem auto";
-            upvoteBtn.style.display = "block";
-            upvoteBtn.style.padding = "0.4rem 1rem";
-            upvoteBtn.style.border = "none";
-            upvoteBtn.style.borderRadius = "8px";
-            upvoteBtn.style.fontWeight = "bold";
-            upvoteBtn.style.background = voted.includes(upload.id) ? "#444" : "#e91e63";
-            upvoteBtn.style.color = "#fff";
+      const info = document.createElement("div");
+      info.className = "info";
+      const displayName =
+        upload.userName ||
+        upload.userNameRaw ||
+        upload.fileName.split("_").slice(2).join("_").replace(/_/g, " ") ||
+        "Anonymous";
+      info.innerHTML = `Uploaded by @${displayName}`;
 
-            upvoteBtn.addEventListener("click", async () => {
-              if (voted.includes(upload.id)) return;
+      const voteInfo = document.createElement("div");
+      voteInfo.className = "vote-info";
+      voteInfo.style.textAlign = "center";
+      voteInfo.style.marginBottom = "0.25rem";
+      voteInfo.textContent = `👍 ${upload.votes || 0}`;
 
-              upvoteBtn.disabled = true;
-              upvoteBtn.textContent = "⏳ Voting...";
-              upvoteBtn.style.background = "#888";
+      const voted = localStorage.getItem(`voted_${upload.id || upload.fileName}`);
+      const upvoteBtn = document.createElement("button");
+      const hasVoted = !!voted;
+      upvoteBtn.textContent = hasVoted ? "Voted" : "Upvote";
+      upvoteBtn.disabled = hasVoted;
+      upvoteBtn.style.cssText = `
+        margin: 0.5rem auto;
+        display: block;
+        padding: 0.4rem 1rem;
+        border: none;
+        border-radius: 8px;
+        font-weight: bold;
+        background: ${hasVoted ? "#444" : "#e91e63"};
+        color: white;
+      `;
 
-              try {
-                const res = await fetch("/api/admin?action=upvote", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ fileId: upload.id }),
-                });
+      upvoteBtn.addEventListener("click", async () => {
+        if (hasVoted) return;
 
-                const result = await res.json();
-                if (result.success) {
-                  voteInfo.textContent = `👍 ${result.votes}`;
-                  markImageVoted(upload.id);
-                  upvoteBtn.textContent = "✅ Voted";
-                  upvoteBtn.style.background = "#444";
-                } else {
-                  throw new Error("Vote failed");
-                }
-              } catch (err) {
-                alert("Voting failed. Try again.");
-                console.error(err);
-                upvoteBtn.disabled = false;
-                upvoteBtn.textContent = "Upvote";
-                upvoteBtn.style.background = "#e91e63";
-              }
-            });
+        upvoteBtn.disabled = true;
+        upvoteBtn.textContent = "⏳ Voting...";
+        upvoteBtn.style.background = "#888";
 
-            const wrapper = document.createElement("div");
-            wrapper.style.position = "relative";
-
-            const img = document.createElement("img");
-            img.src = upload.fileUrl;
-            img.loading = "lazy";
-            img.style.cursor = "pointer";
-            img.style.maxHeight = "220px";
-            img.style.width = "100%";
-            img.style.objectFit = "cover";
-            img.style.filter = "blur(8px)";
-            img.style.transition = "filter 0.5s";
-
-            img.addEventListener("load", () => {
-              img.style.filter = "none";
-            });
-
-            img.addEventListener("click", () => {
-              const modal = document.getElementById("imageModal");
-              document.getElementById("fullImage").src = upload.fileUrl;
-              modal.classList.remove("hidden");
-            });
-
-            wrapper.appendChild(img);
-            card.appendChild(wrapper);
-            card.appendChild(info);
-            card.appendChild(voteInfo);
-            card.appendChild(upvoteBtn);
-            gallery.appendChild(card);
+        try {
+          const res = await fetch("/api/admin?action=upvote", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ fileId: upload.id || upload.fileName }),
           });
-      } catch (err) {
-        console.error("Failed to load gallery", err);
-      }
-    }
+
+          const result = await res.json();
+          if (result.success) {
+            voteInfo.textContent = `👍 ${result.votes}`;
+            localStorage.setItem(`voted_${upload.id || upload.fileName}`, "1");
+            upvoteBtn.textContent = "✅ Voted";
+            upvoteBtn.style.background = "#444";
+          } else {
+            throw new Error("Vote failed");
+          }
+        } catch (err) {
+          alert("Voting failed. Try again.");
+          console.error(err);
+          upvoteBtn.disabled = false;
+          upvoteBtn.textContent = "Upvote";
+          upvoteBtn.style.background = "#e91e63";
+        }
+      });
+
+      wrapper.appendChild(img);
+      card.appendChild(wrapper);
+      card.appendChild(info);
+      card.appendChild(voteInfo);
+      card.appendChild(upvoteBtn);
+      gallery.appendChild(card);
+    });
+  } catch (err) {
+    console.error("❌ Failed to load gallery", err);
+    document.getElementById("gallery").textContent = "Failed to load gallery.";
+  }
+}
 
     window.addEventListener("storage", (event) => {
       if (event.key === "galleryRefresh") loadGallery();
@@ -547,6 +546,7 @@
     setInterval(async () => {
       try {
         const res = await fetch('/api/admin?action=check-reset');
+        if (!res.ok) throw new Error("Bad response");
         const { resetTime } = await res.json();
 
         if (resetTime && resetTime !== lastResetCheck) {
@@ -565,20 +565,24 @@
     let lastResetCheck = localStorage.getItem('lastResetTimestamp') || null;
 
     async function checkVoteReset() {
-      try {
-        const res = await fetch('/api/admin?action=check-reset');
-        const data = await res.json();
+  try {
+    const res = await fetch('/api/admin?action=check-reset');
+    if (!res.ok) throw new Error("Bad response");
 
-        if (data.resetTimestamp && data.resetTimestamp !== lastResetCheck) {
-          localStorage.removeItem('votedImages');
-          localStorage.setItem('lastResetTimestamp', data.resetTimestamp);
-          console.log("🧹 Vote history reset");
-          loadGallery(); // refresh with updated state
-        }
-      } catch (err) {
-        console.warn("⚠️ Could not check vote reset", err);
-      }
+    const data = await res.json(); // ✅ define data first
+    const resetTimestamp = data.resetTimestamp;
+
+    if (resetTimestamp && resetTimestamp !== lastResetCheck) {
+      localStorage.removeItem('votedImages');
+      localStorage.setItem('lastResetTimestamp', resetTimestamp);
+      lastResetCheck = resetTimestamp;
+      console.log("🧹 Vote history reset");
+      loadGallery(); // refresh with updated state
     }
+  } catch (err) {
+    console.warn("⚠️ Could not check vote reset", err);
+  }
+}
 
     setInterval(checkVoteReset, 10000); // check every 10 seconds
   </script>
@@ -605,84 +609,84 @@
       const message = document.getElementById("message");
 
       form.addEventListener("submit", async (e) => {
-  e.preventDefault();
-  message.textContent = "";
+        e.preventDefault();
+        message.textContent = "";
 
-  const fileInput = document.getElementById("file");
-  const nameInput = document.getElementById("name");
-  const progress = document.getElementById("progress");
-  const file = fileInput.files[0];
-  const userName = nameInput.value.trim();
+        const fileInput = document.getElementById("file");
+        const nameInput = document.getElementById("name");
+        const progress = document.getElementById("progress");
+        const file = fileInput.files[0];
+        const userName = nameInput.value.trim();
 
-  if (!file || !userName) {
-    message.textContent = "Name and file are required.";
-    return;
-  }
+        if (!file || !userName) {
+          message.textContent = "Name and file are required.";
+          return;
+        }
 
-  const sanitize = (str) =>
-    String(str || "")
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/gi, "_")
-      .replace(/^_+|_+$/g, "");
+        const sanitize = (str) =>
+          String(str || "")
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/gi, "_")
+            .replace(/^_+|_+$/g, "");
 
-  const fileName = `${sanitize(userName)}_${Date.now()}_${sanitize(file.name)}`;
+        const fileName = `${sanitize(userName)}_${Date.now()}_${sanitize(file.name)}`;
 
-  progress.style.display = "block";
-  progress.value = 0;
-  message.style.color = "#999";
-  message.textContent = "⏳ Uploading...";
+        progress.style.display = "block";
+        progress.value = 0;
+        message.style.color = "#999";
+        message.textContent = "⏳ Uploading...";
 
-  try {
-    // 1. Get presigned upload URL
-    const presignRes = await fetch("/api/get-upload-url", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        fileName,
-        mimeType: file.type,
-      }),
-    });
+        try {
+          // 1. Get presigned upload URL
+          const presignRes = await fetch("/api/get-upload-url", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              fileName,
+              mimeType: file.type,
+            }),
+          });
 
-    const { url } = await presignRes.json();
-    if (!url) throw new Error("Failed to get presigned URL");
+          const { url } = await presignRes.json();
+          if (!url) throw new Error("Failed to get presigned URL");
 
-    // 2. Upload directly to R2
-    await fetch(url, {
-      method: "PUT",
-      headers: {
-        "Content-Type": file.type,
-      },
-      body: file,
-    });
+          // 2. Upload directly to R2
+          await fetch(url, {
+            method: "PUT",
+            headers: {
+              "Content-Type": file.type,
+            },
+            body: file,
+          });
 
-    // 3. Save metadata
-    const metaRes = await fetch("/api/admin?action=save-upload", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        fileName,
-        mimeType: file.type,
-        userName,
-      }),
-    });
+          // 3. Save metadata
+          const metaRes = await fetch("/api/admin?action=save-upload", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              fileName,
+              mimeType: file.type,
+              userName,
+            }),
+          });
 
-    const metaData = await metaRes.json();
-    if (!metaData.success) {
-      throw new Error("Failed to save metadata");
-    }
+          const metaData = await metaRes.json();
+          if (!metaData.success) {
+            throw new Error("Failed to save metadata");
+          }
 
-    message.style.color = "#4caf50";
-    message.textContent = "✅ Upload complete!";
-    fileInput.value = "";
-    progress.value = 100;
-    if (typeof loadGallery === "function") loadGallery();
-  } catch (err) {
-    console.error("❌ Upload error:", err);
-    message.style.color = "red";
-    message.textContent = "❌ Upload failed: " + err.message;
-    progress.style.display = "none";
-  }
-});
+          message.style.color = "#4caf50";
+          message.textContent = "✅ Upload complete!";
+          fileInput.value = "";
+          progress.value = 100;
+          if (typeof loadGallery === "function") loadGallery();
+        } catch (err) {
+          console.error("❌ Upload error:", err);
+          message.style.color = "red";
+          message.textContent = "❌ Upload failed: " + err.message;
+          progress.style.display = "none";
+        }
+      });
     })(); 
   </script>
 
@@ -776,28 +780,29 @@
     window.hideWinnerModal = hideWinnerModal;
   </script>
 
-<script>
-  async function upvote(fileId) {
-    const key = `voted_${fileId}`;
-    if (localStorage.getItem(key)) return;
+  <script>
+    async function upvote(fileId) {
+      const key = `voted_${fileId}`;
+      if (localStorage.getItem(key)) return;
 
-    localStorage.setItem(key, "1");
+      localStorage.setItem(key, "1");
 
-    const countEl = document.querySelector(`[data-id="${fileId}"] .like-count`);
-    if (countEl) countEl.textContent = parseInt(countEl.textContent || "0") + 1;
+      const countEl = document.querySelector(`[data-id="${fileId}"] .like-count`);
+      if (countEl) countEl.textContent = parseInt(countEl.textContent || "0") + 1;
 
-    try {
-      await fetch("/api/admin?action=upvote", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ fileId }),
-      });
-    } catch (err) {
-      console.error("❌ Failed to upvote:", err);
+      try {
+        await fetch("/api/admin?action=upvote", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ fileId }),
+        });
+      } catch (err) {
+        console.error("❌ Failed to upvote:", err);
+      }
     }
-  }
-</script>
+  </script>
 </body>
+
 </html>
 
 </body>
