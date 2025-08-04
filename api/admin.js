@@ -323,6 +323,63 @@ export default async function handler(req, res) {
   return res.json(uploads);
 }
 
+if (action === "list-r2-files" && req.method === "GET") {
+  try {
+    const list = await s3.send(
+      new ListObjectsV2Command({
+        Bucket: process.env.R2_BUCKET_NAME,
+      })
+    );
+    return res.status(200).json({ files: list.Contents || [] });
+  } catch (err) {
+    return res.status(500).json({ error: "Failed to list R2 files" });
+  }
+}
+
+if (action === "list-r2-files" && req.method === "GET") {
+  try {
+    const list = await s3.send(
+      new ListObjectsV2Command({
+        Bucket: process.env.R2_BUCKET_NAME,
+      })
+    );
+
+    const files = (list.Contents || []).map((item) => ({
+      key: item.Key,
+      url: `https://${process.env.R2_PUBLIC_DOMAIN}/${item.Key}`,
+      lastModified: item.LastModified,
+      size: item.Size,
+    }));
+
+    return res.status(200).json({ files });
+  } catch (err) {
+    console.error("❌ Failed to list R2 files:", err.message);
+    return res.status(500).json({ error: "Failed to list R2 files" });
+  }
+}
+
+
+if (action === "list-r2-files" && req.method === "GET") {
+  try {
+    const list = await s3.send(
+      new ListObjectsV2Command({
+        Bucket: process.env.R2_BUCKET_NAME,
+      })
+    );
+
+    const files = (list.Contents || []).map((item) => ({
+      key: item.Key,
+      url: `https://${process.env.R2_PUBLIC_DOMAIN}/${item.Key}`,
+      lastModified: item.LastModified,
+      size: item.Size,
+    }));
+
+    return res.status(200).json({ files });
+  } catch (err) {
+    console.error("❌ Failed to list R2 files:", err.message);
+    return res.status(500).json({ error: "Failed to list R2 files" });
+  }
+}
   // Upvote file
   if (req.method === "POST" && action === "upvote") {
   const { fileId } = req.body;

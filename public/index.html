@@ -448,7 +448,7 @@
             const info = document.createElement("div");
             info.className = "info";
             const displayName = upload.userName || upload.userNameRaw || upload.fileName.split("_").slice(2).join("_").replace(/_/g, " ") || "Anonymous";
-            info.innerHTML = `<span style="font-weight: bold;">Uploaded by:</span><br>${displayName}`;
+            info.innerHTML = `Uploaded by @${displayName}`;
 
             const voteInfo = document.createElement("div");
             voteInfo.className = "vote-info";
