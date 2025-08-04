@@ -209,9 +209,9 @@
 
 
     function logout() {
-  localStorage.clear(); // more reliable than removing one key
-  window.location.href = "/admin?ts=" + Date.now(); // bypass cache
-}
+      localStorage.clear(); // more reliable than removing one key
+      window.location.href = "/admin?ts=" + Date.now(); // bypass cache
+    }
 
 
     async function loadConfig(currentRole) {
@@ -258,28 +258,26 @@
       }
     }
 
-    async function pickWinner() {
-      try {
-        const res = await fetch("/api/admin?action=pick-winner", {
-          method: "POST",
-        });
+    async function checkWinner() {
+  try {
+    const res = await fetch("/api/admin?action=winner");
+    if (!res.ok) return;
 
-        if (!res.ok) {
-          const text = await res.text();
-          throw new Error(`Failed: ${res.status} – ${text}`);
-        }
+    const data = await res.json();
+    if (data.winner && data.winner.name) {
+      const currentWinner = data.winner.name;
 
-        const data = await res.json();
-        if (data.winner) {
-          document.getElementById("winnerDisplay").textContent = `🎉 Winner: ${data.winner}`;
-        } else {
-          document.getElementById("winnerDisplay").textContent = "No entries found.";
-        }
-      } catch (err) {
-        document.getElementById("winnerDisplay").textContent = "❌ Error picking winner";
-        console.error(err);
+      const shownWinner = localStorage.getItem("shownWinnerName");
+      if (shownWinner !== currentWinner) {
+        localStorage.setItem("shownWinnerName", currentWinner);
+        showWinnerModal(currentWinner);
       }
     }
+  } catch (err) {
+    console.warn("Failed to fetch winner:", err);
+  }
+}
+
 
 
     async function loadAdminGallery() {

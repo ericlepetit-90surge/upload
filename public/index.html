@@ -50,8 +50,8 @@
     }
 
     * {
-  box-sizing: border-box;
-}
+      box-sizing: border-box;
+    }
 
     h1 {
       font-size: 1.6rem;
@@ -758,34 +758,30 @@
     let hasShownWinner = false;
 
     function showWinnerModal(name) {
-  const modal = document.getElementById('winnerModal');
-  document.getElementById('winnerName').textContent = name;
-  modal.style.display = 'flex';
-  triggerConfetti();
-}
-
-function hideWinnerModal() {
-  document.getElementById('winnerModal').style.display = 'none';
-  document.getElementById('winnerName').textContent = '';
-}
-
-function triggerConfetti() {
-  if (!window.confetti) return;
-  const duration = 3 * 1000;
-  const end = Date.now() + duration;
-  (function frame() {
-    confetti({ particleCount: 5, angle: 60, spread: 55, origin: { x: 0 } });
-    confetti({ particleCount: 5, angle: 120, spread: 55, origin: { x: 1 } });
-    if (Date.now() < end) requestAnimationFrame(frame);
-  })();
-}
-
+      const modal = document.getElementById('winnerModal');
+      document.getElementById('winnerName').textContent = name;
+      modal.style.display = 'flex';
+      triggerConfetti();
+    }
 
     function hideWinnerModal() {
-  const modal = document.getElementById('winnerModal');
-  modal.style.display = 'none';
-  document.getElementById('winnerName').textContent = '';
+  document.getElementById('winnerModal').style.display = 'none';
+  localStorage.removeItem("shownWinnerName"); // 🧼 reset on close if needed
 }
+
+
+    function triggerConfetti() {
+      if (!window.confetti) return;
+      const duration = 3 * 1000;
+      const end = Date.now() + duration;
+      (function frame() {
+        confetti({ particleCount: 5, angle: 60, spread: 55, origin: { x: 0 } });
+        confetti({ particleCount: 5, angle: 120, spread: 55, origin: { x: 1 } });
+        if (Date.now() < end) requestAnimationFrame(frame);
+      })();
+    }
+
+
 
     function triggerConfetti() {
       if (!window.confetti) return;
@@ -802,15 +798,22 @@ function triggerConfetti() {
   try {
     const res = await fetch("/api/admin?action=winner");
     if (!res.ok) return;
+
     const data = await res.json();
-    if (data.winner && data.winner.name && !hasShownWinner) {
-      showWinnerModal(data.winner.name);
-      hasShownWinner = true;
+    if (data.winner && data.winner.name) {
+      const currentWinner = data.winner.name;
+
+      const shownWinner = localStorage.getItem("shownWinnerName");
+      if (shownWinner !== currentWinner) {
+        localStorage.setItem("shownWinnerName", currentWinner);
+        showWinnerModal(currentWinner);
+      }
     }
   } catch (err) {
     console.warn("Failed to fetch winner:", err);
   }
 }
+
 
     function init() {
       checkWinner(); // ← this should now work
@@ -842,31 +845,29 @@ function triggerConfetti() {
       }
     }
   </script>
-  
- <script>
+
+  <script>
   document.addEventListener('DOMContentLoaded', () => {
     const nameInput = document.querySelector('input[name="userName"]') || document.getElementById('name-input');
     const fileInput = document.getElementById('file');
 
     if (nameInput) {
-      // When keyboard closes (blur), reset viewport
       nameInput.addEventListener('blur', () => {
         setTimeout(() => {
-          window.scrollTo(0, 0); // reset scroll position
+          window.scrollTo(0, 0);
           document.body.style.height = 'auto';
           document.body.style.overflow = 'auto';
         }, 200);
       });
     }
 
-    if (fileInput) {
-      fileInput.addEventListener('click', (e) => {
-        // prevent viewport jumping (iOS quirk)
-        e.preventDefault();
-        e.target.blur();
+    // Only apply file click workaround for iOS
+    const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+    if (fileInput && isIOS) {
+      fileInput.addEventListener('touchend', () => {
         setTimeout(() => {
-          e.target.click();
-        }, 50);
+          window.scrollTo(0, 0);
+        }, 250);
       });
     }
   });
