@@ -198,6 +198,7 @@
       const data = await res.json();
       if (data.success) {
         localStorage.setItem('role', data.role);
+        localStorage.setItem('authToken', password);
         if (data.role === 'admin') {
           localStorage.setItem('adminKey', password); // ✅ only for full admin
         }
@@ -259,73 +260,106 @@
     }
 
     async function checkWinner() {
-  try {
-    const res = await fetch("/api/admin?action=winner");
-    if (!res.ok) return;
+      try {
+        const res = await fetch("/api/admin?action=winner");
+        if (!res.ok) return;
 
-    const data = await res.json();
-    if (data.winner && data.winner.name) {
-      const currentWinner = data.winner.name;
+        const data = await res.json();
+        if (data.winner && data.winner.name) {
+          const currentWinner = data.winner.name;
 
-      const shownWinner = localStorage.getItem("shownWinnerName");
-      if (shownWinner !== currentWinner) {
-        localStorage.setItem("shownWinnerName", currentWinner);
-        showWinnerModal(currentWinner);
+          const shownWinner = localStorage.getItem("shownWinnerName");
+          if (shownWinner !== currentWinner) {
+            localStorage.setItem("shownWinnerName", currentWinner);
+            showWinnerModal(currentWinner);
+          }
+        }
+      } catch (err) {
+        console.warn("Failed to fetch winner:", err);
       }
     }
-  } catch (err) {
-    console.warn("Failed to fetch winner:", err);
-  }
-}
-
-
 
     async function loadAdminGallery() {
       try {
         const uploadsRes = await fetch("/api/uploads");
         const uploads = await uploadsRes.json();
 
-        if (!Array.isArray(uploads)) throw new Error("Response was not an array");
+        const filesRes = await fetch("/api/admin?action=list-r2-files");
+        const fileList = await filesRes.json();
+
+        const validFiles = new Set(fileList.files.map(f => f.key));
 
         const gallery = document.getElementById("admin-gallery");
         gallery.innerHTML = '';
 
-        uploads.forEach(file => {
-          const card = document.createElement("div");
-          card.className = "card";
+        console.log("uploads from Redis:", uploads);
+        console.log("files from R2:", fileList.files.map(f => f.key));
 
-          let media;
-          if (file.type === "video") {
-            media = document.createElement("video");
-            media.src = file.fileUrl;
-            media.controls = true;
-            media.muted = true;
-          } else {
-            media = document.createElement("img");
-            media.src = file.fileUrl;
-            media.style.cursor = "pointer";
-          }
+        uploads
+          .filter(file => validFiles.has(file.fileName))
+          .sort((a, b) => {
+            const aTime = new Date(a.createdTime || a.timestamp || 0).getTime();
+            const bTime = new Date(b.createdTime || b.timestamp || 0).getTime();
+            return bTime - aTime;
+          })
+          .forEach(file => {
+            const card = document.createElement("div");
+            card.className = "card";
 
-          const info = document.createElement("div");
-          info.className = "info";
-          info.textContent = file.userName || "Anonymous";
+            const wrapper = document.createElement("div");
+            wrapper.style.position = "relative";
 
-          const deleteBtn = document.createElement("button");
-          deleteBtn.textContent = "🗑 Delete";
-          deleteBtn.onclick = () => deleteFile(file.fileName, file.userName);
+            let media;
+            if (file.type === "video") {
+              media = document.createElement("video");
+              media.src = file.fileUrl;
+              media.controls = true;
+              media.muted = true;
+              media.style.width = "100%";
+              media.style.maxHeight = "220px";
+              media.style.objectFit = "cover";
+            } else {
+              media = document.createElement("img");
+              media.src = file.fileUrl;
+              media.loading = "lazy";
+              media.style.cursor = "pointer";
+              media.style.maxHeight = "220px";
+              media.style.width = "100%";
+              media.style.objectFit = "cover";
+              media.style.filter = "blur(8px)";
+              media.style.transition = "filter 0.5s";
+              media.addEventListener("load", () => {
+                media.style.filter = "none";
+              });
+            }
 
-          card.appendChild(media);
-          card.appendChild(info);
-          card.appendChild(deleteBtn);
-          gallery.appendChild(card);
-        });
+            wrapper.appendChild(media);
+            card.appendChild(wrapper);
+
+            const info = document.createElement("div");
+            info.className = "info";
+            const displayName = file.userName || file.userNameRaw || file.fileName.split("_").slice(2).join("_").replace(/_/g, " ") || "Anonymous";
+            info.textContent = `Uploaded by @${displayName}`;
+            card.appendChild(info);
+
+            const voteInfo = document.createElement("div");
+            voteInfo.className = "info";
+            voteInfo.textContent = `👍 ${file.votes || 0}`;
+            card.appendChild(voteInfo);
+
+            const deleteBtn = document.createElement("button");
+            deleteBtn.textContent = "🗑 Delete";
+            deleteBtn.onclick = () => deleteFile(file.fileName, displayName);
+            card.appendChild(deleteBtn);
+
+            gallery.appendChild(card);
+          });
 
       } catch (err) {
         console.error("❌ Failed to load admin gallery:", err);
         document.getElementById("admin-gallery").innerHTML = "<p style='color:red'>Failed to load gallery</p>";
       }
     }
-
 
     async function deleteFile(fileId, name) {
       if (!fileId) return alert('Invalid file ID');
@@ -347,7 +381,7 @@
     }
 
     document.getElementById('clearAllBtn')?.addEventListener('click', async () => {
-      if (!confirm("Are you sure you want to delete ALL uploads and Drive files?")) return;
+      if (!confirm("This will remove all files from R2 and Redis")) return;
 
       console.log("🔐 Sending auth:", localStorage.getItem('adminKey'));
 
@@ -358,9 +392,8 @@
             'Content-Type': 'application/json',
             'Authorization': 'Bearer:super:' + localStorage.getItem('adminKey'),
           },
-          body: JSON.stringify({}) // ← this is the missing piece!
+          body: JSON.stringify({})
         });
-
 
         const text = await res.text();
         let result;
@@ -376,7 +409,7 @@
           throw new Error(result?.error || "Unknown server error");
         }
 
-        alert('✅ All uploads and Drive files cleared!');
+        alert('✅ All uploads cleared!');
         location.reload();
 
       } catch (err) {
@@ -387,6 +420,28 @@
 
 
   </script>
+  <script>
+    async function pickWinner() {
+      if (!confirm("Pick a random winner from all uploads?")) return;
+      try {
+        const res = await fetch('/api/admin?action=pick-winner', { method: 'POST' });
+        const result = await res.json();
+
+        if (result && result.winner && result.winner.name) {
+          const winnerName = result.winner.name;
+          localStorage.setItem("shownWinnerName", ""); // ❗ Clear to force modal on index.html
+          document.getElementById('winnerDisplay').textContent = `🎉 Winner: ${winnerName}`;
+          alert(`🎉 Winner picked: ${winnerName}`);
+        } else {
+          alert("❌ No eligible uploads found.");
+        }
+      } catch (err) {
+        console.error("❌ Error picking winner:", err);
+        alert("❌ Failed to pick winner");
+      }
+    }
+  </script>
+
   <script>
     document.addEventListener("DOMContentLoaded", () => {
       const role = localStorage.getItem("role");
@@ -416,21 +471,29 @@
 
   <script>
     async function resetVotes() {
-      if (!confirm("Are you sure you want to reset ALL votes?")) return;
+  if (!confirm("Reset all votes and re-enable voting?")) return;
 
-      const res = await fetch('/api/admin?action=reset-votes', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ role: localStorage.getItem('role') })
-      });
+  console.log("🔐 Role being sent:", localStorage.getItem('role'));
 
-      const data = await res.json();
-      if (res.ok && data.success) {
-        alert('✅ Votes reset!');
-      } else {
-        alert('❌ Failed to reset votes: ' + (data.error || res.status));
-      }
-    }
+  const res = await fetch('/api/admin?action=reset-votes', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ role: localStorage.getItem('role') })
+  });
+
+  const data = await res.json();
+  if (res.ok && data.success) {
+    // ✅ clear local voted markers
+    Object.keys(localStorage).forEach(key => {
+      if (key.startsWith("voted_")) localStorage.removeItem(key);
+    });
+
+    alert('✅ Votes reset! Voting re-enabled.');
+    loadAdminGallery?.();
+  } else {
+    alert('❌ Failed to reset votes: ' + (data.error || res.status));
+  }
+}
 
   </script>
 

@@ -429,7 +429,8 @@
         document.getElementById("headline").textContent = "Upload to 90 Surge";
       }
     }
-
+  </script>
+  <script>
     async function loadGallery() {
       try {
         const uploadsRes = await fetch("/api/admin?action=uploads");
@@ -438,21 +439,18 @@
         const gallery = document.getElementById("gallery");
         gallery.innerHTML = "";
 
-        // 🧼 Deduplicate by ID
         const uniqueMap = new Map();
         uploads.forEach(upload => {
           const id = upload.id || upload.fileName;
           if (!uniqueMap.has(id)) uniqueMap.set(id, upload);
         });
 
-        // 📦 Convert map to array and sort by newest first
         const uniqueUploads = Array.from(uniqueMap.values()).sort((a, b) => {
           const aTime = new Date(a.createdTime || 0).getTime();
           const bTime = new Date(b.createdTime || 0).getTime();
           return bTime - aTime;
         });
 
-        // 🧱 Render each card
         uniqueUploads.forEach(upload => {
           const card = document.createElement("div");
           card.className = "card";
@@ -470,11 +468,9 @@
           img.style.objectFit = "cover";
           img.style.filter = "blur(8px)";
           img.style.transition = "filter 0.5s";
-
           img.addEventListener("load", () => {
             img.style.filter = "none";
           });
-
           img.addEventListener("click", () => {
             const modal = document.getElementById("imageModal");
             document.getElementById("fullImage").src = upload.fileUrl;
@@ -497,20 +493,21 @@
           voteInfo.textContent = `👍 ${upload.votes || 0}`;
 
           const voted = localStorage.getItem(`voted_${upload.id || upload.fileName}`);
-          const upvoteBtn = document.createElement("button");
           const hasVoted = !!voted;
+
+          const upvoteBtn = document.createElement("button");
           upvoteBtn.textContent = hasVoted ? "Voted" : "Upvote";
           upvoteBtn.disabled = hasVoted;
           upvoteBtn.style.cssText = `
-        margin: 0.5rem auto;
-        display: block;
-        padding: 0.4rem 1rem;
-        border: none;
-        border-radius: 8px;
-        font-weight: bold;
-        background: ${hasVoted ? "#444" : "#e91e63"};
-        color: white;
-      `;
+          margin: 0.5rem auto;
+          display: block;
+          padding: 0.4rem 1rem;
+          border: none;
+          border-radius: 8px;
+          font-weight: bold;
+          background: ${hasVoted ? "#444" : "#e91e63"};
+          color: white;
+        `;
 
           upvoteBtn.addEventListener("click", async () => {
             if (hasVoted) return;
@@ -557,15 +554,13 @@
       }
     }
 
+    // 🔁 Listen for uploads on this or other tabs
     window.addEventListener("storage", (event) => {
       if (event.key === "galleryRefresh") loadGallery();
     });
 
-    // 🔁 Refresh gallery every 5 seconds
-    setInterval(() => {
-      loadGallery();
-    }, 5000);
-
+    // 🟡 Keep vote reset detection (optional feature)
+    let lastResetCheck = null;
     setInterval(async () => {
       try {
         const res = await fetch('/api/admin?action=check-reset');
@@ -582,32 +577,41 @@
       }
     }, 4000);
   </script>
+  <script>
+    // 🔁 Live Vote Count Updates via SSE
+    const evtSource = new EventSource("/api/votes-stream");
 
+    evtSource.onmessage = (event) => {
+      try {
+        const { fileId, votes } = JSON.parse(event.data);
+        const card = document.querySelector(`.card[data-id="${fileId}"]`);
+        if (!card) return;
+        const voteInfo = card.querySelector(".vote-info");
+        if (voteInfo) voteInfo.textContent = `👍 ${votes}`;
+      } catch (err) {
+        console.warn("SSE event parse error:", err);
+      }
+    };
+  </script>
 
   <script>
     let lastResetCheck = localStorage.getItem('lastResetTimestamp') || null;
 
     async function checkVoteReset() {
-      try {
-        const res = await fetch('/api/admin?action=check-reset');
-        if (!res.ok) throw new Error("Bad response");
+      const res = await fetch("/api/admin?action=check-reset");
+      if (!res.ok) return;
+      const { resetTimestamp } = await res.json();
+      const last = localStorage.getItem("lastResetTimestamp");
+      if (resetTimestamp && resetTimestamp !== last) {
+        localStorage.setItem("lastResetTimestamp", resetTimestamp);
 
-        const data = await res.json(); // ✅ define data first
-        const resetTimestamp = data.resetTimestamp;
-
-        if (resetTimestamp && resetTimestamp !== lastResetCheck) {
-          localStorage.removeItem('votedImages');
-          localStorage.setItem('lastResetTimestamp', resetTimestamp);
-          lastResetCheck = resetTimestamp;
-          console.log("🧹 Vote history reset");
-          loadGallery(); // refresh with updated state
-        }
-      } catch (err) {
-        console.warn("⚠️ Could not check vote reset", err);
+        // remove all individual vote keys
+        Object.keys(localStorage).forEach(key => {
+          if (key.startsWith("voted_")) localStorage.removeItem(key);
+        });
+        loadGallery(); // re-render gallery and re-enable vote buttons
       }
     }
-
-    setInterval(checkVoteReset, 10000); // check every 10 seconds
   </script>
 
   <script>
@@ -765,9 +769,9 @@
     }
 
     function hideWinnerModal() {
-  document.getElementById('winnerModal').style.display = 'none';
-  localStorage.removeItem("shownWinnerName"); // 🧼 reset on close if needed
-}
+      document.getElementById('winnerModal').style.display = 'none';
+      localStorage.removeItem("shownWinnerName"); // 🧼 reset on close if needed
+    }
 
 
     function triggerConfetti() {
@@ -795,25 +799,24 @@
     }
 
     async function checkWinner() {
-  try {
-    const res = await fetch("/api/admin?action=winner");
-    if (!res.ok) return;
+      try {
+        const res = await fetch("/api/admin?action=winner");
+        if (!res.ok) return;
 
-    const data = await res.json();
-    if (data.winner && data.winner.name) {
-      const currentWinner = data.winner.name;
+        const data = await res.json();
+        if (data.winner && data.winner.name) {
+          const currentWinner = data.winner.name;
+          const shownWinner = localStorage.getItem("shownWinnerName");
 
-      const shownWinner = localStorage.getItem("shownWinnerName");
-      if (shownWinner !== currentWinner) {
-        localStorage.setItem("shownWinnerName", currentWinner);
-        showWinnerModal(currentWinner);
+          if (shownWinner !== currentWinner) {
+            localStorage.setItem("shownWinnerName", currentWinner); // mark as shown
+            showWinnerModal(currentWinner); // show once
+          }
+        }
+      } catch (err) {
+        console.warn("Failed to fetch winner:", err);
       }
     }
-  } catch (err) {
-    console.warn("Failed to fetch winner:", err);
-  }
-}
-
 
     function init() {
       checkWinner(); // ← this should now work
@@ -847,31 +850,21 @@
   </script>
 
   <script>
-  document.addEventListener('DOMContentLoaded', () => {
-    const nameInput = document.querySelector('input[name="userName"]') || document.getElementById('name-input');
-    const fileInput = document.getElementById('file');
+    document.addEventListener('DOMContentLoaded', () => {
+      const nameInput = document.querySelector('input[name="userName"]') || document.getElementById('name-input');
+      const fileInput = document.getElementById('file');
 
-    if (nameInput) {
-      nameInput.addEventListener('blur', () => {
-        setTimeout(() => {
-          window.scrollTo(0, 0);
-          document.body.style.height = 'auto';
-          document.body.style.overflow = 'auto';
-        }, 200);
-      });
-    }
-
-    // Only apply file click workaround for iOS
-    const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
-    if (fileInput && isIOS) {
-      fileInput.addEventListener('touchend', () => {
-        setTimeout(() => {
-          window.scrollTo(0, 0);
-        }, 250);
-      });
-    }
-  });
-</script>
+      // Only apply file click workaround for iOS
+      const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+      if (fileInput && isIOS) {
+        fileInput.addEventListener('touchend', () => {
+          setTimeout(() => {
+            window.scrollTo(0, 0);
+          }, 250);
+        });
+      }
+    });
+  </script>
 
 
 </body>
