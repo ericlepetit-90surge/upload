@@ -98,7 +98,7 @@ export default async function handler(req, res) {
   // ────── ⚙️ CONFIG ──────
   if (action === "config") {
   if (req.method === "GET") {
-    await ensureRedisConnected(); // ✅ ADD THIS LINE
+    await ensureRedisConnected();
 
     if (!redis) {
       console.error("❌ Redis not connected");
@@ -164,6 +164,7 @@ export default async function handler(req, res) {
 
   // ────── 💾 UPLOAD ──────
   if (action === "save-upload" && req.method === "POST") {
+     await ensureRedisConnected();
     const { fileName, mimeType, userName } = req.body;
     if (!fileName || !mimeType || !userName) {
       return res.status(400).json({ error: "Missing required fields" });
@@ -219,6 +220,7 @@ export default async function handler(req, res) {
   }
 
   if (action === "uploads" && req.method === "GET") {
+     await ensureRedisConnected();
     const raw = await redis.lRange("uploads", 0, -1);
     const uploads = raw.map((e) => JSON.parse(e));
 
@@ -251,6 +253,7 @@ export default async function handler(req, res) {
 
   // ────── 👍 VOTES ──────
   if (action === "upvote" && req.method === "POST") {
+     await ensureRedisConnected();
     const { fileId } = req.body;
     if (!fileId) return res.status(400).json({ error: "Missing fileId" });
 
@@ -295,12 +298,14 @@ export default async function handler(req, res) {
   }
 
   if (action === "check-reset" && req.method === "GET") {
+     await ensureRedisConnected();
     const timestamp = await redis.get("resetVotesTimestamp");
     return res.json({ resetTime: timestamp });
   }
 
   // ------ RESET VOTES ------
   if (action === "reset-votes" && req.method === "POST") {
+     await ensureRedisConnected();
     const { role } = req.body;
 
     if (role !== "admin") {
@@ -332,6 +337,7 @@ export default async function handler(req, res) {
 
   // ────── 🏆 WINNER ──────
   if (action === "winner" && req.method === "GET") {
+     await ensureRedisConnected();
     try {
       const winner = await redis.get("raffle_winner");
       return res.json({ winner: winner ? JSON.parse(winner) : null });
@@ -344,6 +350,7 @@ export default async function handler(req, res) {
   // ────── 🎉 PICK WINNER ──────
 
   if (action === "pick-winner" && req.method === "POST") {
+     await ensureRedisConnected();
     const { role } = req.body;
     if (role !== "admin") {
       return res.status(401).json({ error: "Unauthorized" });
@@ -402,6 +409,7 @@ export default async function handler(req, res) {
   // ────── 🧹 DELETE FILES ──────
 
   if (action === "delete-file" && req.method === "POST") {
+     await ensureRedisConnected();
     const { fileId } = req.body;
     if (!fileId) return res.status(400).json({ error: "Missing fileId" });
 
@@ -445,6 +453,7 @@ export default async function handler(req, res) {
   }
 
   if (action === "clear-all" && req.method === "POST") {
+     await ensureRedisConnected();
     const auth = req.headers.authorization || "";
     const isSuperAdmin =
       auth.startsWith("Bearer:super:") &&
