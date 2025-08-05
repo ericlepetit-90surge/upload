@@ -451,6 +451,18 @@
           return bTime - aTime;
         });
 
+        function connectVoteStream(fileId, voteElement) {
+          const stream = new EventSource(`https://vote-stream-server.onrender.com/votes/${fileId}`);
+          stream.onmessage = (event) => {
+            const { votes } = JSON.parse(event.data);
+            voteElement.textContent = `👍 ${votes}`;
+          };
+          stream.onerror = () => {
+            console.warn(`❌ Vote stream error for ${fileId}`);
+            stream.close();
+          };
+        }
+
         uniqueUploads.forEach(upload => {
           const card = document.createElement("div");
           card.className = "card";
@@ -491,6 +503,7 @@
           voteInfo.style.textAlign = "center";
           voteInfo.style.marginBottom = "0.25rem";
           voteInfo.textContent = `👍 ${upload.votes || 0}`;
+          connectVoteStream(upload.id || upload.fileName, voteInfo);
 
           const voted = localStorage.getItem(`voted_${upload.id || upload.fileName}`);
           const hasVoted = !!voted;

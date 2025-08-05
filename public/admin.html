@@ -153,6 +153,18 @@
   </div>
 
   <script>
+
+    function connectVoteStream(fileId, voteElement) {
+    const stream = new EventSource(`https://vote-stream-server.onrender.com/votes/${fileId}`);
+    stream.onmessage = (event) => {
+      const { votes } = JSON.parse(event.data);
+      voteElement.textContent = `👍 ${votes}`;
+    };
+    stream.onerror = () => {
+      console.warn(`❌ Vote stream error for ${fileId}`);
+      stream.close();
+    };
+  }
     let role = null;
 
     document.addEventListener('DOMContentLoaded', () => {
