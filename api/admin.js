@@ -12,11 +12,10 @@ const ADMIN_PASS = process.env.ADMIN_PASS;
 const MODERATOR_PASS = process.env.MODERATOR_PASS;
 const uploadsPath = path.join(process.cwd(), "uploads.json");
 
-const isLocal = process.env.VERCEL_ENV !== "production"; // ✅ more reliable than NODE_ENV
+const isLocal = process.env.VERCEL_ENV !== "production";
 
 // Optional but helpful for debugging
 console.log("🔍 ENV check:", {
-  NODE_ENV: process.env.NODE_ENV,
   VERCEL_ENV: process.env.VERCEL_ENV,
   isLocal,
   REDIS_URL: process.env.REDIS_URL?.slice(0, 30) + "...",
@@ -41,6 +40,13 @@ const s3 = new S3Client({
     secretAccessKey: process.env.R2_SECRET_ACCESS_KEY,
   },
 });
+
+// Helper to add a timeout to async operations
+function timeout(ms) {
+  return new Promise((_, reject) =>
+    setTimeout(() => reject(new Error("Timeout after " + ms + "ms")), ms)
+  );
+};
 
 export default async function handler(req, res) {
   const url = new URL(req.url || "", `http://${req.headers.host}`);
@@ -90,15 +96,6 @@ export default async function handler(req, res) {
           );
           return res.json(config);
         } else {
-          function timeout(ms) {
-            return new Promise((_, reject) =>
-              setTimeout(
-                () => reject(new Error("Timeout after " + ms + "ms")),
-                ms
-              )
-            );
-          }
-
           try {
             const [showName, startTime, endTime] = await Promise.race([
               Promise.all([
@@ -108,12 +105,6 @@ export default async function handler(req, res) {
               ]),
               timeout(5000),
             ]);
-            console.log("⚙️ Responding with config:", {
-              showName,
-              startTime,
-              endTime,
-            });
-            return res.json({ showName, startTime, endTime });
           } catch (err) {
             console.error("❌ Config load error:", err.message);
             return res.status(500).json({ error: "Failed to load config" });
