@@ -283,7 +283,8 @@
     </div>
     <div style="display: flex; align-items: center; gap: 10px;">
       <label for="name" style="white-space: nowrap;">Your Name <span style="color: red">*</span>:</label>
-      <input type="text" id="name" name="userName" required placeholder="Full Name" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" style="flex: 1;" />
+      <input type="text" id="name" name="userName" required placeholder="Full Name" autocomplete="off" autocorrect="off"
+        autocapitalize="none" spellcheck="false" style="flex: 1;" />
     </div>
 
     <input type="file" id="file" name="file" accept="image/*" required />
@@ -294,11 +295,11 @@
       <div class="follower-block">
         <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/c/c3/FB_Logo_PNG.png/640px-FB_Logo_PNG.png"
           width="16">
-        <span>Followers:</span> <span id="fb-count">—</span>
+        <span>Followers:</span> <span id="fb-followers">—</span>
       </div>
       <div class="follower-block">
         <img src="https://upload.wikimedia.org/wikipedia/commons/a/a5/Instagram_icon.png" width="16">
-        <span>Followers:</span> <span id="ig-count">—</span>
+        <span>Followers:</span> <span id="ig-followers">—</span>
       </div>
     </div>
 
@@ -322,37 +323,51 @@
     <button onclick="hideWinnerModal()"
       style="margin-top:2rem; padding:0.8rem 1.5rem; font-size:1rem; background:#e91e63; border:none; color:white; border-radius:8px;">Close</button>
   </div>
-  <script>
-    async function loadFollowerCounts() {
-      const res = await fetch("/api/admin?action=followers");
-      const data = await res.json();
+  <script>async function loadFollowerCounts() {
+      try {
+        const res = await fetch('/api/admin?action=followers');
+        const data = await res.json();
 
-      document.getElementById("fb-count").textContent = data.facebook ?? "0";
-      document.getElementById("ig-count").textContent = data.instagram ?? "0";
+        const fbCount = parseInt(data.facebook || 0);
+        const igCount = parseInt(data.instagram || 0);
+
+        const fbEl = document.getElementById('fb-followers');
+        const igEl = document.getElementById('ig-followers');
+
+        if (fbEl && fbCount > 0) {
+          fbEl.textContent = ` ${fbCount}`;
+        }
+        if (igEl && igCount > 0) {
+          igEl.textContent = `${igCount}`;
+        }
+      } catch (err) {
+        console.warn("⚠️ Failed to fetch follower counts", err);
+      }
     }
-    loadFollowerCounts();
+
   </script>
+
 
   <script>
     let isWindowOpen = false;
 
     async function checkUploadWindow() {
       try {
-        const res = await fetch('/api/admin?action=config');
-        const config = await res.json();
-        const now = new Date();
-        const start = new Date(config.startTime);
-        const end = new Date(config.endTime);
-        isWindowOpen = now >= start && now <= end;
+        const res = await fetch("/api/admin?action=config");
+        if (!res.ok) throw new Error("Config fetch failed");
 
-        if (!isWindowOpen) {
-          document.getElementById("upload-form").innerHTML = `
-          <p style="color: #e91e63; text-align: center; font-weight: bold;">
-            🚫 Live uploads are currently closed. See you at the next show!
-          </p>`;
+        const config = await res.json();
+        const now = Date.now();
+        const start = new Date(config.startTime).getTime();
+        const end = new Date(config.endTime).getTime();
+        const open = now >= start && now <= end;
+        isWindowOpen = open;
+        const banner = document.getElementById("upload-banner");
+        if (banner) {
+          banner.textContent = open ? "" : "Uploads are currently closed";
         }
       } catch (err) {
-        console.warn("Failed to check upload window", err);
+        console.error("Failed to check upload window", err);
       }
     }
 

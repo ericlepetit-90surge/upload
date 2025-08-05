@@ -23,7 +23,6 @@ console.log("🔍 ENV check:", {
 
 // Redis connection (robust)
 let globalForRedis = globalThis.__redis || null;
-let globalForRedis = globalThis.__redis || null;
 
 if (!globalForRedis && process.env.REDIS_URL) {
   const client = createClient({ url: process.env.REDIS_URL });
@@ -511,26 +510,34 @@ export default async function handler(req, res) {
   }
 
   if (action === "followers" && req.method === "GET") {
-    try {
-      const token = process.env.FB_PAGE_TOKEN;
-      const fbRes = await fetch(
-        `https://graph.facebook.com/v19.0/${process.env.FB_PAGE_ID}?fields=fan_count&access_token=${token}`
-      );
-      const igRes = await fetch(
-        `https://graph.facebook.com/v19.0/${process.env.IG_ACCOUNT_ID}?fields=followers_count&access_token=${token}`
-      );
+  try {
+    const token = process.env.FB_PAGE_TOKEN;
+    const fbURL = `https://graph.facebook.com/v19.0/${process.env.FB_PAGE_ID}?fields=fan_count&access_token=${token}`;
+    const igURL = `https://graph.facebook.com/v19.0/${process.env.IG_ACCOUNT_ID}?fields=followers_count&access_token=${token}`;
 
-      const fbJson = await fbRes.json();
-      const igJson = await igRes.json();
+    const [fbRes, igRes] = await Promise.all([
+      fetch(fbURL),
+      fetch(igURL)
+    ]);
 
-      return res.json({
-        facebook: fbJson.fan_count || 0,
-        instagram: igJson.followers_count || 0,
-      });
-    } catch (err) {
-      return res.status(500).json({ error: "Failed to fetch follower counts" });
-    }
+    const fbText = await fbRes.text();
+    const igText = await igRes.text();
+
+    console.log("📘 FB raw:", fbText);
+    console.log("📸 IG raw:", igText);
+
+    const fbJson = JSON.parse(fbText);
+    const igJson = JSON.parse(igText);
+
+    return res.json({
+      facebook: fbJson.fan_count || 0,
+      instagram: igJson.followers_count || 0,
+    });
+  } catch (err) {
+    console.error("❌ Follower fetch failed:", err.message);
+    return res.status(500).json({ error: "Failed to fetch follower counts" });
   }
+}
 
   // ────── ❌ UNKNOWN ──────
   return res.status(400).json({ error: "Invalid action or method" });
