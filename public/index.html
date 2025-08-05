@@ -577,33 +577,27 @@
       try {
         const res = await fetch('/api/admin?action=check-reset');
         if (!res.ok) throw new Error("Bad response");
-        const { resetTime } = await res.json();
+        const { resetTimestamp } = await res.json();
 
-        if (resetTime && resetTime !== lastResetCheck) {
-          localStorage.removeItem("votedImages");
-          lastResetCheck = resetTime;
-          console.log("🎯 Votes reset detected. Local votes cleared.");
+        if (resetTimestamp) {
+          if (!lastResetCheck) {
+            // First time seeing it — store it, don’t clear anything
+            lastResetCheck = resetTimestamp;
+          } else if (resetTimestamp !== lastResetCheck) {
+            // ✅ Reset was triggered — clear local votes
+            Object.keys(localStorage).forEach((key) => {
+              if (key.startsWith("voted_")) {
+                localStorage.removeItem(key);
+              }
+            });
+            lastResetCheck = resetTimestamp;
+            console.log("🎯 Votes reset detected. Local votes cleared.");
+          }
         }
       } catch (err) {
         console.warn("Failed to check vote reset", err);
       }
     }, 4000);
-  </script>
-  <script>
-    // 🔁 Live Vote Count Updates via SSE
-    const evtSource = new EventSource(`https://vote-stream-server.onrender.com/votes/${upload.id || upload.fileName}`);
-
-    evtSource.onmessage = (event) => {
-      try {
-        const { fileId, votes } = JSON.parse(event.data);
-        const card = document.querySelector(`.card[data-id="${fileId}"]`);
-        if (!card) return;
-        const voteInfo = card.querySelector(".vote-info");
-        if (voteInfo) voteInfo.textContent = `👍 ${votes}`;
-      } catch (err) {
-        console.warn("SSE event parse error:", err);
-      }
-    };
   </script>
 
   <script>
