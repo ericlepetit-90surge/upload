@@ -11,12 +11,17 @@ import {
 const ADMIN_PASS = process.env.ADMIN_PASS;
 const MODERATOR_PASS = process.env.MODERATOR_PASS;
 const uploadsPath = path.join(process.cwd(), "uploads.json");
-const isLocal = process.env.NODE_ENV !== "production";
+
+const isLocal = process.env.VERCEL_ENV !== "production"; // ✅ more reliable than NODE_ENV
+
+// Optional but helpful for debugging
 console.log("🔍 ENV check:", {
   NODE_ENV: process.env.NODE_ENV,
+  VERCEL_ENV: process.env.VERCEL_ENV,
   isLocal,
-  REDIS_URL: process.env.REDIS_URL?.slice(0, 30) + "...", // obfuscate
+  REDIS_URL: process.env.REDIS_URL?.slice(0, 30) + "...",
 });
+
 
 // Redis connection
 let globalForRedis = globalThis.__redis || null;
