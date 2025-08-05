@@ -321,7 +321,7 @@ export default async function handler(req, res) {
 
       // 🔔 Broadcast to SSE server
       try {
-        await fetch("https://winner-server.onrender.com/broadcast", {
+        await fetch("https://winner-sse-server.onrender.com/broadcast", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ winner: winner.name }),

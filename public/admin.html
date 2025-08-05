@@ -494,7 +494,7 @@
           await fetch(
             location.hostname === "localhost"
               ? "http://localhost:3001/broadcast"
-              : "https://winner-server.onrender.com/announce-winner",
+              : "https://winner-sse-server.onrender.com/announce-winner",
             {
               method: "POST",
               headers: { "Content-Type": "application/json" },

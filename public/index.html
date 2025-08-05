@@ -800,7 +800,7 @@
     const sse = new EventSource(
       location.hostname === "localhost"
         ? "http://localhost:3001/events"
-        : "https://winner-server.onrender.com/events"
+        : "https://winner-sse-server.onrender.com/events"
     );
 
     sse.onmessage = (event) => {
