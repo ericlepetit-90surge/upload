@@ -591,7 +591,7 @@
   </script>
   <script>
     // 🔁 Live Vote Count Updates via SSE
-    const evtSource = new EventSource("/api/votes-stream");
+    const evtSource = new EventSource(`https://vote-stream-server.onrender.com/votes/${upload.id || upload.fileName}`);
 
     evtSource.onmessage = (event) => {
       try {
