@@ -572,32 +572,16 @@
       if (event.key === "galleryRefresh") loadGallery();
     });
 
-    // 🟡 Keep vote reset detection (optional feature)
-    setInterval(async () => {
-      try {
-        const res = await fetch('/api/admin?action=check-reset');
-        if (!res.ok) throw new Error("Bad response");
-        const { resetTimestamp } = await res.json();
+    const evtSource = new EventSource("https://vote-stream-server.onrender.com");
 
-        if (resetTimestamp) {
-          if (!lastResetCheck) {
-            // First time seeing it — store it, don’t clear anything
-            lastResetCheck = resetTimestamp;
-          } else if (resetTimestamp !== lastResetCheck) {
-            // ✅ Reset was triggered — clear local votes
-            Object.keys(localStorage).forEach((key) => {
-              if (key.startsWith("voted_")) {
-                localStorage.removeItem(key);
-              }
-            });
-            lastResetCheck = resetTimestamp;
-            console.log("🎯 Votes reset detected. Local votes cleared.");
-          }
-        }
-      } catch (err) {
-        console.warn("Failed to check vote reset", err);
-      }
-    }, 4000);
+    evtSource.addEventListener("reset", () => {
+      Object.keys(localStorage).forEach((k) => {
+        if (k.startsWith("voted_")) localStorage.removeItem(k);
+      });
+      loadGallery();
+      console.log("🎯 Votes reset received via SSE. Local votes cleared.");
+    });
+
   </script>
 
   <script>

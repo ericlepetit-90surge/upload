@@ -22,7 +22,6 @@ console.log("🔍 ENV check:", {
   REDIS_URL: process.env.REDIS_URL?.slice(0, 30) + "...",
 });
 
-
 // Redis connection
 let globalForRedis = globalThis.__redis || null;
 if (!globalForRedis && process.env.REDIS_URL) {
@@ -305,6 +304,14 @@ export default async function handler(req, res) {
 
       // Reset timestamps
       await redis.set("resetVotesTimestamp", Date.now().toString());
+
+      try {
+        await fetch("https://vote-stream-server.onrender.com/reset", {
+          method: "POST",
+        });
+      } catch (err) {
+        console.warn("⚠️ Failed to notify SSE server of reset", err.message);
+      }
 
       return res.json({ success: true });
     } catch (err) {
