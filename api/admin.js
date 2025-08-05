@@ -83,65 +83,66 @@ export default async function handler(req, res) {
   // ────── ⚙️ CONFIG ──────
   console.log("🛠 Incoming action:", action);
 
-  if (action === "config") {
-    if (req.method === "GET") {
-      if (!redis) {
-        console.error("❌ Redis not connected");
-        return res.status(500).json({ error: "Redis connection failed" });
-      }
-      try {
-        if (isLocal) {
-          const config = JSON.parse(
-            fs.readFileSync(path.join(process.cwd(), "config.json"), "utf8")
-          );
-          return res.json(config);
-        } else {
-          try {
-            const [showName, startTime, endTime] = await Promise.race([
-              Promise.all([
-                redis.get("showName"),
-                redis.get("startTime"),
-                redis.get("endTime"),
-              ]),
-              timeout(5000),
-            ]);
-          } catch (err) {
-            console.error("❌ Config load error:", err.message);
-            return res.status(500).json({ error: "Failed to load config" });
-          }
-          console.log("⚙️ Responding with config:", {
-            showName,
-            startTime,
-            endTime,
-          });
-          return res.json({ showName, startTime, endTime });
-        }
-      } catch {
-        return res.status(500).json({ error: "Failed to load config" });
-      }
+if (action === "config") {
+  if (req.method === "GET") {
+    if (!redis) {
+      console.error("❌ Redis not connected");
+      return res.status(500).json({ error: "Redis connection failed" });
     }
 
-    if (req.method === "POST") {
-      const { showName, startTime, endTime } = req.body;
-      try {
-        if (isLocal) {
-          fs.writeFileSync(
-            path.join(process.cwd(), "config.json"),
-            JSON.stringify({ showName, startTime, endTime }, null, 2)
-          );
-        } else {
-          await Promise.all([
-            redis.set("showName", showName || ""),
-            redis.set("startTime", startTime || ""),
-            redis.set("endTime", endTime || ""),
-          ]);
-        }
-        return res.json({ success: true });
-      } catch {
-        return res.status(500).json({ error: "Failed to save config" });
+    try {
+      if (isLocal) {
+        const config = JSON.parse(
+          fs.readFileSync(path.join(process.cwd(), "config.json"), "utf8")
+        );
+        return res.json(config);
+      } else {
+        console.log("📡 Loading config from Redis...");
+
+        const [showName, startTime, endTime] = await Promise.race([
+          Promise.all([
+            redis.get("showName"),
+            redis.get("startTime"),
+            redis.get("endTime"),
+          ]),
+          timeout(10000), // 🔁 increased timeout just in case
+        ]);
+
+        console.log("⚙️ Responding with config:", {
+          showName,
+          startTime,
+          endTime,
+        });
+
+        return res.json({ showName, startTime, endTime });
       }
+    } catch (err) {
+      console.error("❌ Config load error:", err.message);
+      return res.status(500).json({ error: "Failed to load config" });
     }
   }
+
+  if (req.method === "POST") {
+    const { showName, startTime, endTime } = req.body;
+    try {
+      if (isLocal) {
+        fs.writeFileSync(
+          path.join(process.cwd(), "config.json"),
+          JSON.stringify({ showName, startTime, endTime }, null, 2)
+        );
+      } else {
+        await Promise.all([
+          redis.set("showName", showName || ""),
+          redis.set("startTime", startTime || ""),
+          redis.set("endTime", endTime || ""),
+        ]);
+      }
+      return res.json({ success: true });
+    } catch {
+      return res.status(500).json({ error: "Failed to save config" });
+    }
+  }
+}
 
   // ────── 💾 UPLOAD ──────
   if (action === "save-upload" && req.method === "POST") {
