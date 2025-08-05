@@ -329,8 +329,10 @@
         // 🔁 Get upvote count from Redis for each upload
         await Promise.all(
           uploads.map(async (upload) => {
+            console.log("🔁 Checking votes for:", upload.fileName);
             try {
-              const voteRes = await fetch(`/api/admin?action=get-votes&fileId=${upload.fileName}`);
+              const voteRes = await fetch(`/api/admin?action=get-votes&fileId=${encodeURIComponent(upload.fileName)}`);
+              if (!voteRes.ok) throw new Error(`HTTP ${voteRes.status}`);
               const { votes } = await voteRes.json();
               upload.votes = parseInt(votes || "0", 10);
             } catch (err) {

@@ -232,12 +232,13 @@ export default async function handler(req, res) {
   }
 
   if (req.method === "GET" && req.query.action === "get-votes") {
-  const fileId = req.query.fileId;
-  if (!fileId) return res.status(400).json({ error: "Missing fileId" });
+    const fileId = req.query.fileId;
+    console.log("🔍 Fetching vote count for:", fileId);
+    if (!fileId) return res.status(400).json({ error: "Missing fileId" });
 
-  const count = await redis.get(`votes:${fileId}`);
-  return res.status(200).json({ votes: parseInt(count || "0", 10) });
-}
+    const count = await redis.get(`votes:${fileId}`);
+    return res.status(200).json({ votes: parseInt(count || "0", 10) });
+  }
 
   if (action === "check-reset" && req.method === "GET") {
     const timestamp = await redis.get("resetVotesTimestamp");
@@ -281,57 +282,60 @@ export default async function handler(req, res) {
   // ────── 🎉 PICK WINNER ──────
 
   if (action === "pick-winner" && req.method === "POST") {
-  const { role } = req.body;
-  if (role !== "admin") {
-    return res.status(401).json({ error: "Unauthorized" });
-  }
-
-  try {
-    const raw = await redis.lRange("uploads", 0, -1);
-    const uploads = raw.map((e) => JSON.parse(e));
-
-    console.log("🔍 Raw uploads from Redis:", uploads);
-
-    const entries = [];
-
-    for (const u of uploads) {
-  const voteKey = `votes:${u.fileName}`;
-  const voteCount = parseInt(await redis.get(voteKey)) || 0;
-  const totalEntries = 1 + voteCount;
-
-  console.log(`🗳 ${u.userName} – ${u.fileName} – votes: ${voteCount} – total entries: ${totalEntries}`);
-
-  for (let i = 0; i < totalEntries; i++) {
-    entries.push({ name: u.userName, fileId: u.fileName });
-  }
-}
-
-
-    if (entries.length === 0) {
-      console.warn("❌ No eligible entries found. All uploads may be missing userName or votes.");
-      return res.status(400).json({ error: "No eligible entries" });
+    const { role } = req.body;
+    if (role !== "admin") {
+      return res.status(401).json({ error: "Unauthorized" });
     }
 
-    const winner = entries[Math.floor(Math.random() * entries.length)];
-    await redis.set("raffle_winner", JSON.stringify(winner));
-
-    // 🔔 Broadcast to SSE server
     try {
-      await fetch("https://winner-server.onrender.com/broadcast", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ winner: winner.name }),
-      });
-    } catch (broadcastErr) {
-      console.warn("⚠️ Failed to broadcast winner:", broadcastErr.message);
-    }
+      const raw = await redis.lRange("uploads", 0, -1);
+      const uploads = raw.map((e) => JSON.parse(e));
 
-    return res.json({ success: true, winner });
-  } catch (err) {
-    console.error("❌ Error picking winner:", err);
-    return res.status(500).json({ error: "Failed to pick winner" });
+      console.log("🔍 Raw uploads from Redis:", uploads);
+
+      const entries = [];
+
+      for (const u of uploads) {
+        const voteKey = `votes:${u.fileName}`;
+        const voteCount = parseInt(await redis.get(voteKey)) || 0;
+        const totalEntries = 1 + voteCount;
+
+        console.log(
+          `🗳 ${u.userName} – ${u.fileName} – votes: ${voteCount} – total entries: ${totalEntries}`
+        );
+
+        for (let i = 0; i < totalEntries; i++) {
+          entries.push({ name: u.userName, fileId: u.fileName });
+        }
+      }
+
+      if (entries.length === 0) {
+        console.warn(
+          "❌ No eligible entries found. All uploads may be missing userName or votes."
+        );
+        return res.status(400).json({ error: "No eligible entries" });
+      }
+
+      const winner = entries[Math.floor(Math.random() * entries.length)];
+      await redis.set("raffle_winner", JSON.stringify(winner));
+
+      // 🔔 Broadcast to SSE server
+      try {
+        await fetch("https://winner-server.onrender.com/broadcast", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ winner: winner.name }),
+        });
+      } catch (broadcastErr) {
+        console.warn("⚠️ Failed to broadcast winner:", broadcastErr.message);
+      }
+
+      return res.json({ success: true, winner });
+    } catch (err) {
+      console.error("❌ Error picking winner:", err);
+      return res.status(500).json({ error: "Failed to pick winner" });
+    }
   }
-}
 
   // ────── 🧹 DELETE FILES ──────
 
