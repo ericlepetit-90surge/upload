@@ -5,7 +5,7 @@ import { createClient } from "redis";
 const uploadsPath = path.join(process.cwd(), "uploads.json");
 
 export default async function handler(req, res) {
-  const isLocal = process.env.VERCEL_ENV !== "production";
+  const isLocal = process.env.NODE_ENV !== "production";
   const accountId = process.env.R2_ACCOUNT_ID;
   const bucketName = process.env.R2_BUCKET_NAME;
   let entries = [];
