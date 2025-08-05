@@ -155,7 +155,7 @@ export default async function handler(req, res) {
       }
 
       const voteKey = `votes:${fileName}`;
-      if (!(await redis.get(voteKey))) await redis.set(voteKey, "1");
+      if (!(await redis.get(voteKey))) await redis.set(voteKey, "0");
 
       return res.json({ success: true });
     } catch (err) {
@@ -231,26 +231,13 @@ export default async function handler(req, res) {
     });
   }
 
-  if (action === "uploads" && req.method === "GET") {
-    const raw = await redis.lRange("uploads", 0, -1);
-    const uploads = raw.map((e) => JSON.parse(e));
+  if (req.method === "GET" && req.query.action === "get-votes") {
+  const fileId = req.query.fileId;
+  if (!fileId) return res.status(400).json({ error: "Missing fileId" });
 
-    for (const u of uploads) {
-      const voteKey = `votes:${u.fileName}`;
-      const count = parseInt(await redis.get(voteKey)) || 0;
-      u.votes = count;
-    }
-
-    return res.json(uploads);
-  }
-
-  if (action === "get-vote" && req.method === "GET") {
-    const { fileId } = req.query;
-    if (!fileId) return res.status(400).json({ error: "Missing fileId" });
-
-    const count = await redis.get(`votes:${fileId}`);
-    return res.json({ votes: parseInt(count || "0") });
-  }
+  const count = await redis.get(`votes:${fileId}`);
+  return res.status(200).json({ votes: parseInt(count || "0", 10) });
+}
 
   if (action === "check-reset" && req.method === "GET") {
     const timestamp = await redis.get("resetVotesTimestamp");
@@ -291,41 +278,60 @@ export default async function handler(req, res) {
     }
   }
 
+  // ────── 🎉 PICK WINNER ──────
+
   if (action === "pick-winner" && req.method === "POST") {
-    try {
-      let allUploads = isLocal
-        ? JSON.parse(fs.readFileSync(uploadsPath, "utf8"))
-        : (await redis.lRange("uploads", 0, -1)).map((e) => JSON.parse(e));
-
-      const eligible = allUploads.filter(
-        (entry) => entry.userName && entry.fileUrl
-      );
-      const entries = [];
-
-      for (const entry of eligible) {
-        const name = entry.userName || entry.name;
-        const count = parseInt(await redis.get(`votes:${entry.fileName}`)) || 1;
-        entries.push(...Array(count).fill(name));
-      }
-
-      if (entries.length === 0) {
-        return res.status(400).json({ error: "No valid entries" });
-      }
-
-      const winner = entries[Math.floor(Math.random() * entries.length)];
-      if (!isLocal) {
-        await redis.set(
-          "raffle_winner",
-          JSON.stringify({ name: winner, timestamp: Date.now() })
-        );
-      }
-
-      return res.json({ winner });
-    } catch (err) {
-      console.error("🔥 pick-winner failed:", err);
-      return res.status(500).json({ error: "Failed to pick winner" });
-    }
+  const { role } = req.body;
+  if (role !== "admin") {
+    return res.status(401).json({ error: "Unauthorized" });
   }
+
+  try {
+    const raw = await redis.lRange("uploads", 0, -1);
+    const uploads = raw.map((e) => JSON.parse(e));
+
+    console.log("🔍 Raw uploads from Redis:", uploads);
+
+    const entries = [];
+
+    for (const u of uploads) {
+  const voteKey = `votes:${u.fileName}`;
+  const voteCount = parseInt(await redis.get(voteKey)) || 0;
+  const totalEntries = 1 + voteCount;
+
+  console.log(`🗳 ${u.userName} – ${u.fileName} – votes: ${voteCount} – total entries: ${totalEntries}`);
+
+  for (let i = 0; i < totalEntries; i++) {
+    entries.push({ name: u.userName, fileId: u.fileName });
+  }
+}
+
+
+    if (entries.length === 0) {
+      console.warn("❌ No eligible entries found. All uploads may be missing userName or votes.");
+      return res.status(400).json({ error: "No eligible entries" });
+    }
+
+    const winner = entries[Math.floor(Math.random() * entries.length)];
+    await redis.set("raffle_winner", JSON.stringify(winner));
+
+    // 🔔 Broadcast to SSE server
+    try {
+      await fetch("https://winner-server.onrender.com/broadcast", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ winner: winner.name }),
+      });
+    } catch (broadcastErr) {
+      console.warn("⚠️ Failed to broadcast winner:", broadcastErr.message);
+    }
+
+    return res.json({ success: true, winner });
+  } catch (err) {
+    console.error("❌ Error picking winner:", err);
+    return res.status(500).json({ error: "Failed to pick winner" });
+  }
+}
 
   // ────── 🧹 DELETE FILES ──────
 

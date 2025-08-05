@@ -1,4 +1,3 @@
-// /api/uploads-list.js
 const fs = require("fs");
 const path = require("path");
 
@@ -25,13 +24,11 @@ export default function handler(req, res) {
       return res.status(500).json({ error: "uploads.json must be an array" });
     }
 
-    const accountId = process.env.R2_ACCOUNT_ID;
-    const bucketName = process.env.R2_BUCKET_NAME;
+    const publicDomain = process.env.R2_PUBLIC_DOMAIN;
 
     const uploads = rawUploads.map((entry) => {
       const { fileName, mimeType, userName, createdTime } = entry;
-      const publicDomain = process.env.R2_PUBLIC_DOMAIN;
-const fileUrl = `https://${publicDomain}/${fileName}`;
+      const fileUrl = `https://${publicDomain}/${fileName}`;
       const type = mimeType?.startsWith("video/") ? "video" : "image";
 
       return {
@@ -39,6 +36,7 @@ const fileUrl = `https://${publicDomain}/${fileName}`;
         fileUrl,
         type,
         timestamp: createdTime || null,
+        votes: entry.votes || 0, // ✅ Add votes to keep entry count logic working
       };
     });
 
@@ -47,4 +45,4 @@ const fileUrl = `https://${publicDomain}/${fileName}`;
     console.error("❌ Failed to read uploads.json:", err);
     res.status(500).json({ error: "Failed to read uploads list." });
   }
-};
+}

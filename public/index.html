@@ -278,6 +278,7 @@
         <li>Upvote your favorites pics! 1 upvote = 1 additional entry</li>
         <li>The winner will announced during the last break 🎁</li>
         <li>Be cool — non-relevant uploads and entries may be deleted by our moderators</li>
+        <li>Optional: love us and want to support us? Share your pics/videos on Fb and IG and tag @90Surge.</li>
       </ol>
     </div>
     <div style="display: flex; align-items: center; gap: 10px;">
@@ -395,7 +396,6 @@
       await loadFollowerCounts();
       await setHeadline();
       await loadGallery();
-      checkWinner();
     }
 
     window.addEventListener("DOMContentLoaded", init);
@@ -633,14 +633,20 @@
 
       const form = document.querySelector("form");
       const message = document.getElementById("message");
+      const fileInput = document.getElementById("file");
+      const nameInput = document.getElementById("name");
+      const progress = document.getElementById("progress");
+
+      // Prefill name if available
+      const savedName = localStorage.getItem("userName");
+      if (savedName) {
+        nameInput.value = savedName;
+      }
 
       form.addEventListener("submit", async (e) => {
         e.preventDefault();
         message.textContent = "";
 
-        const fileInput = document.getElementById("file");
-        const nameInput = document.getElementById("name");
-        const progress = document.getElementById("progress");
         const file = fileInput.files[0];
         const userName = nameInput.value.trim();
 
@@ -649,6 +655,8 @@
           return;
         }
 
+        localStorage.setItem("userName", userName); // ✅ Persist name
+
         const sanitize = (str) =>
           String(str || "")
             .toLowerCase()
@@ -656,6 +664,9 @@
             .replace(/^_+|_+$/g, "");
 
         const fileName = `${sanitize(userName)}_${Date.now()}_${sanitize(file.name)}`;
+        const fileUrl = `https://${r2AccountId}.r2.cloudflarestorage.com/${r2BucketName}/${fileName}`;
+        const mimeType = file.type;
+        const type = mimeType.startsWith("video/") ? "video" : "image";
 
         progress.style.display = "block";
         progress.value = 0;
@@ -667,10 +678,7 @@
           const presignRes = await fetch("/api/get-upload-url", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              fileName,
-              mimeType: file.type,
-            }),
+            body: JSON.stringify({ fileName, mimeType }),
           });
 
           const { url } = await presignRes.json();
@@ -679,26 +687,28 @@
           // 2. Upload directly to R2
           await fetch(url, {
             method: "PUT",
-            headers: {
-              "Content-Type": file.type,
-            },
+            headers: { "Content-Type": mimeType },
             body: file,
           });
 
           // 3. Save metadata
+          const metadata = { fileName, fileUrl, mimeType, userName };
+          console.log("🧾 Sending metadata:", metadata);
+
           const metaRes = await fetch("/api/admin?action=save-upload", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              fileName,
-              mimeType: file.type,
-              userName,
-            }),
+            body: JSON.stringify(metadata),
           });
 
           const metaData = await metaRes.json();
           if (!metaData.success) {
-            throw new Error("Failed to save metadata");
+            await fetch("/api/admin?action=delete-file", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ fileId: fileName }),
+            });
+            throw new Error("Metadata save failed. File deleted.");
           }
 
           message.style.color = "#4caf50";
@@ -713,9 +723,8 @@
           progress.style.display = "none";
         }
       });
-    })(); 
+    })();
   </script>
-
 
   <script>
     function waitForFollowGateAndEnable() {
@@ -756,11 +765,15 @@
     window.confetti = confetti;
   </script>
 
-  <!-- Winner + confetti logic in global script -->
   <script>
     let hasShownWinner = false;
 
     function showWinnerModal(name) {
+      if (hasShownWinner) return; // 🧱 Prevent showing again in this session
+
+      hasShownWinner = true;
+      localStorage.setItem("shownWinnerName", name); // ✅ Store to persist across reloads
+
       const modal = document.getElementById('winnerModal');
       document.getElementById('winnerName').textContent = name;
       modal.style.display = 'flex';
@@ -769,13 +782,13 @@
 
     function hideWinnerModal() {
       document.getElementById('winnerModal').style.display = 'none';
-      localStorage.removeItem("shownWinnerName"); // 🧼 reset on close if needed
+      // ❌ DO NOT clear shownWinnerName here
+      // It would cause the modal to reappear on next refresh
     }
-
 
     function triggerConfetti() {
       if (!window.confetti) return;
-      const duration = 3 * 1000;
+      const duration = 3000;
       const end = Date.now() + duration;
       (function frame() {
         confetti({ particleCount: 5, angle: 60, spread: 55, origin: { x: 0 } });
@@ -784,46 +797,25 @@
       })();
     }
 
+    const sse = new EventSource(
+      location.hostname === "localhost"
+        ? "http://localhost:3001/events"
+        : "https://winner-server.onrender.com/events"
+    );
 
+    sse.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      const currentWinner = data.winner;
 
-    function triggerConfetti() {
-      if (!window.confetti) return;
-      const duration = 3 * 1000;
-      const end = Date.now() + duration;
-      (function frame() {
-        confetti({ particleCount: 4, angle: 60, spread: 60, origin: { x: 0 } });
-        confetti({ particleCount: 4, angle: 120, spread: 60, origin: { x: 1 } });
-        if (Date.now() < end) requestAnimationFrame(frame);
-      })();
-    }
-
-    async function checkWinner() {
-      try {
-        const res = await fetch("/api/admin?action=winner");
-        if (!res.ok) return;
-
-        const data = await res.json();
-        if (data.winner && data.winner.name) {
-          const currentWinner = data.winner.name;
-          const shownWinner = localStorage.getItem("shownWinnerName");
-
-          if (shownWinner !== currentWinner) {
-            localStorage.setItem("shownWinnerName", currentWinner); // mark as shown
-            showWinnerModal(currentWinner); // show once
-          }
-        }
-      } catch (err) {
-        console.warn("Failed to fetch winner:", err);
+      if (
+        currentWinner &&
+        !hasShownWinner && // 🧱 Prevent re-show during session
+        currentWinner !== localStorage.getItem("shownWinnerName") // ✅ Don't repeat winner from last time
+      ) {
+        showWinnerModal(currentWinner);
       }
-    }
+    };
 
-    function init() {
-      checkWinner(); // ← this should now work
-    }
-
-    init();
-
-    setInterval(checkWinner, 10000); // 🔁 check every 10 seconds
     window.hideWinnerModal = hideWinnerModal;
   </script>
 

@@ -147,6 +147,7 @@
     <button onclick="pickWinner()" class="admin-only" style="margin-bottom: 2rem; font-weight: bold;">🎉 Pick Random
       Winner</button>
     <div id="winnerDisplay" style="font-size: 1.2em; margin-top: 1rem;"></div>
+    <div id="entries-by-user" style="margin: 2rem 0; color: #f0f0f0;"></div>
 
     <div id="admin-gallery">Loading uploads...</div>
   </div>
@@ -279,6 +280,37 @@
       }
     }
 
+    function renderEntriesPerUser(uploads) {
+      console.log("🧮 Rendering raffle entries for uploads:", uploads);
+      const entryMap = {};
+
+      uploads.forEach(upload => {
+        const name = upload.userName || upload.userNameRaw || "Unknown";
+        if (!entryMap[name]) {
+          entryMap[name] = { uploads: 0, upvotes: 0 };
+        }
+        entryMap[name].uploads++;
+        if (upload.votes && !isNaN(upload.votes)) {
+          entryMap[name].upvotes += parseInt(upload.votes, 10);
+        }
+      });
+
+      const container = document.getElementById("entries-by-user");
+      container.innerHTML = "<h3>🎟 Raffle Entries by User</h3>";
+      const list = document.createElement("ul");
+      list.style.listStyle = "none";
+      list.style.padding = "0";
+
+      Object.entries(entryMap).forEach(([name, stats]) => {
+        const li = document.createElement("li");
+        li.textContent = `${name}: ${stats.uploads} upload${stats.uploads !== 1 ? "s" : ""} + ${stats.upvotes} upvote${stats.upvotes !== 1 ? "s" : ""} = ${stats.uploads + stats.upvotes} entries`;
+        list.appendChild(li);
+      });
+
+      container.appendChild(list);
+    }
+
+
     async function loadAdminGallery() {
       try {
         const uploadsRes = await fetch("/api/uploads");
@@ -288,72 +320,90 @@
         const fileList = await filesRes.json();
 
         const validFiles = new Set(fileList.files.map(f => f.key));
+        console.log("✅ Valid R2 filenames:", [...validFiles]);
+        console.log("🧾 Redis upload filenames:", uploads.map(f => f.fileName));
 
         const gallery = document.getElementById("admin-gallery");
         gallery.innerHTML = '';
 
-        console.log("uploads from Redis:", uploads);
-        console.log("files from R2:", fileList.files.map(f => f.key));
+        // 🔁 Get upvote count from Redis for each upload
+        await Promise.all(
+          uploads.map(async (upload) => {
+            try {
+              const voteRes = await fetch(`/api/admin?action=get-votes&fileId=${upload.fileName}`);
+              const { votes } = await voteRes.json();
+              upload.votes = parseInt(votes || "0", 10);
+            } catch (err) {
+              console.warn(`⚠️ Failed to fetch votes for ${upload.fileName}:`, err);
+              upload.votes = 0;
+            }
+          })
+        );
 
-        uploads
+        const filteredUploads = uploads
           .filter(file => validFiles.has(file.fileName))
           .sort((a, b) => {
             const aTime = new Date(a.createdTime || a.timestamp || 0).getTime();
             const bTime = new Date(b.createdTime || b.timestamp || 0).getTime();
             return bTime - aTime;
-          })
-          .forEach(file => {
-            const card = document.createElement("div");
-            card.className = "card";
-
-            const wrapper = document.createElement("div");
-            wrapper.style.position = "relative";
-
-            let media;
-            if (file.type === "video") {
-              media = document.createElement("video");
-              media.src = file.fileUrl;
-              media.controls = true;
-              media.muted = true;
-              media.style.width = "100%";
-              media.style.maxHeight = "220px";
-              media.style.objectFit = "cover";
-            } else {
-              media = document.createElement("img");
-              media.src = file.fileUrl;
-              media.loading = "lazy";
-              media.style.cursor = "pointer";
-              media.style.maxHeight = "220px";
-              media.style.width = "100%";
-              media.style.objectFit = "cover";
-              media.style.filter = "blur(8px)";
-              media.style.transition = "filter 0.5s";
-              media.addEventListener("load", () => {
-                media.style.filter = "none";
-              });
-            }
-
-            wrapper.appendChild(media);
-            card.appendChild(wrapper);
-
-            const info = document.createElement("div");
-            info.className = "info";
-            const displayName = file.userName || file.userNameRaw || file.fileName.split("_").slice(2).join("_").replace(/_/g, " ") || "Anonymous";
-            info.textContent = `Uploaded by @${displayName}`;
-            card.appendChild(info);
-
-            const voteInfo = document.createElement("div");
-            voteInfo.className = "info";
-            voteInfo.textContent = `👍 ${file.votes || 0}`;
-            card.appendChild(voteInfo);
-
-            const deleteBtn = document.createElement("button");
-            deleteBtn.textContent = "🗑 Delete";
-            deleteBtn.onclick = () => deleteFile(file.fileName, displayName);
-            card.appendChild(deleteBtn);
-
-            gallery.appendChild(card);
           });
+
+        // ✅ Show raffle entry breakdown
+        renderEntriesPerUser(filteredUploads);
+
+        // ✅ Render each upload
+        filteredUploads.forEach(file => {
+          const card = document.createElement("div");
+          card.className = "card";
+
+          const wrapper = document.createElement("div");
+          wrapper.style.position = "relative";
+
+          let media;
+          if (file.type === "video") {
+            media = document.createElement("video");
+            media.src = file.fileUrl;
+            media.controls = true;
+            media.muted = true;
+            media.style.width = "100%";
+            media.style.maxHeight = "220px";
+            media.style.objectFit = "cover";
+          } else {
+            media = document.createElement("img");
+            media.src = file.fileUrl;
+            media.loading = "lazy";
+            media.style.cursor = "pointer";
+            media.style.maxHeight = "220px";
+            media.style.width = "100%";
+            media.style.objectFit = "cover";
+            media.style.filter = "blur(8px)";
+            media.style.transition = "filter 0.5s";
+            media.addEventListener("load", () => {
+              media.style.filter = "none";
+            });
+          }
+
+          wrapper.appendChild(media);
+          card.appendChild(wrapper);
+
+          const info = document.createElement("div");
+          info.className = "info";
+          const displayName = file.userName || file.userNameRaw || file.fileName.split("_").slice(2).join("_").replace(/_/g, " ") || "Anonymous";
+          info.textContent = `Uploaded by @${displayName}`;
+          card.appendChild(info);
+
+          const voteInfo = document.createElement("div");
+          voteInfo.className = "info";
+          voteInfo.textContent = `👍 ${file.votes || 0}`;
+          card.appendChild(voteInfo);
+
+          const deleteBtn = document.createElement("button");
+          deleteBtn.textContent = "🗑 Delete";
+          deleteBtn.onclick = () => deleteFile(file.fileName, displayName);
+          card.appendChild(deleteBtn);
+
+          gallery.appendChild(card);
+        });
 
       } catch (err) {
         console.error("❌ Failed to load admin gallery:", err);
@@ -424,16 +474,34 @@
     async function pickWinner() {
       if (!confirm("Pick a random winner from all uploads?")) return;
       try {
-        const res = await fetch('/api/admin?action=pick-winner', { method: 'POST' });
+        const res = await fetch('/api/admin?action=pick-winner', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer:super:' + localStorage.getItem('adminKey'),
+          },
+          body: JSON.stringify({ role: 'admin' })  // ✅ required!
+        });
+
         const result = await res.json();
 
         if (result && result.winner && result.winner.name) {
           const winnerName = result.winner.name;
-          localStorage.setItem("shownWinnerName", ""); // ❗ Clear to force modal on index.html
+
+          // 🔁 Fire SSE broadcast
+          await fetch(
+            location.hostname === "localhost"
+              ? "http://localhost:3001/broadcast"
+              : "https://winner-server.onrender.com/announce-winner",
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ winner: winnerName }),
+            }
+          );
+
+          localStorage.setItem("shownWinnerName", result.winner.name);
           document.getElementById('winnerDisplay').textContent = `🎉 Winner: ${winnerName}`;
-          alert(`🎉 Winner picked: ${winnerName}`);
-        } else {
-          alert("❌ No eligible uploads found.");
         }
       } catch (err) {
         console.error("❌ Error picking winner:", err);
@@ -471,29 +539,29 @@
 
   <script>
     async function resetVotes() {
-  if (!confirm("Reset all votes and re-enable voting?")) return;
+      if (!confirm("Reset all votes and re-enable voting?")) return;
 
-  console.log("🔐 Role being sent:", localStorage.getItem('role'));
+      console.log("🔐 Role being sent:", localStorage.getItem('role'));
 
-  const res = await fetch('/api/admin?action=reset-votes', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ role: localStorage.getItem('role') })
-  });
+      const res = await fetch('/api/admin?action=reset-votes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role: localStorage.getItem('role') })
+      });
 
-  const data = await res.json();
-  if (res.ok && data.success) {
-    // ✅ clear local voted markers
-    Object.keys(localStorage).forEach(key => {
-      if (key.startsWith("voted_")) localStorage.removeItem(key);
-    });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        // ✅ clear local voted markers
+        Object.keys(localStorage).forEach(key => {
+          if (key.startsWith("voted_")) localStorage.removeItem(key);
+        });
 
-    alert('✅ Votes reset! Voting re-enabled.');
-    loadAdminGallery?.();
-  } else {
-    alert('❌ Failed to reset votes: ' + (data.error || res.status));
-  }
-}
+        alert('✅ Votes reset! Voting re-enabled.');
+        loadAdminGallery?.();
+      } else {
+        alert('❌ Failed to reset votes: ' + (data.error || res.status));
+      }
+    }
 
   </script>
 

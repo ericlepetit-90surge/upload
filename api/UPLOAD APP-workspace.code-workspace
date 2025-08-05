@@ -1,0 +1,11 @@
+{
+	"folders": [
+		{
+			"path": ".."
+		},
+		{
+			"path": "../../winner-sse-server"
+		}
+	],
+	"settings": {}
+}

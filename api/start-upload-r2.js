@@ -19,7 +19,7 @@ function sanitize(str) {
     .replace(/^_+|_+$/g, "");
 }
 
-const r2 = new S3Client({
+const s3 = new S3Client({
   region: "auto",
   endpoint: `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
   credentials: {
@@ -63,7 +63,7 @@ export default async function handler(req, res) {
         ACL: "public-read",
       });
 
-      await r2.send(upload);
+      await s3.send(upload);
 
       const publicUrl = `https://${process.env.R2_PUBLIC_DOMAIN}/${fileName}`;
 return res.status(200).json({ fileName, uploadUrl: publicUrl });
