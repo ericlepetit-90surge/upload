@@ -245,9 +245,9 @@ const action = url.searchParams.get("action");
   }
 
   if (action === "check-reset" && req.method === "GET") {
-    const timestamp = await redis.get("resetVotesTimestamp");
-    return res.json({ resetTimestamp: timestamp });
-  }
+  const timestamp = await redis.get("resetVotesTimestamp");
+  return res.json({ resetTime: timestamp });
+}
 
   // ------ RESET VOTES ------
   if (action === "reset-votes" && req.method === "POST") {
