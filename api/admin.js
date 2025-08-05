@@ -21,9 +21,19 @@ console.log("🔍 ENV check:", {
   REDIS_URL: process.env.REDIS_URL?.slice(0, 30) + "...",
 });
 
-// Redis connection
 // Redis connection (robust)
 let globalForRedis = globalThis.__redis || null;
+let globalForRedis = globalThis.__redis || null;
+
+if (!globalForRedis && process.env.REDIS_URL) {
+  const client = createClient({ url: process.env.REDIS_URL });
+  globalForRedis = client;
+  globalThis.__redis = client;
+  client
+    .connect()
+    .then(() => client.ping().catch(console.error))
+    .catch(console.error);
+}
 
 if (!globalForRedis && process.env.REDIS_URL) {
   const client = createClient({ url: process.env.REDIS_URL });
@@ -97,74 +107,73 @@ export default async function handler(req, res) {
 
   // ────── ⚙️ CONFIG ──────
   if (action === "config") {
-  if (req.method === "GET") {
-    await ensureRedisConnected();
+    if (req.method === "GET") {
+      await ensureRedisConnected();
 
-    if (!redis) {
-      console.error("❌ Redis not connected");
-      return res.status(500).json({ error: "Redis connection failed" });
+      if (!redis) {
+        console.error("❌ Redis not connected");
+        return res.status(500).json({ error: "Redis connection failed" });
+      }
+
+      try {
+        if (isLocal) {
+          const config = JSON.parse(
+            fs.readFileSync(path.join(process.cwd(), "config.json"), "utf8")
+          );
+          return res.json(config);
+        } else {
+          console.log("📡 Loading config from Redis...");
+
+          const [showName, startTime, endTime] = await Promise.race([
+            Promise.all([
+              redis.get("showName").catch(() => ""),
+              redis.get("startTime").catch(() => ""),
+              redis.get("endTime").catch(() => ""),
+            ]),
+            timeout(10000),
+          ]);
+
+          console.log("⚙️ Responding with config:", {
+            showName,
+            startTime,
+            endTime,
+          });
+
+          return res.json({ showName, startTime, endTime });
+        }
+      } catch (err) {
+        console.error("❌ Config load error:", err.message);
+        return res.status(500).json({ error: "Failed to load config" });
+      }
     }
 
-    try {
-      if (isLocal) {
-        const config = JSON.parse(
-          fs.readFileSync(path.join(process.cwd(), "config.json"), "utf8")
-        );
-        return res.json(config);
-      } else {
-        console.log("📡 Loading config from Redis...");
+    if (req.method === "POST") {
+      const { showName, startTime, endTime } = req.body;
+      try {
+        if (isLocal) {
+          fs.writeFileSync(
+            path.join(process.cwd(), "config.json"),
+            JSON.stringify({ showName, startTime, endTime }, null, 2)
+          );
+        } else {
+          await ensureRedisConnected();
 
-        const [showName, startTime, endTime] = await Promise.race([
-          Promise.all([
-            redis.get("showName"),
-            redis.get("startTime"),
-            redis.get("endTime"),
-          ]),
-          timeout(10000),
-        ]);
-
-        console.log("⚙️ Responding with config:", {
-          showName,
-          startTime,
-          endTime,
-        });
-
-        return res.json({ showName, startTime, endTime });
+          await Promise.all([
+            redis.set("showName", showName || ""),
+            redis.set("startTime", startTime || ""),
+            redis.set("endTime", endTime || ""),
+          ]);
+        }
+        return res.json({ success: true });
+      } catch {
+        return res.status(500).json({ error: "Failed to save config" });
       }
-    } catch (err) {
-      console.error("❌ Config load error:", err.message);
-      return res.status(500).json({ error: "Failed to load config" });
     }
   }
-
-  if (req.method === "POST") {
-    const { showName, startTime, endTime } = req.body;
-    try {
-      if (isLocal) {
-        fs.writeFileSync(
-          path.join(process.cwd(), "config.json"),
-          JSON.stringify({ showName, startTime, endTime }, null, 2)
-        );
-      } else {
-        await ensureRedisConnected(); 
-
-        await Promise.all([
-          redis.set("showName", showName || ""),
-          redis.set("startTime", startTime || ""),
-          redis.set("endTime", endTime || ""),
-        ]);
-      }
-      return res.json({ success: true });
-    } catch {
-      return res.status(500).json({ error: "Failed to save config" });
-    }
-  }
-}
-
 
   // ────── 💾 UPLOAD ──────
   if (action === "save-upload" && req.method === "POST") {
-     await ensureRedisConnected();
+    await ensureRedisConnected();
     const { fileName, mimeType, userName } = req.body;
     if (!fileName || !mimeType || !userName) {
       return res.status(400).json({ error: "Missing required fields" });
@@ -220,11 +229,12 @@ export default async function handler(req, res) {
   }
 
   if (action === "uploads" && req.method === "GET") {
-     await ensureRedisConnected();
+    await ensureRedisConnected();
     const raw = await redis.lRange("uploads", 0, -1);
     const uploads = raw.map((e) => JSON.parse(e));
 
     for (const u of uploads) {
+      await new Promise((r) => setTimeout(r, 10)); // 10ms
       const voteKey = `votes:${u.fileName}`;
       const count = parseInt(await redis.get(voteKey)) || 0;
       u.votes = count;
@@ -253,12 +263,12 @@ export default async function handler(req, res) {
 
   // ────── 👍 VOTES ──────
   if (action === "upvote" && req.method === "POST") {
-     await ensureRedisConnected();
+    await ensureRedisConnected();
     const { fileId } = req.body;
     if (!fileId) return res.status(400).json({ error: "Missing fileId" });
 
     const voteKey = `votes:${fileId}`;
-    const newVoteCount = await redis.incr(voteKey); 
+    const newVoteCount = await redis.incr(voteKey);
 
     // ✅ Now publish the update
     await redis.publish(`vote:${fileId}`, newVoteCount.toString());
@@ -297,15 +307,9 @@ export default async function handler(req, res) {
     return res.status(200).json({ votes: parseInt(count || "0", 10) });
   }
 
-  if (action === "check-reset" && req.method === "GET") {
-     await ensureRedisConnected();
-    const timestamp = await redis.get("resetVotesTimestamp");
-    return res.json({ resetTime: timestamp });
-  }
-
   // ------ RESET VOTES ------
   if (action === "reset-votes" && req.method === "POST") {
-     await ensureRedisConnected();
+    await ensureRedisConnected();
     const { role } = req.body;
 
     if (role !== "admin") {
@@ -337,7 +341,7 @@ export default async function handler(req, res) {
 
   // ────── 🏆 WINNER ──────
   if (action === "winner" && req.method === "GET") {
-     await ensureRedisConnected();
+    await ensureRedisConnected();
     try {
       const winner = await redis.get("raffle_winner");
       return res.json({ winner: winner ? JSON.parse(winner) : null });
@@ -350,7 +354,7 @@ export default async function handler(req, res) {
   // ────── 🎉 PICK WINNER ──────
 
   if (action === "pick-winner" && req.method === "POST") {
-     await ensureRedisConnected();
+    await ensureRedisConnected();
     const { role } = req.body;
     if (role !== "admin") {
       return res.status(401).json({ error: "Unauthorized" });
@@ -365,6 +369,7 @@ export default async function handler(req, res) {
       const entries = [];
 
       for (const u of uploads) {
+        await new Promise((r) => setTimeout(r, 10)); // 10ms
         const voteKey = `votes:${u.fileName}`;
         const voteCount = parseInt(await redis.get(voteKey)) || 0;
         const totalEntries = 1 + voteCount;
@@ -409,7 +414,7 @@ export default async function handler(req, res) {
   // ────── 🧹 DELETE FILES ──────
 
   if (action === "delete-file" && req.method === "POST") {
-     await ensureRedisConnected();
+    await ensureRedisConnected();
     const { fileId } = req.body;
     if (!fileId) return res.status(400).json({ error: "Missing fileId" });
 
@@ -453,7 +458,7 @@ export default async function handler(req, res) {
   }
 
   if (action === "clear-all" && req.method === "POST") {
-     await ensureRedisConnected();
+    await ensureRedisConnected();
     const auth = req.headers.authorization || "";
     const isSuperAdmin =
       auth.startsWith("Bearer:super:") &&

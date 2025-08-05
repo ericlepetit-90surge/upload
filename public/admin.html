@@ -154,51 +154,30 @@
 
   <script>
 
-    function connectVoteStream(fileId, voteElement) {
-      const stream = new EventSource(`https://vote-stream-server.onrender.com/votes/${fileId}`);
-      stream.onmessage = (event) => {
-        const { votes } = JSON.parse(event.data);
-        voteElement.textContent = `👍 ${votes}`;
-      };
-      stream.onerror = () => {
-        console.warn(`❌ Vote stream error for ${fileId}`);
-        stream.close();
-      };
-    }
     let role = null;
 
-    document.addEventListener('DOMContentLoaded', () => {
-      role = localStorage.getItem('role');
-      if (!role) return;
+    if (role === 'moderator') {
+      document.querySelector('div[style*="margin-top: 2rem"]').style.display = 'none';
+      document.querySelectorAll('.admin-only').forEach(el => el.style.display = 'none');
+      document.getElementById('role-banner').textContent = '👮 Moderator View – Delete Only';
+    } else {
+      document.getElementById('clearAllBtn').style.display = 'inline-block';
+      document.getElementById('role-banner').textContent = '👑 Admin View – Full Access';
 
-      document.getElementById('login-section').style.display = 'none';
-      document.getElementById('admin-content').style.display = 'block';
+      // ✅ Inject Reset Votes button for admins only
+      const resetBtn = document.createElement("button");
+      resetBtn.textContent = "Reset All Votes";
+      resetBtn.style.background = "orange";
+      resetBtn.style.color = "white";
+      resetBtn.style.padding = "0.5rem 1rem";
+      resetBtn.style.borderRadius = "6px";
+      resetBtn.style.marginTop = "0.5rem";
+      resetBtn.onclick = resetVotes;
 
-      loadConfig(role);
-      loadAdminGallery();
+      const clearBtn = document.getElementById("clearAllBtn");
+      clearBtn.insertAdjacentElement("afterend", resetBtn);
 
-      if (role === 'moderator') {
-        document.querySelector('div[style*="margin-top: 2rem"]').style.display = 'none';
-        document.querySelectorAll('.admin-only').forEach(el => el.style.display = 'none');
-        document.getElementById('role-banner').textContent = '👮 Moderator View – Delete Only';
-      } else {
-        document.getElementById('clearAllBtn').style.display = 'inline-block';
-        document.getElementById('role-banner').textContent = '👑 Admin View – Full Access';
-
-        // ✅ Inject Reset Votes button for admins only
-        const resetBtn = document.createElement("button");
-        resetBtn.textContent = "Reset All Votes";
-        resetBtn.style.background = "orange";
-        resetBtn.style.color = "white";
-        resetBtn.style.padding = "0.5rem 1rem";
-        resetBtn.style.borderRadius = "6px";
-        resetBtn.style.marginTop = "0.5rem";
-        resetBtn.onclick = resetVotes;
-
-        const clearBtn = document.getElementById("clearAllBtn");
-        clearBtn.insertAdjacentElement("afterend", resetBtn);
-
-      }
+    }
     });
 
     async function handleLogin() {
@@ -229,39 +208,54 @@
 
 
     async function loadConfig(currentRole) {
-    if (currentRole !== 'admin') return;
-    try {
-      const res = await fetch('/api/admin?action=config', { cache: 'no-store' });
-      if (!res.ok) throw new Error("Failed to fetch config: " + res.status);
-      const config = await res.json();
+      if (currentRole !== 'admin') return;
 
-      const showNameEl = document.getElementById('showName');
-      const startEl = document.getElementById('startTime');
-      const endEl = document.getElementById('endTime');
-      if (!showNameEl || !startEl || !endEl) throw new Error("Missing config inputs");
+      const cached = sessionStorage.getItem("cachedConfig");
+      if (cached) {
+        try {
+          const parsed = JSON.parse(cached);
+          if (parsed.timestamp > Date.now() - 5 * 60 * 1000) {
+            applyConfig(parsed.data); // Custom function to set fields
+            return;
+          }
+        } catch { }
+      }
 
-      showNameEl.value = config.showName || '';
-      if (config.startTime) startEl.value = config.startTime.slice(0, 16);
-      if (config.endTime) endEl.value = config.endTime.slice(0, 16);
-    } catch (err) {
-      alert('❌ Failed to load config');
-      console.error(err);
-      throw err;
-    }
-  }
-
-  async function loadConfigWithRetry(attempts = 3) {
-    for (let i = 0; i < attempts; i++) {
       try {
-        await loadConfig('admin');
-        return;
+        const res = await fetch('/api/admin?action=config');
+        const config = await res.json();
+        sessionStorage.setItem("cachedConfig", JSON.stringify({
+          timestamp: Date.now(),
+          data: config
+        }));
+        applyConfig(config);
       } catch (err) {
-        console.warn(`⚠️ Attempt ${i + 1} to load config failed:`, err.message);
-        if (i < attempts - 1) await new Promise(res => setTimeout(res, 1000));
+        alert('❌ Failed to load config');
+        console.error(err);
       }
     }
-    alert('❌ Unable to load config after multiple attempts');
-  }
+    function applyConfig(config) {
+      document.getElementById('showName').value = config.showName || '';
+      if (config.startTime) {
+        document.getElementById('startTime').value = config.startTime.slice(0, 16);
+      }
+      if (config.endTime) {
+        document.getElementById('endTime').value = config.endTime.slice(0, 16);
+      }
+    }
+
+    async function loadConfigWithRetry(attempts = 3) {
+      for (let i = 0; i < attempts; i++) {
+        try {
+          await loadConfig('admin');
+          return;
+        } catch (err) {
+          console.warn(`⚠️ Attempt ${i + 1} to load config failed:`, err.message);
+          if (i < attempts - 1) await new Promise(res => setTimeout(res, 1000));
+        }
+      }
+      alert('❌ Unable to load config after multiple attempts');
+    }
 
     async function saveConfig(event) {
       if (role !== 'admin') return;
@@ -292,7 +286,17 @@
         console.error(err);
       }
     }
+    let lastGalleryLoadTime = 0;
 
+    function throttledLoadAdminGallery() {
+      const now = Date.now();
+      if (now - lastGalleryLoadTime > 1000) {
+        lastGalleryLoadTime = now;
+        loadAdminGallery();
+      } else {
+        console.log("🛑 Skipped gallery reload – throttled");
+      }
+    }
     async function checkWinner() {
       try {
         const res = await fetch("/api/admin?action=winner");
@@ -345,105 +349,82 @@
 
 
     async function loadAdminGallery() {
-      try {
-        const uploadsRes = await fetch("/api/uploads");
-        const uploads = await uploadsRes.json();
+      const uploadsRes = await fetch('/api/admin?action=uploads');
+      const uploads = await uploadsRes.json();
 
-        const filesRes = await fetch("/api/admin?action=list-r2-files");
-        const fileList = await filesRes.json();
+      const listRes = await fetch('/api/admin?action=list-r2-files');
+      const fileList = await listRes.json();
 
-        const validFiles = new Set(fileList.files.map(f => f.key));
-        console.log("✅ Valid R2 filenames:", [...validFiles]);
-        console.log("🧾 Redis upload filenames:", uploads.map(f => f.fileName));
+      const validFiles = new Set(fileList.files.map(f => f.key));
 
-        const gallery = document.getElementById("admin-gallery");
-        gallery.innerHTML = '';
+      const galleryData = uploads.filter(u => validFiles.has(u.fileName))
+        .sort((a, b) => new Date(b.createdTime).valueOf() - new Date(a.createdTime).valueOf());
 
-        // 🔁 Get upvote count from Redis for each upload
-        await Promise.all(
-          uploads.map(async (upload) => {
-            console.log("🔁 Checking votes for:", upload.fileName);
-            try {
-              const voteRes = await fetch(`/api/admin?action=get-votes&fileId=${encodeURIComponent(upload.fileName)}`);
-              if (!voteRes.ok) throw new Error(`HTTP ${voteRes.status}`);
-              const { votes } = await voteRes.json();
-              upload.votes = parseInt(votes || "0", 10);
-            } catch (err) {
-              console.warn(`⚠️ Failed to fetch votes for ${upload.fileName}:`, err);
-              upload.votes = 0;
-            }
-          })
-        );
+      renderEntriesPerUser(galleryData);
+      renderGallery(galleryData);
+    }
 
-        const filteredUploads = uploads
-          .filter(file => validFiles.has(file.fileName))
-          .sort((a, b) => {
-            const aTime = new Date(a.createdTime || a.timestamp || 0).getTime();
-            const bTime = new Date(b.createdTime || b.timestamp || 0).getTime();
-            return bTime - aTime;
-          });
+    // ✅ Show raffle entry breakdown
+    renderEntriesPerUser(filteredUploads);
 
-        // ✅ Show raffle entry breakdown
-        renderEntriesPerUser(filteredUploads);
+    // ✅ Render each upload
+    filteredUploads.forEach(file => {
+      const card = document.createElement("div");
+      card.className = "card";
 
-        // ✅ Render each upload
-        filteredUploads.forEach(file => {
-          const card = document.createElement("div");
-          card.className = "card";
+      const wrapper = document.createElement("div");
+      wrapper.style.position = "relative";
 
-          const wrapper = document.createElement("div");
-          wrapper.style.position = "relative";
-
-          let media;
-          if (file.type === "video") {
-            media = document.createElement("video");
-            media.src = file.fileUrl;
-            media.controls = true;
-            media.muted = true;
-            media.style.width = "100%";
-            media.style.maxHeight = "220px";
-            media.style.objectFit = "cover";
-          } else {
-            media = document.createElement("img");
-            media.src = file.fileUrl;
-            media.loading = "lazy";
-            media.style.cursor = "pointer";
-            media.style.maxHeight = "220px";
-            media.style.width = "100%";
-            media.style.objectFit = "cover";
-            media.style.filter = "blur(8px)";
-            media.style.transition = "filter 0.5s";
-            media.addEventListener("load", () => {
-              media.style.filter = "none";
-            });
-          }
-
-          wrapper.appendChild(media);
-          card.appendChild(wrapper);
-
-          const info = document.createElement("div");
-          info.className = "info";
-          const displayName = file.userName || file.userNameRaw || file.fileName.split("_").slice(2).join("_").replace(/_/g, " ") || "Anonymous";
-          info.textContent = `Uploaded by @${displayName}`;
-          card.appendChild(info);
-
-          const voteInfo = document.createElement("div");
-          voteInfo.className = "info";
-          voteInfo.textContent = `👍 ${file.votes || 0}`;
-          card.appendChild(voteInfo);
-
-          const deleteBtn = document.createElement("button");
-          deleteBtn.textContent = "🗑 Delete";
-          deleteBtn.onclick = () => deleteFile(file.fileName, displayName);
-          card.appendChild(deleteBtn);
-
-          gallery.appendChild(card);
+      let media;
+      if (file.type === "video") {
+        media = document.createElement("video");
+        media.src = file.fileUrl;
+        media.controls = true;
+        media.muted = true;
+        media.style.width = "100%";
+        media.style.maxHeight = "220px";
+        media.style.objectFit = "cover";
+      } else {
+        media = document.createElement("img");
+        media.src = file.fileUrl;
+        media.loading = "lazy";
+        media.style.cursor = "pointer";
+        media.style.maxHeight = "220px";
+        media.style.width = "100%";
+        media.style.objectFit = "cover";
+        media.style.filter = "blur(8px)";
+        media.style.transition = "filter 0.5s";
+        media.addEventListener("load", () => {
+          media.style.filter = "none";
         });
+      }
+
+      wrapper.appendChild(media);
+      card.appendChild(wrapper);
+
+      const info = document.createElement("div");
+      info.className = "info";
+      const displayName = file.userName || file.userNameRaw || file.fileName.split("_").slice(2).join("_").replace(/_/g, " ") || "Anonymous";
+      info.textContent = `Uploaded by @${displayName}`;
+      card.appendChild(info);
+
+      const voteInfo = document.createElement("div");
+      voteInfo.className = "info";
+      voteInfo.textContent = `👍 ${file.votes || 0}`;
+      card.appendChild(voteInfo);
+
+      const deleteBtn = document.createElement("button");
+      deleteBtn.textContent = "🗑 Delete";
+      deleteBtn.onclick = () => deleteFile(file.fileName, displayName);
+      card.appendChild(deleteBtn);
+
+      gallery.appendChild(card);
+    });
 
       } catch (err) {
-        console.error("❌ Failed to load admin gallery:", err);
-        document.getElementById("admin-gallery").innerHTML = "<p style='color:red'>Failed to load gallery</p>";
-      }
+      console.error("❌ Failed to load admin gallery:", err);
+      document.getElementById("admin-gallery").innerHTML = "<p style='color:red'>Failed to load gallery</p>";
+    }
     }
 
     async function deleteFile(fileId, name) {
@@ -458,9 +439,10 @@
       const result = await res.json();
       if (res.ok) {
         alert('✅ File deleted');
-        loadAdminGallery();
+        throttledLoadAdminGallery();
         localStorage.setItem('galleryRefresh', Date.now());
-      } else {
+      }
+      else {
         alert('❌ ' + (result.error || 'Failed to delete file.'));
       }
     }
@@ -546,38 +528,38 @@
   </script>
 
   <script>
-  document.addEventListener('DOMContentLoaded', () => {
-    role = localStorage.getItem('role');
-    if (!role) return;
+    document.addEventListener('DOMContentLoaded', () => {
+      role = localStorage.getItem('role');
+      if (!role) return;
 
-    document.getElementById('login-section').style.display = 'none';
-    document.getElementById('admin-content').style.display = 'block';
+      document.getElementById('login-section').style.display = 'none';
+      document.getElementById('admin-content').style.display = 'block';
 
-    loadConfigWithRetry(); // ✅ safer than single attempt
-    loadAdminGallery();
+      loadConfigWithRetry(); // ✅ safer than single attempt
+      loadAdminGallery();
 
-    if (role === 'moderator') {
-      document.querySelector('div[style*="margin-top: 2rem"]').style.display = 'none';
-      document.querySelectorAll('.admin-only').forEach(el => el.style.display = 'none');
-      document.getElementById('role-banner').textContent = '👮 Moderator View – Delete Only';
-    } else {
-      document.getElementById('clearAllBtn').style.display = 'inline-block';
-      document.getElementById('role-banner').textContent = '👑 Admin View – Full Access';
+      if (role === 'moderator') {
+        document.querySelector('div[style*="margin-top: 2rem"]').style.display = 'none';
+        document.querySelectorAll('.admin-only').forEach(el => el.style.display = 'none');
+        document.getElementById('role-banner').textContent = '👮 Moderator View – Delete Only';
+      } else {
+        document.getElementById('clearAllBtn').style.display = 'inline-block';
+        document.getElementById('role-banner').textContent = '👑 Admin View – Full Access';
 
-      const resetBtn = document.createElement("button");
-      resetBtn.textContent = "Reset All Votes";
-      resetBtn.style.background = "orange";
-      resetBtn.style.color = "white";
-      resetBtn.style.padding = "0.5rem 1rem";
-      resetBtn.style.borderRadius = "6px";
-      resetBtn.style.marginTop = "0.5rem";
-      resetBtn.onclick = resetVotes;
+        const resetBtn = document.createElement("button");
+        resetBtn.textContent = "Reset All Votes";
+        resetBtn.style.background = "orange";
+        resetBtn.style.color = "white";
+        resetBtn.style.padding = "0.5rem 1rem";
+        resetBtn.style.borderRadius = "6px";
+        resetBtn.style.marginTop = "0.5rem";
+        resetBtn.onclick = resetVotes;
 
-      const clearBtn = document.getElementById("clearAllBtn");
-      clearBtn.insertAdjacentElement("afterend", resetBtn);
-    }
-  });
-</script>
+        const clearBtn = document.getElementById("clearAllBtn");
+        clearBtn.insertAdjacentElement("afterend", resetBtn);
+      }
+    });
+  </script>
 
   <script>
     async function resetVotes() {
@@ -593,13 +575,12 @@
 
       const data = await res.json();
       if (res.ok && data.success) {
-        // ✅ clear local voted markers
         Object.keys(localStorage).forEach(key => {
           if (key.startsWith("voted_")) localStorage.removeItem(key);
         });
 
         alert('✅ Votes reset! Voting re-enabled.');
-        loadAdminGallery?.();
+        throttledLoadAdminGallery();
       } else {
         alert('❌ Failed to reset votes: ' + (data.error || res.status));
       }
