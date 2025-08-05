@@ -22,14 +22,29 @@ console.log("🔍 ENV check:", {
 });
 
 // Redis connection
+// Redis connection (robust)
 let globalForRedis = globalThis.__redis || null;
+
 if (!globalForRedis && process.env.REDIS_URL) {
   const client = createClient({ url: process.env.REDIS_URL });
   globalForRedis = client;
   globalThis.__redis = client;
   client.connect().catch(console.error);
 }
+
 const redis = globalForRedis;
+
+// 🛠 Ensure Redis is always connected
+async function ensureRedisConnected() {
+  if (!redis?.isOpen) {
+    console.warn("🔄 Reconnecting Redis...");
+    try {
+      await redis.connect();
+    } catch (err) {
+      console.error("❌ Redis reconnect failed:", err.message);
+    }
+  }
+}
 
 // R2 (Cloudflare S3-compatible) client
 const s3 = new S3Client({
@@ -46,7 +61,7 @@ function timeout(ms) {
   return new Promise((_, reject) =>
     setTimeout(() => reject(new Error("Timeout after " + ms + "ms")), ms)
   );
-};
+}
 
 export default async function handler(req, res) {
   const url = new URL(req.url || "", `http://${req.headers.host}`);
@@ -81,10 +96,10 @@ export default async function handler(req, res) {
   }
 
   // ────── ⚙️ CONFIG ──────
-  console.log("🛠 Incoming action:", action);
-
-if (action === "config") {
+  if (action === "config") {
   if (req.method === "GET") {
+    await ensureRedisConnected(); // ✅ ADD THIS LINE
+
     if (!redis) {
       console.error("❌ Redis not connected");
       return res.status(500).json({ error: "Redis connection failed" });
@@ -105,7 +120,7 @@ if (action === "config") {
             redis.get("startTime"),
             redis.get("endTime"),
           ]),
-          timeout(10000), // 🔁 increased timeout just in case
+          timeout(10000),
         ]);
 
         console.log("⚙️ Responding with config:", {
@@ -131,6 +146,8 @@ if (action === "config") {
           JSON.stringify({ showName, startTime, endTime }, null, 2)
         );
       } else {
+        await ensureRedisConnected(); 
+
         await Promise.all([
           redis.set("showName", showName || ""),
           redis.set("startTime", startTime || ""),
@@ -143,6 +160,7 @@ if (action === "config") {
     }
   }
 }
+
 
   // ────── 💾 UPLOAD ──────
   if (action === "save-upload" && req.method === "POST") {
@@ -237,7 +255,7 @@ if (action === "config") {
     if (!fileId) return res.status(400).json({ error: "Missing fileId" });
 
     const voteKey = `votes:${fileId}`;
-    const newVoteCount = await redis.incr(voteKey); // ✅ Make sure this is assigned
+    const newVoteCount = await redis.incr(voteKey); 
 
     // ✅ Now publish the update
     await redis.publish(`vote:${fileId}`, newVoteCount.toString());
