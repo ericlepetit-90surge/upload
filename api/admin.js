@@ -34,7 +34,8 @@ const s3 = new S3Client({
 });
 
 export default async function handler(req, res) {
-  const action = req.query.action;
+  const url = new URL(req.url || "", `http://${req.headers.host}`);
+const action = url.searchParams.get("action");
   console.log("➡️ Incoming admin action:", req.method, action);
 
   // JSON parser for POST
@@ -65,6 +66,8 @@ export default async function handler(req, res) {
   }
 
   // ────── ⚙️ CONFIG ──────
+  console.log("🛠 Incoming action:", action);
+
   if (action === "config") {
     if (req.method === "GET") {
       try {
@@ -79,6 +82,7 @@ export default async function handler(req, res) {
             redis.get("startTime"),
             redis.get("endTime"),
           ]);
+          console.log("⚙️ Responding with config:", { showName, startTime, endTime });
           return res.json({ showName, startTime, endTime });
         }
       } catch {
@@ -457,5 +461,5 @@ export default async function handler(req, res) {
   }
 
   // ────── ❌ UNKNOWN ──────
-  return res.status(400).json({ error: "Invalid action" });
+  return res.status(400).json({ error: "Invalid action or method" });
 }
