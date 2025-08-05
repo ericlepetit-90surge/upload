@@ -5,6 +5,9 @@
 		},
 		{
 			"path": "../../winner-sse-server"
+		},
+		{
+			"path": "../../vote-stream-server"
 		}
 	],
 	"settings": {}
