@@ -21,27 +21,30 @@ console.log("🔍 ENV check:", {
   REDIS_URL: process.env.REDIS_URL?.slice(0, 30) + "...",
 });
 
-// Redis connection (robust)
+// utils/redis.js or inline in your main handler
+import { createClient } from 'redis';
+
 let globalForRedis = globalThis.__redis || null;
 
 if (!globalForRedis && process.env.REDIS_URL) {
-  const client = createClient({ url: process.env.REDIS_URL });
-  globalForRedis = client;
-  globalThis.__redis = client;
+  const client = createClient({
+    url: process.env.REDIS_URL,
+    socket: {
+      connectTimeout: 5000, // ⏱ prevents long hangs
+      reconnectStrategy: retries => Math.min(retries * 200, 3000), // 🔁 auto-retry
+    },
+  });
+
   client
     .connect()
-    .then(() => client.ping().catch(console.error))
-    .catch(console.error);
-}
+    .then(() => console.log("✅ Redis connected"))
+    .catch(err => console.error("❌ Redis connection failed:", err));
 
-if (!globalForRedis && process.env.REDIS_URL) {
-  const client = createClient({ url: process.env.REDIS_URL });
-  globalForRedis = client;
   globalThis.__redis = client;
-  client.connect().catch(console.error);
+  globalForRedis = client;
 }
 
-const redis = globalForRedis;
+export const redis = globalForRedis;
 
 // 🛠 Ensure Redis is always connected
 async function ensureRedisConnected() {
@@ -106,69 +109,80 @@ export default async function handler(req, res) {
 
   // ────── ⚙️ CONFIG ──────
   if (action === "config") {
-    if (req.method === "GET") {
-      await ensureRedisConnected();
+  if (req.method === "GET") {
+    await ensureRedisConnected();
 
-      if (!redis) {
-        console.error("❌ Redis not connected");
-        return res.status(500).json({ error: "Redis connection failed" });
-      }
-
-      try {
-        if (isLocal) {
-          const config = JSON.parse(
-            fs.readFileSync(path.join(process.cwd(), "config.json"), "utf8")
-          );
-          return res.json(config);
-        } else {
-          console.log("📡 Loading config from Redis...");
-
-          const [showName, startTime, endTime] = await Promise.race([
-            Promise.all([
-              redis.get("showName").catch(() => ""),
-              redis.get("startTime").catch(() => ""),
-              redis.get("endTime").catch(() => ""),
-            ]),
-            timeout(10000),
-          ]);
-
-          console.log("⚙️ Responding with config:", {
-            showName,
-            startTime,
-            endTime,
-          });
-
-          return res.json({ showName, startTime, endTime });
-        }
-      } catch (err) {
-        console.error("❌ Config load error:", err.message);
-        return res.status(500).json({ error: "Failed to load config" });
-      }
+    if (!redis) {
+      console.error("❌ Redis not connected");
+      return res.status(500).json({ error: "Redis connection failed" });
     }
 
-    if (req.method === "POST") {
-      const { showName, startTime, endTime } = req.body;
-      try {
-        if (isLocal) {
-          fs.writeFileSync(
-            path.join(process.cwd(), "config.json"),
-            JSON.stringify({ showName, startTime, endTime }, null, 2)
-          );
-        } else {
-          await ensureRedisConnected();
+    try {
+      if (isLocal) {
+        const config = JSON.parse(
+          fs.readFileSync(path.join(process.cwd(), "config.json"), "utf8")
+        );
+        return res.json(config);
+      } else {
+        console.log("📡 Loading config from Redis...");
 
-          await Promise.all([
-            redis.set("showName", showName || ""),
-            redis.set("startTime", startTime || ""),
-            redis.set("endTime", endTime || ""),
-          ]);
+        const configPromise = Promise.all([
+          redis.get("showName").catch(() => ""),
+          redis.get("startTime").catch(() => ""),
+          redis.get("endTime").catch(() => ""),
+        ]);
+
+        const [showName, startTime, endTime] = await Promise.race([
+          configPromise,
+          timeout(5000), // ⏱️ Shorter timeout to fail fast
+        ]).catch(() => [null, null, null]);
+
+        if (!showName && !startTime && !endTime) {
+          console.warn("⚠️ Redis config timeout — using fallback values");
+          return res.json({
+            showName: "90 Surge",
+            startTime: new Date().toISOString(),
+            endTime: new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString(), // 3h window
+          });
         }
-        return res.json({ success: true });
-      } catch {
-        return res.status(500).json({ error: "Failed to save config" });
+
+        console.log("⚙️ Responding with config:", {
+          showName,
+          startTime,
+          endTime,
+        });
+
+        return res.json({ showName, startTime, endTime });
       }
+    } catch (err) {
+      console.error("❌ Config load error:", err.message);
+      return res.status(500).json({ error: "Failed to load config" });
     }
   }
+
+  if (req.method === "POST") {
+    const { showName, startTime, endTime } = req.body;
+    try {
+      if (isLocal) {
+        fs.writeFileSync(
+          path.join(process.cwd(), "config.json"),
+          JSON.stringify({ showName, startTime, endTime }, null, 2)
+        );
+      } else {
+        await ensureRedisConnected();
+        await Promise.all([
+          redis.set("showName", showName || ""),
+          redis.set("startTime", startTime || ""),
+          redis.set("endTime", endTime || ""),
+        ]);
+      }
+      return res.json({ success: true });
+    } catch (err) {
+      console.error("❌ Failed to save config:", err.message);
+      return res.status(500).json({ error: "Failed to save config" });
+    }
+  }
+}
 
   // ────── 💾 UPLOAD ──────
   if (action === "save-upload" && req.method === "POST") {
