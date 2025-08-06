@@ -18,6 +18,8 @@
 
     * {
       box-sizing: border-box;
+      max-width: 100%;
+      overflow-x: hidden;
     }
 
     body {
@@ -96,6 +98,12 @@
       cursor: pointer;
       transition: background 0.2s ease;
       width: 100%;
+    }
+
+    img {
+      max-width: 100%;
+      height: auto;
+      display: block;
     }
 
     button:hover {
@@ -283,8 +291,8 @@
     </div>
     <div style="display: flex; align-items: center; gap: 10px;">
       <label for="name" style="white-space: nowrap;">Your Name <span style="color: red">*</span>:</label>
-      <input type="text" id="name" name="userName" required placeholder="Full Name" autocomplete="off" autocorrect="off"
-        autocapitalize="none" spellcheck="false" style="flex: 1;" />
+      <input type="text" id="name" name="userName" required placeholder="Full Name" autocomplete="new-password"
+        inputmode="text" autocorrect="off" autocapitalize="none" spellcheck="false" style="flex: 1;" />
     </div>
 
     <input type="file" id="file" name="file" accept="image/*" required />
@@ -673,10 +681,25 @@
           if (!url) throw new Error("Failed to get presigned URL");
 
           // 2. Upload directly to R2
-          await fetch(url, {
-            method: "PUT",
-            headers: { "Content-Type": mimeType },
-            body: file,
+          await new Promise((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            xhr.open("PUT", url, true);
+            xhr.setRequestHeader("Content-Type", mimeType);
+
+            xhr.upload.onprogress = (e) => {
+              if (e.lengthComputable) {
+                const percent = Math.round((e.loaded / e.total) * 100);
+                progress.value = percent;
+              }
+            };
+
+            xhr.onload = () => {
+              if (xhr.status >= 200 && xhr.status < 300) resolve();
+              else reject(new Error("Upload failed with status " + xhr.status));
+            };
+
+            xhr.onerror = () => reject(new Error("Network error during upload"));
+            xhr.send(file);
           });
 
           // 3. Save metadata
@@ -704,6 +727,7 @@
           fileInput.value = "";
           progress.value = 100;
           if (typeof loadGallery === "function") loadGallery();
+          setTimeout(() => (message.textContent = ""), 3000);
         } catch (err) {
           console.error("❌ Upload error:", err);
           message.style.color = "red";
@@ -832,17 +856,6 @@
     document.addEventListener('DOMContentLoaded', () => {
       const nameInput = document.querySelector('input[name="userName"]') || document.getElementById('name-input');
       const fileInput = document.getElementById('file');
-
-      // Only apply file click workaround for iOS
-      const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
-      if (fileInput && isIOS) {
-        fileInput.addEventListener('touchend', () => {
-          setTimeout(() => {
-            window.scrollTo(0, 0);
-          }, 250);
-        });
-      }
-    });
   </script>
 
 
