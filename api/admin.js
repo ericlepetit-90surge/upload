@@ -173,8 +173,9 @@ export default async function handler(req, res) {
   // ────── 💾 UPLOAD ──────
   if (action === "save-upload" && req.method === "POST") {
     await ensureRedisConnected();
-    const { fileName, mimeType, userName } = req.body;
-    if (!fileName || !mimeType || !userName) {
+    const { fileName, mimeType, userName, originalFileName } = req.body;
+
+    if (!fileName || !mimeType || !userName || !originalFileName) {
       return res.status(400).json({ error: "Missing required fields" });
     }
 
@@ -184,6 +185,7 @@ export default async function handler(req, res) {
       fileName,
       mimeType,
       userName,
+      originalFileName,
       fileUrl,
       createdTime: new Date().toISOString(),
       votes: 0,
@@ -192,18 +194,30 @@ export default async function handler(req, res) {
 
     try {
       const existing = await redis.lRange("uploads", 0, -1);
+      const lowerUser = userName.trim().toLowerCase();
+      const lowerOrig = originalFileName.toLowerCase();
+
       const alreadyExists = existing.some((item) => {
         try {
-          return JSON.parse(item).fileName === fileName;
+          const parsed = JSON.parse(item);
+          return (
+            parsed.userName?.trim().toLowerCase() === lowerUser &&
+            parsed.originalFileName?.toLowerCase() === lowerOrig
+          );
         } catch {
           return false;
         }
       });
 
-      if (!alreadyExists) {
-        await redis.rPush("uploads", JSON.stringify(upload));
-        console.log("✅ Saved to Redis:", fileName);
+      if (alreadyExists) {
+        console.warn(
+          `⚠️ Duplicate upload detected for ${userName} + ${originalFileName}`
+        );
+        return res.status(400).json({ error: "Duplicate upload detected" });
       }
+
+      await redis.rPush("uploads", JSON.stringify(upload));
+      console.log("✅ Saved to Redis:", fileName);
 
       if (isLocal) {
         const fileData = fs.existsSync(uploadsPath)
@@ -510,34 +524,31 @@ export default async function handler(req, res) {
   }
 
   if (action === "followers" && req.method === "GET") {
-  try {
-    const token = process.env.FB_PAGE_TOKEN;
-    const fbURL = `https://graph.facebook.com/v19.0/${process.env.FB_PAGE_ID}?fields=fan_count&access_token=${token}`;
-    const igURL = `https://graph.facebook.com/v19.0/${process.env.IG_ACCOUNT_ID}?fields=followers_count&access_token=${token}`;
+    try {
+      const token = process.env.FB_PAGE_TOKEN;
+      const fbURL = `https://graph.facebook.com/v19.0/${process.env.FB_PAGE_ID}?fields=fan_count&access_token=${token}`;
+      const igURL = `https://graph.facebook.com/v19.0/${process.env.IG_ACCOUNT_ID}?fields=followers_count&access_token=${token}`;
 
-    const [fbRes, igRes] = await Promise.all([
-      fetch(fbURL),
-      fetch(igURL)
-    ]);
+      const [fbRes, igRes] = await Promise.all([fetch(fbURL), fetch(igURL)]);
 
-    const fbText = await fbRes.text();
-    const igText = await igRes.text();
+      const fbText = await fbRes.text();
+      const igText = await igRes.text();
 
-    console.log("📘 FB raw:", fbText);
-    console.log("📸 IG raw:", igText);
+      console.log("📘 FB raw:", fbText);
+      console.log("📸 IG raw:", igText);
 
-    const fbJson = JSON.parse(fbText);
-    const igJson = JSON.parse(igText);
+      const fbJson = JSON.parse(fbText);
+      const igJson = JSON.parse(igText);
 
-    return res.json({
-      facebook: fbJson.fan_count || 0,
-      instagram: igJson.followers_count || 0,
-    });
-  } catch (err) {
-    console.error("❌ Follower fetch failed:", err.message);
-    return res.status(500).json({ error: "Failed to fetch follower counts" });
+      return res.json({
+        facebook: fbJson.fan_count || 0,
+        instagram: igJson.followers_count || 0,
+      });
+    } catch (err) {
+      console.error("❌ Follower fetch failed:", err.message);
+      return res.status(500).json({ error: "Failed to fetch follower counts" });
+    }
   }
-}
 
   // ────── ❌ UNKNOWN ──────
   return res.status(400).json({ error: "Invalid action or method" });

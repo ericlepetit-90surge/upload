@@ -276,7 +276,9 @@
 <body>
   <form id="upload-form" enctype="multipart/form-data" method="POST">
     <div class="rules">
-      <div style="display: flex;;justify-content: center;"><img src="https://pub-d919971fb927454bab9481eee8a435e3.r2.dev/logo-horizontal-white.png" width="200" height="auto" style="display: block;" ></div>
+      <div style="display: flex;;justify-content: center;"><img
+          src="https://pub-d919971fb927454bab9481eee8a435e3.r2.dev/logo-horizontal-white.png" width="200" height="auto"
+          style="display: block;"></div>
       <h1 id="headline">90 SURGE TONIGHT</h1>
       <h2 style="text-align: center; color: #ff5900"><strong>WIN A 90 SURGE TEE!</strong></h2>
       <ol>
@@ -647,6 +649,14 @@
         const file = fileInput.files[0];
         const userName = nameInput.value.trim();
 
+        const originalName = file.name.toLowerCase().replace(/\s+/g, "_");
+        const uploadKey = `uploaded_${userName.toLowerCase()}_${originalName}`;
+        if (localStorage.getItem(uploadKey)) {
+          message.style.color = "orange";
+          message.textContent = "⚠️ You've already uploaded this file.";
+          return;
+        }
+
         if (!file || !userName) {
           message.textContent = "Name and file are required.";
           return;
@@ -704,7 +714,13 @@
           });
 
           // 3. Save metadata
-          const metadata = { fileName, fileUrl, mimeType, userName };
+          const metadata = {
+            fileName,
+            fileUrl,
+            mimeType,
+            userName,
+            originalFileName: file.name, // ✅ Send original filename
+          };
           console.log("🧾 Sending metadata:", metadata);
 
           const metaRes = await fetch("/api/admin?action=save-upload", {
@@ -727,6 +743,7 @@
           message.textContent = "✅ Upload complete!";
           fileInput.value = "";
           progress.value = 100;
+          localStorage.setItem(uploadKey, "1");
           if (typeof loadGallery === "function") loadGallery();
           setTimeout(() => (message.textContent = ""), 3000);
         } catch (err) {
