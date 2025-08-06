@@ -74,7 +74,7 @@
 
     form {
       background: var(--card-bg);
-      padding: 0.75rem;
+      padding: 0.1rem;
       border-radius: var(--border-radius);
       width: 100%;
       max-width: 420px;
@@ -271,11 +271,11 @@
 
     .followers-wrapper {
       display: flex;
-      gap: 1rem;
+      gap: 0.5rem;
       flex-wrap: wrap;
       justify-content: center;
       align-items: center;
-      margin: 2rem 0;
+      margin: 1rem 0;
     }
 
     .follower-block {
@@ -298,20 +298,22 @@
       }
 
       .rules h2 {
-        font-size: 1.3rem;
-        margin-top: 0.25rem;
+        font-size: 1.5rem;
+        margin-top: 1.25rem;
       }
 
       #headline {
         font-size: 1.3rem;
+        margin: 0rem !important;
       }
 
       .rules ol {
         padding-left: 0rem;
+        line-height: 1.5rem;;
       }
 
       .rules li {
-        margin-bottom: 0.5rem;
+        margin-bottom: 1rem;
       }
     }
   </style>
@@ -327,14 +329,14 @@
       <h1 id="headline">90 SURGE TONIGHT</h1>
       <h2 style="text-align: center; color: #ff5900"><strong>WIN A 90 SURGE TEE!</strong></h2>
       <ol>
-        <li>Drop your name or FB/IG handle</li>
-        <li>Follow us on Facebook or Insta 🤘</li>
-        <li>Upload your wildest shot — pic of the band, selfie with the band, dancing, singing,...</li>
-        <li>Each upload = 1 raffle shot at glory. Stack ‘em</li>
+        <li>Scroll down and drop your name or FB/IG handle</li>
+        <li>Upload your wildest shot — pic of the band, selfie with the band, jumpig, dancing, singing,...</li>
+        <li>Follow us on Facebook or Insta</li>
+        <li>Each upload = 1 raffle entry. Stack ‘em</li>
         <li>Upvote the bangers. Each vote = another entry 🔥</li>
         <li>Winner revealed during 2nd set. Scream if it's you 🎤</li>
         <li>Don’t be a troll — lame stuff gets deleted 🚫</li>
-        <li>Love us and wanna be a legend and support us? Share on Fb and Ig and tag @90Surge 📣</li>
+        <li>Love us and wanna be a legend and support us? Share on Fb and Insta and tag @90Surge 📣</li>
       </ol>
     </div>
     <div class="input-group">
@@ -355,11 +357,11 @@
       <div class="follower-block">
         <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/c/c3/FB_Logo_PNG.png/640px-FB_Logo_PNG.png"
           width="16">
-        <span>Followers:</span> <span id="fb-followers">—</span>
+        <span id="fb-followers">—</span><span>followers</span> 
       </div>
       <div class="follower-block">
         <img src="https://upload.wikimedia.org/wikipedia/commons/a/a5/Instagram_icon.png" width="16">
-        <span>Followers:</span> <span id="ig-followers">—</span>
+        <span id="ig-followers">—</span><span>followers</span> 
       </div>
     </div>
 
