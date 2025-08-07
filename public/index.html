@@ -185,12 +185,13 @@
       font-weight: bold;
       display: inline-block;
     }
-.followers-wrapper {
-  display: flex;
-  justify-content: center;
-  gap: 1.5rem;
-  margin-top: 0.5rem;
-}
+
+    .followers-wrapper {
+      display: flex;
+      justify-content: center;
+      gap: 1.5rem;
+      margin-top: 0.5rem;
+    }
 
 
     .message {
@@ -315,7 +316,8 @@
 
       .rules ol {
         padding-left: 0rem;
-        line-height: 1.5rem;;
+        line-height: 1.5rem;
+        ;
       }
 
       .rules li {
@@ -333,18 +335,18 @@
           src="https://pub-d919971fb927454bab9481eee8a435e3.r2.dev/logo-horizontal-white.png" width="200" height="auto"
           style="display: block;"></div>
       <h1 id="headline">90 SURGE TONIGHT</h1>
-      <h2 style="text-align: center; color: #ff5900; padding-bottom:1rem"><strong>ENTER OUR RAFFLE <br>FOR A CHANCE TO <br>WIN A 90 SURGE TEE!</strong></h2>
+      <h2 style="text-align: center; color: #ff5900; padding-bottom:1rem"><strong>ENTER OUR RAFFLE <br>FOR A CHANCE TO
+          <br>WIN A 90 SURGE TEE!</strong></h2>
       <ol>
         <li>Drop your name or FB/IG handle</li>
-              <div class="input-group">
-      <input type="text" id="name" name="userName" required placeholder="Full Name" autocomplete="new-password"
-        inputmode="text" autocorrect="off" autocapitalize="none" spellcheck="false" />
+        <div class="input-group">
+          <input type="text" id="user-display-name" name="user_display_name" required placeholder="Full Name"
+            autocomplete="off" inputmode="text" autocorrect="off" autocapitalize="none" spellcheck="false" />
 
-
-        <li>Take a pic of the band or with the band, a selfie, a jump, a scream - anyway, show the energy!</li>
-      <input type="file" id="file" name="file" accept="image/*" required />
-    <li>Follow us on Facebook or Insta</li>
- <div id="follow-gate"></div>
+          <li>Take a pic of the band or with the band, a selfie, a jump, a scream - anyway, show the energy!</li>
+          <input type="file" id="file" name="file" accept="image/*" required />
+          <li>Follow us on Facebook or Insta</li>
+          <div id="follow-gate"></div>
       </ol>
     </div>
 
@@ -352,28 +354,30 @@
     <progress id="progress" value="0" max="100" style="display: none"></progress>
     <div class="message" id="message"></div>
 
-      <!-- Bonus tips -->
+    <!-- Bonus tips -->
 
-      <div style="text-align:center;line-height:1.5rem;font-size:1.5rem;color:#9edfff"><strong>SCROLL DOWN AND CHECK OUT THE UPLOADS GALLERY!</Strong></div>
-        <div class="form-note">
-    <p style="margin-top: ; font-size: 1.2rem; color: #dddddd;">
-      🔥 Each upload = 1 raffle entry<br />
-      👍 Every upvote = 1 more entry<br />
-      🎤 Winner announced during the last break<br />
-      ❌ Off-topic uploads may be removed<br />
-      💥 Love us ❤️ and wanna be a legend Tag @90Surge + @CJ's Backstage on IG/FB for eternal glory
-    </p>
-  </div>
-  <div class="followers-wrapper">
-  <div class="follower-block">
-    <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/c/c3/FB_Logo_PNG.png/640px-FB_Logo_PNG.png" width="16">
-    <span id="fb-followers">—</span><span> followers</span> 
-  </div>
-  <div class="follower-block">
-    <img src="https://upload.wikimedia.org/wikipedia/commons/a/a5/Instagram_icon.png" width="16">
-    <span id="ig-followers">—</span><span> followers</span> 
-  </div>
-</div>
+    <div style="text-align:center;line-height:1.5rem;font-size:1.5rem;color:#9edfff"><strong>SCROLL DOWN AND CHECK OUT
+        THE UPLOADS GALLERY!</Strong></div>
+    <div class="form-note">
+      <p style="margin-top: ; font-size: 1.2rem; color: #dddddd;">
+        🔥 Each upload = 1 raffle entry<br />
+        👍 Every upvote = 1 more entry<br />
+        🎤 Winner announced during the last break<br />
+        ❌ Off-topic uploads may be removed<br />
+        💥 Love us ❤️ and wanna be a legend Tag @90Surge + @CJ's Backstage on IG/FB for eternal glory
+      </p>
+    </div>
+    <div class="followers-wrapper">
+      <div class="follower-block">
+        <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/c/c3/FB_Logo_PNG.png/640px-FB_Logo_PNG.png"
+          width="16">
+        <span id="fb-followers">—</span><span> followers</span>
+      </div>
+      <div class="follower-block">
+        <img src="https://upload.wikimedia.org/wikipedia/commons/a/a5/Instagram_icon.png" width="16">
+        <span id="ig-followers">—</span><span> followers</span>
+      </div>
+    </div>
 
   </form>
 
@@ -441,14 +445,14 @@
     }
 
     function maybeEnableUpload() {
-  const uploadBtn = document.getElementById("upload-btn");
-  const gate = document.getElementById("follow-gate");
-  const followed = localStorage.getItem("followed") === "true";
+      const uploadBtn = document.getElementById("upload-btn");
+      const gate = document.getElementById("follow-gate");
+      const followed = localStorage.getItem("followed") === "true";
 
-  if (!isWindowOpen) return;
+      if (!isWindowOpen) return;
 
-  // Always render the follow links
-  gate.innerHTML = `
+      // Always render the follow links
+      gate.innerHTML = `
     <div style="display: flex; justify-content: center; gap: 1rem">
       <a href="https://www.facebook.com/90surge"
          target="_blank"
@@ -463,26 +467,44 @@
          Instagram
       </a>
     </div>`;
-  gate.style.display = "block";
+      gate.style.display = "block";
 
-  if (followed) {
-    uploadBtn.disabled = false;
-    uploadBtn.classList.remove("disabled-btn");
-  } else {
-    uploadBtn.disabled = true;
-    uploadBtn.classList.add("disabled-btn");
-  }
-}
+      if (followed) {
+        uploadBtn.disabled = false;
+        uploadBtn.classList.remove("disabled-btn");
+      } else {
+        uploadBtn.disabled = true;
+        uploadBtn.classList.add("disabled-btn");
+      }
+    }
 
 
     async function init() {
+      // 🔒 Check if app is shut down
+      try {
+        const res = await fetch("/api/admin?action=shutdown-status");
+        const { isShutdown } = await res.json();
+
+        if (isShutdown) {
+          document.body.innerHTML = `
+        <div style="display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100vh; color: #ccc; text-align: center;">
+          <h1 style="font-size: 2rem;">⚠️ Sorry, the raffle is closed.</h1>
+          <p>We'll be back soon.</p>
+        </div>
+      `;
+          return;
+        }
+      } catch (err) {
+        console.error("Failed to check shutdown status", err);
+      }
+
+      // 🚀 Proceed with normal app initialization
       await checkUploadWindow();
       maybeEnableUpload();
       await loadFollowerCounts();
       await setHeadline();
       await loadGallery();
     }
-
     window.addEventListener("DOMContentLoaded", init);
 
     const form = document.getElementById("upload-form");
@@ -515,6 +537,7 @@
       }
     }
   </script>
+
   <script>
     async function loadGallery() {
       try {

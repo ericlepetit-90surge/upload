@@ -127,6 +127,7 @@
     <button id="clearAllBtn"
       style="display:none; margin-top: 1em; background: red; color: white; padding: 0.5em 1em;">🧨 Clear All</button>
     <button id="reset-social-clicks" style="margin-top: 1rem;">Reset Social Clicks (Local Test Only)</button>
+<button id="shutdown-btn" class="danger-btn">Shut Down App</button>
 
 
     <div style="margin-top: 2rem;">
@@ -153,6 +154,22 @@
   </div>
 
   <script>
+    async function updateShutdownStatus() {
+  const res = await fetch("/api/admin?action=shutdown-status");
+  const { isShutdown } = await res.json();
+  const btn = document.getElementById("shutdown-btn");
+  btn.textContent = isShutdown ? "Resume App" : "Shut Down App";
+  btn.classList.toggle("danger", !isShutdown);
+  btn.classList.toggle("success", isShutdown);
+}
+
+document.getElementById("shutdown-btn").addEventListener("click", async () => {
+  await fetch("/api/admin?action=shutdown-toggle", { method: "POST" });
+  await updateShutdownStatus();
+});
+
+updateShutdownStatus();
+
     function renderEntriesPerUser(uploads) {
       const entryMap = {};
 

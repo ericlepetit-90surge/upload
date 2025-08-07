@@ -530,6 +530,21 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: "Failed to fetch follower counts" });
     }
   }
+  // ────── SHUT DOWN ──────
+
+if (action === "shutdown-toggle" && req.method === "POST") {
+  await ensureRedisConnected();
+  const current = await redis.get("isShutdown");
+  const newValue = current === "true" ? "false" : "true";
+  await redis.set("isShutdown", newValue);
+  return res.json({ success: true, isShutdown: newValue === "true" });
+}
+
+if (action === "shutdown-status" && req.method === "GET") {
+  await ensureRedisConnected();
+  const current = await redis.get("isShutdown");
+  return res.json({ isShutdown: current === "true" });
+}
 
   // ────── ❌ UNKNOWN ──────
   return res.status(400).json({ error: "Invalid action or method" });
