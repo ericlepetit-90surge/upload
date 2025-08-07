@@ -101,6 +101,30 @@
       margin: 0rem !important;
     }
 
+    @keyframes shake {
+
+      0%,
+      100% {
+        transform: translateX(0);
+      }
+
+      25% {
+        transform: translateX(-5px);
+      }
+
+      50% {
+        transform: translateX(5px);
+      }
+
+      75% {
+        transform: translateX(-5px);
+      }
+    }
+
+    .shake {
+      animation: shake 0.4s;
+    }
+
     form {
       background: var(--card-bg);
       padding: 0.1rem;
@@ -320,8 +344,10 @@
       border-radius: 5px;
       width: 100%;
     }
-
-    @media (max-width: 480px) {}
+    .locked {
+  opacity: 0.5;
+  pointer-events: auto; /* so click still works */
+}
   </style>
 
 </head>
@@ -352,15 +378,9 @@
       </ol>
     </div>
 
-   <button
-  type="submit"
-  id="upload-btn"
-  class="disabled-btn"
-  disabled
-  onclick="handleUploadClick(event)"
->
-  Upload and enter the raffle!
-</button>
+    <button type="submit" id="upload-btn" class="disabled-btn" disabled>
+      Upload and enter the raffle!
+    </button>
 
     <progress id="progress" value="0" max="100" style="display: none"></progress>
     <div class="message" id="message"></div>
@@ -431,6 +451,32 @@
     }
 
   </script>
+  <script>
+  async function checkFollowGate() {
+    try {
+      const res = await fetch("/api/admin?action=check-follow");
+      const data = await res.json();
+      const allowed = data.allowed === true;
+
+      const uploadBtn = document.getElementById("uploadBtn");
+      if (uploadBtn) {
+        uploadBtn.disabled = !allowed;
+      }
+
+      if (allowed) {
+        localStorage.setItem("followed", "true");
+      } else {
+        localStorage.removeItem("followed");
+      }
+    } catch (err) {
+      console.warn("❌ Failed to check follow status:", err);
+    }
+  }
+
+  // Call on load
+  window.addEventListener("DOMContentLoaded", checkFollowGate);
+</script>
+
   <script>
     function fetchWithTimeout(resource, options = {}) {
       const { timeout = 3000 } = options;
@@ -1038,27 +1084,61 @@
     }
   </script>
 
-
 <script>
-  document.addEventListener("DOMContentLoaded", () => {
-    const uploadBtn = document.getElementById("upload-btn");
+document.addEventListener("DOMContentLoaded", () => {
+  const uploadBtn = document.getElementById("upload-btn");
+  const nameInput = document.getElementById("user-display-name");
 
-    // Intercept click on disabled button (browser doesn't fire onclick on disabled)
-    uploadBtn.parentElement.addEventListener("click", (e) => {
-      if (uploadBtn.disabled) {
-        e.preventDefault();
-        const followed = localStorage.getItem("followed") === "true";
-        const isWindowOpen = typeof window.isWindowOpen !== "undefined" && window.isWindowOpen;
+  if (!uploadBtn || !nameInput) return; // hard guard if markup changes
 
-        if (!followed && isWindowOpen) {
-          alert("⚠️ Please follow us on Facebook or Instagram first to unlock uploading.");
-          uploadBtn.classList.add("shake");
-          setTimeout(() => uploadBtn.classList.remove("shake"), 400);
-        }
-      }
-    }, true); // 👈 use capture phase so we catch it before form submission
+  function isFollowed() {
+    return localStorage.getItem("followed") === "true";
+  }
+
+  // lock/unlock purely by classes/data-attr (not the disabled property)
+  function updateUploadState() {
+    const ok = isFollowed() && window.isWindowOpen === true;
+    if (ok) {
+      uploadBtn.dataset.locked = "0";
+      uploadBtn.classList.remove("disabled-btn");
+    } else {
+      uploadBtn.dataset.locked = "1";
+      uploadBtn.classList.add("disabled-btn");
+    }
+  }
+
+  // Show message when the button is visually disabled
+  uploadBtn.addEventListener("click", (e) => {
+    if (uploadBtn.dataset.locked === "1") {
+      e.preventDefault();
+      const msg = window.isWindowOpen === true
+        ? "⚠️ Please follow us on Facebook or Instagram first to unlock uploading."
+        : "Uploads are currently closed.";
+      alert(msg);
+      uploadBtn.classList.add("shake");
+      setTimeout(() => uploadBtn.classList.remove("shake"), 400);
+    }
   });
+
+  nameInput.addEventListener("input", updateUploadState);
+
+  // Call after your config window check runs
+  // You already call checkUploadWindow() in init(); just run this after it:
+  // await checkUploadWindow(); then:
+  updateUploadState();
+
+  // If your follow links set localStorage('followed'), re-check after that:
+  window.maybeEnableUpload = new Proxy(window.maybeEnableUpload || function(){}, {
+    apply(target, thisArg, args) {
+      const result = target.apply(thisArg, args);
+      updateUploadState();
+      return result;
+    }
+  });
+});
 </script>
+
+
 
 </body>
 

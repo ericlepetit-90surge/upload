@@ -144,9 +144,9 @@
       <div class="admin-only">
         <button onclick="saveConfig(event)">Save Config</button>
         <div style="margin-top: 1rem;">
-  <button id="warmup-btn">Warm Up Redis</button>
-  <span id="redis-status" style="margin-left: 1rem; font-weight: bold;">Status: —</span>
-</div>
+          <button id="warm-redis-btn">Warm Up Redis</button>
+          <span id="redis-status" style="margin-left: 1rem; font-weight: bold;">Status: —</span>
+        </div>
 
       </div>
     </div>
@@ -159,33 +159,6 @@
 
     <div id="admin-gallery">Loading uploads...</div>
   </div>
-<script>
-  async function checkRedisStatus() {
-    const statusEl = document.getElementById("redis-status");
-    try {
-      const res = await fetch("/api/admin?action=redis-status");
-      const data = await res.json();
-      if (data.status === "active") {
-        statusEl.textContent = "Status: ✅ Active";
-        statusEl.style.color = "limegreen";
-      } else {
-        statusEl.textContent = "Status: 💤 Idle";
-        statusEl.style.color = "orange";
-      }
-    } catch (err) {
-      statusEl.textContent = "Status: ❌ Error";
-      statusEl.style.color = "red";
-    }
-  }
-
-  document.getElementById("warmup-btn").addEventListener("click", async () => {
-    const res = await fetch("/api/admin?action=warmup");
-    await checkRedisStatus();
-    alert("Redis warm-up triggered.");
-  });
-
-  checkRedisStatus(); // initial status check
-</script>
 
   <script>
 
@@ -219,6 +192,35 @@
     }
   </script>
   <!-- admin.html only -->
+  <script>
+    async function checkRedisStatus() {
+      const statusEl = document.getElementById("redis-status");
+      try {
+        const res = await fetch("/api/admin?action=redis-status");
+        const data = await res.json();
+        if (data.status === "active") {
+          statusEl.textContent = "Status: ✅ Active";
+          statusEl.style.color = "limegreen";
+        } else {
+          statusEl.textContent = "Status: 💤 Idle";
+          statusEl.style.color = "orange";
+        }
+      } catch (err) {
+        statusEl.textContent = "Status: ❌ Error";
+        statusEl.style.color = "red";
+      }
+    }
+  </script>
+<script>
+  document.addEventListener("DOMContentLoaded", () => {
+    const shutdownBtn = document.getElementById("shutdown-toggle-btn");
+    if (shutdownBtn) {
+      shutdownBtn.addEventListener("click", toggleShutdown);
+      checkShutdownStatusAndLabel();
+      checkRedisStatus(); // now this exists 👍
+    }
+  });
+</script>
 
   <script>
     document.addEventListener("DOMContentLoaded", () => {
@@ -226,6 +228,7 @@
       if (shutdownBtn) {
         shutdownBtn.addEventListener("click", toggleShutdown);
         checkShutdownStatusAndLabel();
+        checkRedisStatus(); // initial status check
       }
     });
 
@@ -333,8 +336,6 @@
   </script>
   <script>
 
-    let role = null;
-
     async function handleLogin() {
       const password = document.getElementById('admin-password').value;
       const res = await fetch('/api/admin?action=login', {
@@ -413,6 +414,7 @@
     }
 
     async function saveConfig(event) {
+      const role = localStorage.getItem('role');
       if (role !== 'admin') return;
       event.preventDefault();
       const showName = document.getElementById('showName')?.value?.trim();
@@ -628,7 +630,7 @@
 
   <script>
     document.addEventListener('DOMContentLoaded', () => {
-      role = localStorage.getItem('role');
+      const role = localStorage.getItem('role');
       if (!role) return;
 
       document.getElementById('login-section').style.display = 'none';

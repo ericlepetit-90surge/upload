@@ -22,7 +22,7 @@ if (!globalThis.__redis && process.env.REDIS_URL) {
     url: process.env.REDIS_URL,
     socket: {
       connectTimeout: 5000,
-      reconnectStrategy: retries => Math.min(retries * 200, 3000),
+      reconnectStrategy: (retries) => Math.min(retries * 200, 3000),
     },
   });
 
@@ -30,7 +30,7 @@ if (!globalThis.__redis && process.env.REDIS_URL) {
   client
     .connect()
     .then(() => console.log("✅ Redis connected"))
-    .catch(err => console.error("❌ Redis connection failed:", err));
+    .catch((err) => console.error("❌ Redis connection failed:", err));
 }
 
 redis = globalThis.__redis;
@@ -47,7 +47,6 @@ export async function ensureRedisConnected() {
     }
   }
 }
-
 
 // R2 (Cloudflare S3-compatible) client
 const s3 = new S3Client({
@@ -99,47 +98,51 @@ export default async function handler(req, res) {
   }
 
   // -----WARM UP REDIS MANUALLY ----
-if (req.method === "GET" && action === "redis-status") {
-  try {
-    const ping = await redis.ping(); // should return "PONG"
-    return res.status(200).json({ status: ping === "PONG" ? "active" : "unknown" });
-  } catch (err) {
-    return res.status(200).json({ status: "idle" }); // failed to connect = idle
+  if (req.method === "GET" && action === "redis-status") {
+    try {
+      const ping = await redis.ping(); // should return "PONG"
+      return res
+        .status(200)
+        .json({ status: ping === "PONG" ? "active" : "unknown" });
+    } catch (err) {
+      return res.status(200).json({ status: "idle" }); // failed to connect = idle
+    }
   }
-}
   // Warm Redis manually
-if (req.method === "POST" && action === "warm-redis") {
-  const authHeader = req.headers.authorization || "";
-  const isAdmin = authHeader.startsWith("Bearer:super:") && authHeader.endsWith(process.env.ADMIN_PASS);
+  if (req.method === "POST" && action === "warm-redis") {
+    const authHeader = req.headers.authorization || "";
+    const isAdmin =
+      authHeader.startsWith("Bearer:super:") &&
+      authHeader.endsWith(process.env.ADMIN_PASS);
 
-  if (!isAdmin) {
-    return res.status(403).json({ error: "Forbidden" });
-  }
+    if (!isAdmin) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
 
-  try {
-    await ensureRedisConnected();
-    const pong = await redis.ping();
-    return res.status(200).json({ success: true, pong });
-  } catch (err) {
-    console.error("❌ Redis warm-up failed:", err);
-    return res.status(500).json({ error: "Warm-up failed" });
+    try {
+      await ensureRedisConnected();
+      const pong = await redis.ping();
+      return res.status(200).json({ success: true, pong });
+    } catch (err) {
+      console.error("❌ Redis warm-up failed:", err);
+      return res.status(500).json({ error: "Warm-up failed" });
+    }
   }
-}
 
   // ────── ⚙️ CONFIG ──────
   if (action === "config") {
-  if (req.method === "GET") {
-    await ensureRedisConnected();
+    if (req.method === "GET") {
+      await ensureRedisConnected();
 
-    // ✅ NEW: fallback if Redis still isn't connected
-    if (!redis?.isOpen) {
-      console.warn("❌ Redis is not connected. Using fallback config.");
-      return res.status(200).json({
-        showName: "90 Surge",
-        startTime: new Date().toISOString(),
-        endTime: new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString(), // 3h later
-      });
-    }
+      // ✅ NEW: fallback if Redis still isn't connected
+      if (!redis?.isOpen) {
+        console.warn("❌ Redis is not connected. Using fallback config.");
+        return res.status(200).json({
+          showName: "90 Surge",
+          startTime: new Date().toISOString(),
+          endTime: new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString(), // 3h later
+        });
+      }
 
       try {
         if (isLocal) {
@@ -558,29 +561,61 @@ if (req.method === "POST" && action === "warm-redis") {
       return res.status(500).json({ error: "Failed to fetch follower counts" });
     }
   }
+  // ────── 📣 SOCIAL LINK reset ──────
+  if (req.method === "POST" && action === "reset-social") {
+  try {
+    const keys = await redis.keys("social:*");
+    const stringKeys = keys.filter(k => typeof k === 'string');
+
+    if (stringKeys.length > 0) {
+      await redis.del(...stringKeys);
+    }
+
+    return res.status(200).json({ success: true });
+  } catch (err) {
+    console.error("❌ Reset social error:", err);
+    return res.status(500).json({
+      success: false,
+      error: "Failed to reset social follow tracking",
+      details: err.message,
+    });
+  }
+}
+
+  // ────── CHECK FOLLOW STATUS ──────
+  if (req.method === "GET" && action === "check-follow") {
+    await ensureRedisConnected();
+    const ip =
+      req.headers["x-forwarded-for"]?.split(",")[0] ||
+      req.socket.remoteAddress ||
+      "unknown";
+    const followed = await redis.get(`social:${ip}`);
+    return res.status(200).json({ allowed: followed === "true" });
+  }
   // ────── SHUT DOWN ──────
 
-// Get current shutdown status
-if (req.method === "GET" && action === "shutdown-status") {
-const isShutdown = (await redis.get("shutdown")) === "true";
-  return res.status(200).json({ isShutdown });
-}
-
-// Toggle shutdown (only admin or moderator)
-if (req.method === "POST" && action === "toggle-shutdown") {
-  const authHeader = req.headers.authorization || "";
-  const isAdmin = authHeader.startsWith("Bearer:super:") && authHeader.endsWith(process.env.ADMIN_PASS);
-
-  if (!isAdmin) {
-    return res.status(403).json({ error: "Forbidden" });
+  // Get current shutdown status
+  if (req.method === "GET" && action === "shutdown-status") {
+    const isShutdown = (await redis.get("shutdown")) === "true";
+    return res.status(200).json({ isShutdown });
   }
 
-  const current = await redis.get("shutdown");
-  const newStatus = current !== "true";
-  await redis.set("shutdown", newStatus ? "true" : "false");
-  return res.status(200).json({ success: true, isShutdown: newStatus });
-}
+  // Toggle shutdown (only admin or moderator)
+  if (req.method === "POST" && action === "toggle-shutdown") {
+    const authHeader = req.headers.authorization || "";
+    const isAdmin =
+      authHeader.startsWith("Bearer:super:") &&
+      authHeader.endsWith(process.env.ADMIN_PASS);
 
+    if (!isAdmin) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+
+    const current = await redis.get("shutdown");
+    const newStatus = current !== "true";
+    await redis.set("shutdown", newStatus ? "true" : "false");
+    return res.status(200).json({ success: true, isShutdown: newStatus });
+  }
 
   // ────── ❌ UNKNOWN ──────
   return res.status(400).json({ error: "Invalid action or method" });
