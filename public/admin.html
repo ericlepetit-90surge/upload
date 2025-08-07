@@ -145,7 +145,8 @@
         <button onclick="saveConfig(event)">Save Config</button>
         <div style="margin-top: 1rem;">
           <button id="warm-redis-btn">Warm Up Redis</button>
-          <span id="redis-status" style="margin-left: 1rem; font-weight: bold;">Status: —</span>
+          <span id="redis-status" style="margin-left:1rem;font-weight:bold;">Status: —</span>
+
         </div>
 
       </div>
@@ -193,34 +194,68 @@
   </script>
   <!-- admin.html only -->
   <script>
+    // ✅ Show current Redis status
     async function checkRedisStatus() {
-      const statusEl = document.getElementById("redis-status");
+      const el = document.getElementById("redis-status");
+      if (!el) return;
       try {
         const res = await fetch("/api/admin?action=redis-status");
         const data = await res.json();
         if (data.status === "active") {
-          statusEl.textContent = "Status: ✅ Active";
-          statusEl.style.color = "limegreen";
+          el.textContent = "Status: ✅ Active";
+          el.style.color = "limegreen";
+        } else if (data.status === "idle") {
+          el.textContent = "Status: 💤 Idle";
+          el.style.color = "orange";
         } else {
-          statusEl.textContent = "Status: 💤 Idle";
-          statusEl.style.color = "orange";
+          el.textContent = "Status: ❓ Unknown";
+          el.style.color = "gray";
         }
       } catch (err) {
-        statusEl.textContent = "Status: ❌ Error";
-        statusEl.style.color = "red";
+        el.textContent = "Status: ❌ Error";
+        el.style.color = "red";
       }
     }
+
+    document.addEventListener("DOMContentLoaded", () => {
+      // ✅ Make sure the ID matches the button in your HTML
+      const warmBtn = document.getElementById("warm-redis-btn");
+      if (warmBtn) {
+        warmBtn.addEventListener("click", async () => {
+          // server requires Bearer:super:<ADMIN_PASS>
+          const adminKey = localStorage.getItem("adminKey") || "";
+          if (!adminKey) {
+            alert("You must be logged in as admin to warm Redis.");
+            return;
+          }
+
+          try {
+            const res = await fetch("/api/admin?action=warm-redis", {
+              method: "POST",
+              headers: { Authorization: "Bearer:super:" + adminKey },
+            });
+
+            if (!res.ok) {
+              const txt = await res.text().catch(() => "");
+              throw new Error(txt || "Request failed");
+            }
+
+            const json = await res.json().catch(() => ({}));
+            alert("✅ Redis warm-up triggered" + (json.pong ? ` (${json.pong})` : ""));
+          } catch (err) {
+            console.error("Warm-up error:", err);
+            alert("❌ Failed to warm Redis.");
+          } finally {
+            // refresh the status either way
+            checkRedisStatus();
+          }
+        });
+
+        // initial status check
+        checkRedisStatus();
+      }
+    });
   </script>
-<script>
-  document.addEventListener("DOMContentLoaded", () => {
-    const shutdownBtn = document.getElementById("shutdown-toggle-btn");
-    if (shutdownBtn) {
-      shutdownBtn.addEventListener("click", toggleShutdown);
-      checkShutdownStatusAndLabel();
-      checkRedisStatus(); // now this exists 👍
-    }
-  });
-</script>
 
   <script>
     document.addEventListener("DOMContentLoaded", () => {
@@ -228,9 +263,12 @@
       if (shutdownBtn) {
         shutdownBtn.addEventListener("click", toggleShutdown);
         checkShutdownStatusAndLabel();
-        checkRedisStatus(); // initial status check
+        checkRedisStatus(); // now this exists 👍
       }
     });
+  </script>
+
+  <script>
 
     async function checkShutdownStatusAndLabel() {
       try {
@@ -272,25 +310,7 @@
     }
 
   </script>
-  <script>document.getElementById("warm-redis-btn")?.addEventListener("click", async () => {
-      try {
-        const res = await fetch("/api/admin?action=warm-redis", {
-          method: "POST",
-          headers: {
-            Authorization: "Bearer " + (localStorage.getItem("adminPassword") || ""),
-          },
-        });
 
-        if (res.ok) {
-          alert("✅ Redis warmed up!");
-        } else {
-          alert("❌ Failed to warm Redis.");
-        }
-      } catch (err) {
-        console.error("❌ Warm-up error:", err);
-      }
-    });
-  </script>
 
   <script>
     async function resetVotes() {
