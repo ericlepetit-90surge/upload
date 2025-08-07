@@ -90,7 +90,7 @@
       flex-direction: column;
       gap: 0.25rem;
       width: 100%;
-      padding: 0 15px;
+      padding-bottom: 1rem;
     }
 
     .input-label {
@@ -313,7 +313,7 @@
       }
 
       .rules li {
-        margin-bottom: 1rem;
+        margin: 1rem 0;
       }
     }
   </style>
@@ -329,30 +329,39 @@
       <h1 id="headline">90 SURGE TONIGHT</h1>
       <h2 style="text-align: center; color: #ff5900"><strong>WIN A 90 SURGE TEE!</strong></h2>
       <ol>
-        <li>Scroll down and drop your name or FB/IG handle</li>
-        <li>Upload your wildest shot — pic of the band, selfie with the band, jumpig, dancing, singing,...</li>
-        <li>Follow us on Facebook or Insta</li>
-        <li>Each upload = 1 raffle entry. Stack ‘em</li>
-        <li>Upvote the bangers. Each vote = another entry 🔥</li>
-        <li>Winner revealed during 2nd set. Scream if it's you 🎤</li>
-        <li>Love us ❤️ and wanna be a legend ? Support us by sharing on Fb or Insta and tag @90Surge and @CJ's Backstage 📣</li>
-      </ol>
-    </div>
-    <div class="input-group">
-      <label for="name" class="input-label">Your Name <span style="color: red">*</span></label>
+        <li>Drop your name or FB/IG handle</li>
+              <div class="input-group">
       <input type="text" id="name" name="userName" required placeholder="Full Name" autocomplete="new-password"
         inputmode="text" autocorrect="off" autocapitalize="none" spellcheck="false" />
-    </div>
 
-    <div class="input-group">
-      <label for="file" class="input-label">Pick your image</label>
+
+        <li>Take a pic of the band or with the band, a selfie, a jump, a scream - anyway, show the energy!</li>
       <input type="file" id="file" name="file" accept="image/*" required />
+
+    <li>Follow us on Facebook or Insta</li>
+ <div id="follow-gate"></div>
+
+   
+      </ol>
     </div>
 
+   
 
-    <div id="follow-gate"></div>
+    <button type="submit" id="upload-btn" class="disabled-btn" disabled>Upload</button>
+    <progress id="progress" value="0" max="100" style="display: none"></progress>
+    <div class="message" id="message"></div>
 
-    <div class="followers-wrapper">
+      <!-- Bonus tips -->
+  <div class="form-note">
+    <p style="margin-top: 2rem; font-size: 0.9rem; color: #aaa;">
+      🔥 Each upload = 1 raffle entry<br />
+      👍 Every upvote = 1 more entry<br />
+      🎤 Winner announced during the last break<br />
+      ❌ Off-topic uploads may be removed<br />
+      💥 Love us ❤️ and wanna be a legend Tag @90Surge + @CJ's Backstage on IG/FB for eternal glory
+    </p>
+  </div>
+   <div class="followers-wrapper">
       <div class="follower-block">
         <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/c/c3/FB_Logo_PNG.png/640px-FB_Logo_PNG.png"
           width="16">
@@ -363,10 +372,6 @@
         <span id="ig-followers">—</span><span>followers</span> 
       </div>
     </div>
-
-    <button type="submit" id="upload-btn" class="disabled-btn" disabled>Upload</button>
-    <progress id="progress" value="0" max="100" style="display: none"></progress>
-    <div class="message" id="message"></div>
   </form>
 
   <h2>Tonight's show gallery</h2>
@@ -433,38 +438,39 @@
     }
 
     function maybeEnableUpload() {
-      const uploadBtn = document.getElementById("upload-btn");
-      const gate = document.getElementById("follow-gate");
-      const followed = localStorage.getItem("followed") === "true";
+  const uploadBtn = document.getElementById("upload-btn");
+  const gate = document.getElementById("follow-gate");
+  const followed = localStorage.getItem("followed") === "true";
 
-      if (!isWindowOpen) return;
+  if (!isWindowOpen) return;
 
-      if (followed) {
-        uploadBtn.disabled = false;
-        uploadBtn.classList.remove("disabled-btn");
-        gate.style.display = "none";
-      } else {
-        gate.innerHTML = `
-          <p style="font-size: 1rem; color: #c96161">
-            <strong>Follow us on Facebook / Instagram to upload your image and enter the raffle.</strong>
-          </p>
-          <div style="display: flex; justify-content: center; gap: 1rem">
-            <a href="https://www.facebook.com/90surge"
-               target="_blank"
-               class="follow-btn-fb"
-               onclick="localStorage.setItem('followed','true'); localStorage.setItem('followedTime', Date.now()); maybeEnableUpload();">
-               Facebook
-            </a>
-            <a href="https://www.instagram.com/90_surge"
-               target="_blank"
-               class="follow-btn-ig"
-               onclick="localStorage.setItem('followed','true'); localStorage.setItem('followedTime', Date.now()); maybeEnableUpload();">
-               Instagram
-            </a>
-          </div>`;
-        gate.style.display = "block";
-      }
-    }
+  // Always render the follow links
+  gate.innerHTML = `
+    <div style="display: flex; justify-content: center; gap: 1rem">
+      <a href="https://www.facebook.com/90surge"
+         target="_blank"
+         class="follow-btn-fb"
+         onclick="localStorage.setItem('followed','true'); localStorage.setItem('followedTime', Date.now()); maybeEnableUpload();">
+         Facebook
+      </a>
+      <a href="https://www.instagram.com/90_surge"
+         target="_blank"
+         class="follow-btn-ig"
+         onclick="localStorage.setItem('followed','true'); localStorage.setItem('followedTime', Date.now()); maybeEnableUpload();">
+         Instagram
+      </a>
+    </div>`;
+  gate.style.display = "block";
+
+  if (followed) {
+    uploadBtn.disabled = false;
+    uploadBtn.classList.remove("disabled-btn");
+  } else {
+    uploadBtn.disabled = true;
+    uploadBtn.classList.add("disabled-btn");
+  }
+}
+
 
     async function init() {
       await checkUploadWindow();

@@ -14,24 +14,15 @@ const uploadsPath = path.join(process.cwd(), "uploads.json");
 
 const isLocal = process.env.VERCEL_ENV !== "production";
 
-// Optional but helpful for debugging
-console.log("🔍 ENV check:", {
-  VERCEL_ENV: process.env.VERCEL_ENV,
-  isLocal,
-  REDIS_URL: process.env.REDIS_URL?.slice(0, 30) + "...",
-});
+// Redis connection (robust + timeout-safe)
+let redis;
 
-// utils/redis.js or inline in your main handler
-import { createClient } from 'redis';
-
-let globalForRedis = globalThis.__redis || null;
-
-if (!globalForRedis && process.env.REDIS_URL) {
+if (!globalThis.__redis && process.env.REDIS_URL) {
   const client = createClient({
     url: process.env.REDIS_URL,
     socket: {
-      connectTimeout: 5000, // ⏱ prevents long hangs
-      reconnectStrategy: retries => Math.min(retries * 200, 3000), // 🔁 auto-retry
+      connectTimeout: 5000, // ⏱ prevents 10s stalls
+      reconnectStrategy: retries => Math.min(retries * 200, 3000), // 🔁 retry quickly then slow
     },
   });
 
@@ -41,10 +32,10 @@ if (!globalForRedis && process.env.REDIS_URL) {
     .catch(err => console.error("❌ Redis connection failed:", err));
 
   globalThis.__redis = client;
-  globalForRedis = client;
 }
 
-export const redis = globalForRedis;
+redis = globalThis.__redis;
+
 
 // 🛠 Ensure Redis is always connected
 async function ensureRedisConnected() {
@@ -112,84 +103,77 @@ export default async function handler(req, res) {
   if (req.method === "GET") {
     await ensureRedisConnected();
 
-    if (!redis) {
-      console.error("❌ Redis not connected");
-      return res.status(500).json({ error: "Redis connection failed" });
+    // ✅ NEW: fallback if Redis still isn't connected
+    if (!redis?.isOpen) {
+      console.warn("❌ Redis is not connected. Using fallback config.");
+      return res.status(200).json({
+        showName: "90 Surge",
+        startTime: new Date().toISOString(),
+        endTime: new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString(), // 3h later
+      });
     }
 
-    try {
-      if (isLocal) {
-        const config = JSON.parse(
-          fs.readFileSync(path.join(process.cwd(), "config.json"), "utf8")
-        );
-        return res.json(config);
-      } else {
-        console.log("📡 Loading config from Redis...");
+      try {
+        if (isLocal) {
+          const config = JSON.parse(
+            fs.readFileSync(path.join(process.cwd(), "config.json"), "utf8")
+          );
+          return res.json(config);
+        } else {
+          console.log("📡 Loading config from Redis...");
 
-        const configPromise = Promise.all([
-          redis.get("showName").catch(() => ""),
-          redis.get("startTime").catch(() => ""),
-          redis.get("endTime").catch(() => ""),
-        ]);
+          const [showName, startTime, endTime] = await Promise.race([
+            Promise.all([
+              redis.get("showName").catch(() => ""),
+              redis.get("startTime").catch(() => ""),
+              redis.get("endTime").catch(() => ""),
+            ]),
+            timeout(10000),
+          ]);
 
-        const [showName, startTime, endTime] = await Promise.race([
-          configPromise,
-          timeout(5000), // ⏱️ Shorter timeout to fail fast
-        ]).catch(() => [null, null, null]);
-
-        if (!showName && !startTime && !endTime) {
-          console.warn("⚠️ Redis config timeout — using fallback values");
-          return res.json({
-            showName: "90 Surge",
-            startTime: new Date().toISOString(),
-            endTime: new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString(), // 3h window
+          console.log("⚙️ Responding with config:", {
+            showName,
+            startTime,
+            endTime,
           });
+
+          return res.json({ showName, startTime, endTime });
         }
-
-        console.log("⚙️ Responding with config:", {
-          showName,
-          startTime,
-          endTime,
-        });
-
-        return res.json({ showName, startTime, endTime });
+      } catch (err) {
+        console.error("❌ Config load error:", err.message);
+        return res.status(500).json({ error: "Failed to load config" });
       }
-    } catch (err) {
-      console.error("❌ Config load error:", err.message);
-      return res.status(500).json({ error: "Failed to load config" });
+    }
+
+    if (req.method === "POST") {
+      const { showName, startTime, endTime } = req.body;
+      try {
+        if (isLocal) {
+          fs.writeFileSync(
+            path.join(process.cwd(), "config.json"),
+            JSON.stringify({ showName, startTime, endTime }, null, 2)
+          );
+        } else {
+          await ensureRedisConnected();
+
+          await Promise.all([
+            redis.set("showName", showName || ""),
+            redis.set("startTime", startTime || ""),
+            redis.set("endTime", endTime || ""),
+          ]);
+        }
+        return res.json({ success: true });
+      } catch {
+        return res.status(500).json({ error: "Failed to save config" });
+      }
     }
   }
-
-  if (req.method === "POST") {
-    const { showName, startTime, endTime } = req.body;
-    try {
-      if (isLocal) {
-        fs.writeFileSync(
-          path.join(process.cwd(), "config.json"),
-          JSON.stringify({ showName, startTime, endTime }, null, 2)
-        );
-      } else {
-        await ensureRedisConnected();
-        await Promise.all([
-          redis.set("showName", showName || ""),
-          redis.set("startTime", startTime || ""),
-          redis.set("endTime", endTime || ""),
-        ]);
-      }
-      return res.json({ success: true });
-    } catch (err) {
-      console.error("❌ Failed to save config:", err.message);
-      return res.status(500).json({ error: "Failed to save config" });
-    }
-  }
-}
 
   // ────── 💾 UPLOAD ──────
   if (action === "save-upload" && req.method === "POST") {
     await ensureRedisConnected();
-    const { fileName, mimeType, userName, originalFileName } = req.body;
-
-    if (!fileName || !mimeType || !userName || !originalFileName) {
+    const { fileName, mimeType, userName } = req.body;
+    if (!fileName || !mimeType || !userName) {
       return res.status(400).json({ error: "Missing required fields" });
     }
 
@@ -199,7 +183,6 @@ export default async function handler(req, res) {
       fileName,
       mimeType,
       userName,
-      originalFileName,
       fileUrl,
       createdTime: new Date().toISOString(),
       votes: 0,
@@ -208,30 +191,18 @@ export default async function handler(req, res) {
 
     try {
       const existing = await redis.lRange("uploads", 0, -1);
-      const lowerUser = userName.trim().toLowerCase();
-      const lowerOrig = originalFileName.toLowerCase();
-
       const alreadyExists = existing.some((item) => {
         try {
-          const parsed = JSON.parse(item);
-          return (
-            parsed.userName?.trim().toLowerCase() === lowerUser &&
-            parsed.originalFileName?.toLowerCase() === lowerOrig
-          );
+          return JSON.parse(item).fileName === fileName;
         } catch {
           return false;
         }
       });
 
-      if (alreadyExists) {
-        console.warn(
-          `⚠️ Duplicate upload detected for ${userName} + ${originalFileName}`
-        );
-        return res.status(400).json({ error: "Duplicate upload detected" });
+      if (!alreadyExists) {
+        await redis.rPush("uploads", JSON.stringify(upload));
+        console.log("✅ Saved to Redis:", fileName);
       }
-
-      await redis.rPush("uploads", JSON.stringify(upload));
-      console.log("✅ Saved to Redis:", fileName);
 
       if (isLocal) {
         const fileData = fs.existsSync(uploadsPath)
@@ -540,19 +511,15 @@ export default async function handler(req, res) {
   if (action === "followers" && req.method === "GET") {
     try {
       const token = process.env.FB_PAGE_TOKEN;
-      const fbURL = `https://graph.facebook.com/v19.0/${process.env.FB_PAGE_ID}?fields=fan_count&access_token=${token}`;
-      const igURL = `https://graph.facebook.com/v19.0/${process.env.IG_ACCOUNT_ID}?fields=followers_count&access_token=${token}`;
+      const fbRes = await fetch(
+        `https://graph.facebook.com/v19.0/${process.env.FB_PAGE_ID}?fields=fan_count&access_token=${token}`
+      );
+      const igRes = await fetch(
+        `https://graph.facebook.com/v19.0/${process.env.IG_ACCOUNT_ID}?fields=followers_count&access_token=${token}`
+      );
 
-      const [fbRes, igRes] = await Promise.all([fetch(fbURL), fetch(igURL)]);
-
-      const fbText = await fbRes.text();
-      const igText = await igRes.text();
-
-      console.log("📘 FB raw:", fbText);
-      console.log("📸 IG raw:", igText);
-
-      const fbJson = JSON.parse(fbText);
-      const igJson = JSON.parse(igText);
+      const fbJson = await fbRes.json();
+      const igJson = await igRes.json();
 
       return res.json({
         facebook: fbJson.fan_count || 0,
