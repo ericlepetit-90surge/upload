@@ -532,19 +532,27 @@ export default async function handler(req, res) {
   }
   // ────── SHUT DOWN ──────
 
-if (action === "shutdown-toggle" && req.method === "POST") {
-  await ensureRedisConnected();
-  const current = await redis.get("isShutdown");
-  const newValue = current === "true" ? "false" : "true";
-  await redis.set("isShutdown", newValue);
-  return res.json({ success: true, isShutdown: newValue === "true" });
+// Get current shutdown status
+if (req.method === "GET" && action === "shutdown-status") {
+const isShutdown = (await redis.get("shutdown")) === "true";
+  return res.status(200).json({ isShutdown });
 }
 
-if (action === "shutdown-status" && req.method === "GET") {
-  await ensureRedisConnected();
-  const current = await redis.get("isShutdown");
-  return res.json({ isShutdown: current === "true" });
+// Toggle shutdown (only admin or moderator)
+if (req.method === "POST" && action === "toggle-shutdown") {
+  const authHeader = req.headers.authorization || "";
+  const isAdmin = authHeader.startsWith("Bearer:super:") && authHeader.endsWith(process.env.ADMIN_PASS);
+
+  if (!isAdmin) {
+    return res.status(403).json({ error: "Forbidden" });
+  }
+
+  const current = await redis.get("shutdown");
+  const newStatus = current !== "true";
+  await redis.set("shutdown", newStatus ? "true" : "false");
+  return res.status(200).json({ success: true, isShutdown: newStatus });
 }
+
 
   // ────── ❌ UNKNOWN ──────
   return res.status(400).json({ error: "Invalid action or method" });

@@ -47,31 +47,41 @@
     }
 
     .rules {
-      font-size: 0.95rem;
+      font-size: 0.85rem;
       background: #1a1a1a;
-      padding: 1rem 1rem 0 1rem;
+        padding: 0.75rem;
       border-radius: 10px;
       color: #eee;
       line-height: 1.5;
       max-width: 100%;
     }
 
-    .rules h2 {
-      font-size: 1.1rem;
-      margin: 0.5rem 0 1rem;
-    }
+     .rules h2 {
+        font-size: 1.5rem;
+        margin-top: 1.25rem;
+      }
 
     .rules ol {
       list-style: decimal inside;
-      padding-left: 1.5rem;
+        padding-left: 0rem;
       margin: 1rem 0;
       font-size: 1.1rem;
+              line-height: 1.5rem;
     }
 
     .rules li {
-      margin-bottom: 0.5rem;
+     margin: 2rem 0 0.5rem 0;
     }
 
+
+      #headline {
+        font-size: 1.3rem;
+        margin: 0rem !important;
+      }
+
+
+
+      
     form {
       background: var(--card-bg);
       padding: 0.1rem;
@@ -186,14 +196,6 @@
       display: inline-block;
     }
 
-    .followers-wrapper {
-      display: flex;
-      justify-content: center;
-      gap: 1.5rem;
-      margin-top: 0.5rem;
-    }
-
-
     .message {
       text-align: center;
       font-size: 1rem;
@@ -299,30 +301,9 @@
     }
 
     @media (max-width: 480px) {
-      .rules {
-        font-size: 0.85rem;
-        padding: 0.75rem;
-      }
+      
 
-      .rules h2 {
-        font-size: 1.5rem;
-        margin-top: 1.25rem;
-      }
-
-      #headline {
-        font-size: 1.3rem;
-        margin: 0rem !important;
-      }
-
-      .rules ol {
-        padding-left: 0rem;
-        line-height: 1.5rem;
-        ;
-      }
-
-      .rules li {
-        margin: 2rem 0 0.5rem 0;
-      }
+     
     }
   </style>
 
@@ -359,7 +340,7 @@
     <div style="text-align:center;line-height:1.5rem;font-size:1.5rem;color:#9edfff"><strong>SCROLL DOWN AND CHECK OUT
         THE UPLOADS GALLERY!</Strong></div>
     <div class="form-note">
-      <p style="margin-top: ; font-size: 1.2rem; color: #dddddd;">
+      <p style="font-size: 1.2rem; color: #dddddd;">
         🔥 Each upload = 1 raffle entry<br />
         👍 Every upvote = 1 more entry<br />
         🎤 Winner announced during the last break<br />
@@ -478,36 +459,76 @@
       }
     }
 
+    async function checkShutdownStatusAndLabel() {
+      const res = await fetch("/api/admin?action=shutdown-status");
+      const data = await res.json();
+      const btn = document.getElementById("shutdown-toggle-btn");
+      if (btn) {
+        btn.textContent = data.isShutdown ? "Re-enable App" : "Shut Down App";
+      }
+    }
+
+    async function toggleShutdown() {
+      const res = await fetch("/api/admin?action=toggle-shutdown", {
+        method: "POST",
+        headers: {
+          Authorization: "Bearer " + (localStorage.getItem("adminPassword") || ""),
+        },
+      });
+
+      if (res.ok) {
+        await checkShutdownStatusAndLabel();
+        alert("App shutdown status toggled.");
+      } else {
+        alert("Failed to toggle shutdown.");
+      }
+    }
+
+    // ✅ Safely attach if the button exists
+    const shutdownBtn = document.getElementById("shutdown-toggle-btn");
+    if (shutdownBtn) {
+      shutdownBtn.addEventListener("click", toggleShutdown);
+      checkShutdownStatusAndLabel();
+    }
+
 
     async function init() {
-      // 🔒 Check if app is shut down
       try {
-        const res = await fetch("/api/admin?action=shutdown-status");
-        const { isShutdown } = await res.json();
+    const res = await fetch("/api/admin?action=shutdown-status");
+    const { isShutdown } = await res.json();
 
-        if (isShutdown) {
-          document.body.innerHTML = `
-        <div style="display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100vh; color: #ccc; text-align: center;">
-          <h1 style="font-size: 2rem;">⚠️ Sorry, the raffle is closed.</h1>
+    if (isShutdown) {
+      document.body.innerHTML = `
+        <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100vh; text-align:center; color:#ccc;">
+          <div style="display: flex;;justify-content: center;"><img
+          src="https://pub-d919971fb927454bab9481eee8a435e3.r2.dev/logo-horizontal-white.png" width="200" height="auto"
+          style="display: block;"></div>
+           <h1 style="font-size:2rem;">⚠️ Sorry, the raffle is closed.</h1>
           <p>We'll be back soon.</p>
-        </div>
-      `;
-          return;
-        }
-      } catch (err) {
-        console.error("Failed to check shutdown status", err);
-      }
+        </div>`;
+      return;
+    }
+  } catch (err) {
+    console.error("Failed to check shutdown status", err);
+  }
 
-      // 🚀 Proceed with normal app initialization
+      // Proceed with app
       await checkUploadWindow();
       maybeEnableUpload();
       await loadFollowerCounts();
       await setHeadline();
       await loadGallery();
     }
+
+
+
     window.addEventListener("DOMContentLoaded", init);
 
-    const form = document.getElementById("upload-form");
+window.addEventListener("storage", (event) => {
+  if (event.key === "shutdownToggle") {
+    location.reload(); // re-trigger init()
+  }
+});
     const message = document.getElementById("message");
 
 
@@ -930,7 +951,27 @@
 
     window.hideWinnerModal = hideWinnerModal;
   </script>
+  <script>
+    async function checkIfShutDown() {
+      try {
+        const res = await fetch("/api/admin?action=shutdown-status");
+        const data = await res.json();
+        if (data.isShutdown) {
+          document.getElementById("upload-form").style.display = "none";
+          document.getElementById("shutdown-banner").style.display = "block";
+          return true;
+        } else {
+          document.getElementById("upload-form").style.display = "block";
+          document.getElementById("shutdown-banner").style.display = "none";
+          return false;
+        }
+      } catch (err) {
+        console.error("🔻 Failed to check shutdown status:", err);
+        return false;
+      }
+    }
 
+  </script>
   <script>
     async function upvote(fileId) {
       const key = `voted_${fileId}`;
@@ -950,13 +991,6 @@
         console.error("❌ Failed to upvote:", err);
       }
     }
-  </script>
-
-  <script>
-    document.addEventListener('DOMContentLoaded', () => {
-      const nameInput = document.querySelector('input[name="userName"]') || document.getElementById('name-input');
-      const fileInput = document.getElementById('file');
-    });
   </script>
 
 
