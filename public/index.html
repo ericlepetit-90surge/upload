@@ -476,18 +476,21 @@
       // Always render the follow links
       gate.innerHTML = `
     <div style="display: flex; justify-content: center; gap: 1rem">
-      <a href="https://www.facebook.com/90surge"
-         target="_blank"
-         class="follow-btn-fb"
-         onclick="localStorage.setItem('followed','true'); localStorage.setItem('followedTime', Date.now()); maybeEnableUpload();">
-         Facebook
-      </a>
-      <a href="https://www.instagram.com/90_surge"
-         target="_blank"
-         class="follow-btn-ig"
-         onclick="localStorage.setItem('followed','true'); localStorage.setItem('followedTime', Date.now()); maybeEnableUpload();">
-         Instagram
-      </a>
+ 
+           <a href="https://www.facebook.com/90surge"
+   target="_blank"
+   rel="noopener noreferrer"
+   class="follow-btn-fb"
+   onclick="window.open(this.href, '_blank', 'noopener'); localStorage.setItem('followed','true'); localStorage.setItem('followedTime', Date.now()); maybeEnableUpload(); return false;">
+   Facebook
+</a>
+     <a href="https://www.instagram.com/90_surge"
+   target="_blank"
+   rel="noopener noreferrer"
+   class="follow-btn-ig"
+   onclick="window.open(this.href, '_blank', 'noopener'); localStorage.setItem('followed','true'); localStorage.setItem('followedTime', Date.now()); maybeEnableUpload(); return false;">
+   Instagram
+</a>
     </div>`;
       gate.style.display = "block";
 
@@ -1033,6 +1036,18 @@
     }
   </script>
 
+<script>
+  function handleUploadClick(event) {
+    const followed = localStorage.getItem("followed") === "true";
+    const isDisabled = event.currentTarget.disabled;
+    const isWindowOpen = typeof window.isWindowOpen !== "undefined" && window.isWindowOpen;
+
+    if (isDisabled && !followed && isWindowOpen) {
+      event.preventDefault();
+      alert("⚠️ Please follow us on Facebook or Instagram first to unlock uploading.");
+    }
+  }
+</script>
 
 </body>
 
