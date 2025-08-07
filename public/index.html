@@ -49,7 +49,7 @@
     .rules {
       font-size: 0.95rem;
       background: #1a1a1a;
-      padding: 1rem;
+      padding: 1rem 1rem 0 1rem;
       border-radius: 10px;
       color: #eee;
       line-height: 1.5;
@@ -90,7 +90,6 @@
       flex-direction: column;
       gap: 0.25rem;
       width: 100%;
-      padding-bottom: 1rem;
     }
 
     .input-label {
@@ -186,6 +185,13 @@
       font-weight: bold;
       display: inline-block;
     }
+.followers-wrapper {
+  display: flex;
+  justify-content: center;
+  gap: 1.5rem;
+  margin-top: 0.5rem;
+}
+
 
     .message {
       text-align: center;
@@ -282,7 +288,7 @@
       display: flex;
       align-items: center;
       gap: 0.4rem;
-      font-size: 1.25rem;
+      font-size: 1rem;
     }
 
     progress {
@@ -313,7 +319,7 @@
       }
 
       .rules li {
-        margin: 1rem 0;
+        margin: 2rem 0 0.5rem 0;
       }
     }
   </style>
@@ -327,7 +333,7 @@
           src="https://pub-d919971fb927454bab9481eee8a435e3.r2.dev/logo-horizontal-white.png" width="200" height="auto"
           style="display: block;"></div>
       <h1 id="headline">90 SURGE TONIGHT</h1>
-      <h2 style="text-align: center; color: #ff5900"><strong>WIN A 90 SURGE TEE!</strong></h2>
+      <h2 style="text-align: center; color: #ff5900; padding-bottom:1rem"><strong>ENTER OUR RAFFLE <br>FOR A CHANCE TO <br>WIN A 90 SURGE TEE!</strong></h2>
       <ol>
         <li>Drop your name or FB/IG handle</li>
               <div class="input-group">
@@ -337,23 +343,20 @@
 
         <li>Take a pic of the band or with the band, a selfie, a jump, a scream - anyway, show the energy!</li>
       <input type="file" id="file" name="file" accept="image/*" required />
-
     <li>Follow us on Facebook or Insta</li>
  <div id="follow-gate"></div>
-
-   
       </ol>
     </div>
-
-   
 
     <button type="submit" id="upload-btn" class="disabled-btn" disabled>Upload</button>
     <progress id="progress" value="0" max="100" style="display: none"></progress>
     <div class="message" id="message"></div>
 
       <!-- Bonus tips -->
-  <div class="form-note">
-    <p style="margin-top: 2rem; font-size: 0.9rem; color: #aaa;">
+
+      <div style="text-align:center;line-height:1.5rem;font-size:1.5rem;color:#9edfff"><strong>SCROLL DOWN AND CHECK OUT THE UPLOADS GALLERY!</Strong></div>
+        <div class="form-note">
+    <p style="margin-top: ; font-size: 1.2rem; color: #dddddd;">
       🔥 Each upload = 1 raffle entry<br />
       👍 Every upvote = 1 more entry<br />
       🎤 Winner announced during the last break<br />
@@ -361,17 +364,17 @@
       💥 Love us ❤️ and wanna be a legend Tag @90Surge + @CJ's Backstage on IG/FB for eternal glory
     </p>
   </div>
-   <div class="followers-wrapper">
-      <div class="follower-block">
-        <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/c/c3/FB_Logo_PNG.png/640px-FB_Logo_PNG.png"
-          width="16">
-        <span id="fb-followers">—</span><span>followers</span> 
-      </div>
-      <div class="follower-block">
-        <img src="https://upload.wikimedia.org/wikipedia/commons/a/a5/Instagram_icon.png" width="16">
-        <span id="ig-followers">—</span><span>followers</span> 
-      </div>
-    </div>
+  <div class="followers-wrapper">
+  <div class="follower-block">
+    <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/c/c3/FB_Logo_PNG.png/640px-FB_Logo_PNG.png" width="16">
+    <span id="fb-followers">—</span><span> followers</span> 
+  </div>
+  <div class="follower-block">
+    <img src="https://upload.wikimedia.org/wikipedia/commons/a/a5/Instagram_icon.png" width="16">
+    <span id="ig-followers">—</span><span> followers</span> 
+  </div>
+</div>
+
   </form>
 
   <h2>Tonight's show gallery</h2>
