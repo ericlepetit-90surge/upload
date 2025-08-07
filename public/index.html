@@ -92,7 +92,7 @@
     }
 
     .blink {
-      animation: flash 1s infinite;
+      animation: flash 1.5s infinite;
     }
 
     #headline {
@@ -206,7 +206,7 @@
     }
 
     .follow-btn-ig {
-      background: #E1306C;
+      background: #c13584;
       color: white;
       padding: 0.5rem 1rem;
       border-radius: 8px;
@@ -339,21 +339,34 @@
         <li>Drop your name or FB/IG handle
           <div class="input-group">
             <input type="text" id="user-display-name" name="user_display_name" required placeholder="Full Name"
-              autocomplete="off" inputmode="text" autocorrect="off" autocapitalize="none" spellcheck="false" /> </li>
+              autocomplete="off" inputmode="text" autocorrect="off" autocapitalize="none" spellcheck="false" />
+        </li>
         <li>Take a pic of the band or with the band, a selfie, a jump, a scream - anyway, show the energy!
-        <input type="file" id="file" name="file" accept="image/*" required /></li>
+          <input type="file" id="file" name="file" accept="image/*" required />
+        </li>
         <li>Follow us on Facebook or Insta
-        <div id="follow-gate"></div></li>
+          <div id="follow-gate"></div>
+        </li>
       </ol>
     </div>
 
-    <button type="submit" id="upload-btn" class="disabled-btn" disabled>Upload</button>
+   <button
+  type="submit"
+  id="upload-btn"
+  class="disabled-btn"
+  disabled
+  onclick="handleUploadClick(event)"
+>
+  Upload and enter the raffle!
+</button>
+
     <progress id="progress" value="0" max="100" style="display: none"></progress>
     <div class="message" id="message"></div>
 
     <!-- Bonus tips -->
 
-    <div class="blink" style="text-align:center;line-height:1.5rem;font-size:1.5rem;color:#9edfff"><strong>SCROLL DOWN AND CHECK OUT
+    <div class="blink" style="text-align:center;line-height:1.5rem;font-size:1.5rem;color:#9edfff"><strong>SCROLL DOWN
+        AND CHECK OUT
         THE UPLOADS GALLERY!</Strong></div>
     <div class="form-note">
       <p style="font-size: 1rem; color: #dddddd;">
@@ -415,6 +428,18 @@
       }
     }
 
+  </script>
+  <script>
+    function fetchWithTimeout(resource, options = {}) {
+      const { timeout = 3000 } = options;
+
+      return Promise.race([
+        fetch(resource, options),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("Request timed out")), timeout)
+        )
+      ]);
+    }
   </script>
 
 
@@ -510,7 +535,7 @@
 
     async function init() {
       try {
-        const res = await fetch("/api/admin?action=shutdown-status");
+        const res = await fetchWithTimeout("/api/admin?action=shutdown-status", { timeout: 4000 });
         const { isShutdown } = await res.json();
 
         if (isShutdown) {
@@ -519,13 +544,14 @@
           <div style="display: flex;;justify-content: center;"><img
           src="https://pub-d919971fb927454bab9481eee8a435e3.r2.dev/logo-horizontal-white.png" width="200" height="auto"
           style="display: block;"></div>
-           <h1 style="font-size:2rem;">⚠️ Sorry, the raffle is closed.</h1>
+          <h1 style="font-size:2rem;">⚠️ Sorry, the raffle is closed.</h1>
           <p>We'll be back soon.</p>
         </div>`;
           return;
         }
       } catch (err) {
-        console.error("Failed to check shutdown status", err);
+        console.warn("⏱ Shutdown status check skipped (timeout or error):", err.message);
+        // App proceeds anyway — fail-open mode
       }
 
       // Proceed with app
@@ -535,8 +561,6 @@
       await setHeadline();
       await loadGallery();
     }
-
-
 
     window.addEventListener("DOMContentLoaded", init);
 
@@ -752,7 +776,7 @@
       const form = document.querySelector("form");
       const message = document.getElementById("message");
       const fileInput = document.getElementById("file");
-      const nameInput = document.getElementById("name");
+      const nameInput = document.getElementById("user-display-name");
       const progress = document.getElementById("progress");
 
       // Prefill name if available

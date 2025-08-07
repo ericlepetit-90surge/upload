@@ -21,33 +21,33 @@ if (!globalThis.__redis && process.env.REDIS_URL) {
   const client = createClient({
     url: process.env.REDIS_URL,
     socket: {
-      connectTimeout: 5000, // ⏱ prevents 10s stalls
-      reconnectStrategy: retries => Math.min(retries * 200, 3000), // 🔁 retry quickly then slow
+      connectTimeout: 5000,
+      reconnectStrategy: retries => Math.min(retries * 200, 3000),
     },
   });
 
+  globalThis.__redis = client;
   client
     .connect()
     .then(() => console.log("✅ Redis connected"))
     .catch(err => console.error("❌ Redis connection failed:", err));
-
-  globalThis.__redis = client;
 }
 
 redis = globalThis.__redis;
 
-
 // 🛠 Ensure Redis is always connected
-async function ensureRedisConnected() {
+export async function ensureRedisConnected() {
   if (!redis?.isOpen) {
-    console.warn("🔄 Reconnecting Redis...");
+    console.warn("🔄 Redis reconnecting...");
     try {
       await redis.connect();
+      console.log("✅ Redis reconnected");
     } catch (err) {
       console.error("❌ Redis reconnect failed:", err.message);
     }
   }
 }
+
 
 // R2 (Cloudflare S3-compatible) client
 const s3 = new S3Client({
@@ -97,6 +97,34 @@ export default async function handler(req, res) {
       return res.json({ success: true, role: "moderator" });
     return res.status(401).json({ success: false, error: "Invalid password" });
   }
+
+  // -----WARM UP REDIS MANUALLY ----
+if (req.method === "GET" && action === "redis-status") {
+  try {
+    const ping = await redis.ping(); // should return "PONG"
+    return res.status(200).json({ status: ping === "PONG" ? "active" : "unknown" });
+  } catch (err) {
+    return res.status(200).json({ status: "idle" }); // failed to connect = idle
+  }
+}
+  // Warm Redis manually
+if (req.method === "POST" && action === "warm-redis") {
+  const authHeader = req.headers.authorization || "";
+  const isAdmin = authHeader.startsWith("Bearer:super:") && authHeader.endsWith(process.env.ADMIN_PASS);
+
+  if (!isAdmin) {
+    return res.status(403).json({ error: "Forbidden" });
+  }
+
+  try {
+    await ensureRedisConnected();
+    const pong = await redis.ping();
+    return res.status(200).json({ success: true, pong });
+  } catch (err) {
+    console.error("❌ Redis warm-up failed:", err);
+    return res.status(500).json({ error: "Warm-up failed" });
+  }
+}
 
   // ────── ⚙️ CONFIG ──────
   if (action === "config") {
