@@ -176,6 +176,7 @@
       cursor: pointer;
       transition: background 0.2s ease;
       width: 100%;
+      font-size: 17px;
     }
 
     button:hover {
@@ -1036,17 +1037,26 @@
     }
   </script>
 
-<script>
-  function handleUploadClick(event) {
-    const followed = localStorage.getItem("followed") === "true";
-    const isDisabled = event.currentTarget.disabled;
-    const isWindowOpen = typeof window.isWindowOpen !== "undefined" && window.isWindowOpen;
 
-    if (isDisabled && !followed && isWindowOpen) {
-      event.preventDefault();
-      alert("⚠️ Please follow us on Facebook or Instagram first to unlock uploading.");
-    }
-  }
+<script>
+  document.addEventListener("DOMContentLoaded", () => {
+    const uploadBtn = document.getElementById("upload-btn");
+
+    // Intercept click on disabled button (browser doesn't fire onclick on disabled)
+    uploadBtn.parentElement.addEventListener("click", (e) => {
+      if (uploadBtn.disabled) {
+        e.preventDefault();
+        const followed = localStorage.getItem("followed") === "true";
+        const isWindowOpen = typeof window.isWindowOpen !== "undefined" && window.isWindowOpen;
+
+        if (!followed && isWindowOpen) {
+          alert("⚠️ Please follow us on Facebook or Instagram first to unlock uploading.");
+          uploadBtn.classList.add("shake");
+          setTimeout(() => uploadBtn.classList.remove("shake"), 400);
+        }
+      }
+    }, true); // 👈 use capture phase so we catch it before form submission
+  });
 </script>
 
 </body>
