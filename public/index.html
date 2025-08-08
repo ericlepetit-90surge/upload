@@ -1,6 +1,5 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -49,7 +48,7 @@
     .rules {
       font-size: 0.85rem;
       background: #1a1a1a;
-      padding: 0.75rem;
+      padding: 0 1.1rem;
       border-radius: 10px;
       color: #eee;
       line-height: 1.5;
@@ -81,12 +80,9 @@
     }
 
     @keyframes flash {
-
-      0%,
-      100% {
+      0%, 100% {
         opacity: 1;
       }
-
       50% {
         opacity: 0;
       }
@@ -102,20 +98,15 @@
     }
 
     @keyframes shake {
-
-      0%,
-      100% {
+      0%, 100% {
         transform: translateX(0);
       }
-
       25% {
         transform: translateX(-5px);
       }
-
       50% {
         transform: translateX(5px);
       }
-
       75% {
         transform: translateX(-5px);
       }
@@ -208,11 +199,15 @@
       background-color: #d81b60;
     }
 
-    button:disabled,
-    .disabled-btn {
+    .locked {
       background-color: #555 !important;
       cursor: not-allowed;
       opacity: 0.6;
+      pointer-events: none; /* Crucial change to prevent clicks */
+    }
+
+    .form-note {
+      padding: 0 1rem;
     }
 
     img {
@@ -344,30 +339,24 @@
       border-radius: 5px;
       width: 100%;
     }
-    .locked {
-  opacity: 0.5;
-  pointer-events: auto; /* so click still works */
-}
   </style>
-
 </head>
-
 <body>
   <form id="upload-form" enctype="multipart/form-data" method="POST">
     <div class="rules">
-      <div style="display: flex;;justify-content: center;"><img
-          src="https://pub-d919971fb927454bab9481eee8a435e3.r2.dev/logo-horizontal-white.png" width="200" height="auto"
-          style="display: block;"></div>
+      <div style="display: flex; justify-content: center;">
+        <img src="https://pub-d919971fb927454bab9481eee8a435e3.r2.dev/logo-horizontal-white.png" width="200" height="auto" style="display: block;">
+      </div>
       <h1 id="headline">90 SURGE TONIGHT</h1>
-      <h2 class="raffle blink" style="text-align: center; color: #ff5900; padding-bottom:1rem"><strong>ENTER OUR RAFFLE
-          FOR A
-          CHANCE TO
-          WIN A 90 SURGE TEE!</strong></h2>
+      <h2 class="raffle blink" style="text-align: center; color: #ff5900; padding-bottom:1rem">
+        <strong>ENTER OUR RAFFLE FOR A CHANCE TO WIN A 90 SURGE TEE!</strong>
+      </h2>
       <ol>
         <li>Drop your name or FB/IG handle
           <div class="input-group">
             <input type="text" id="user-display-name" name="user_display_name" required placeholder="Full Name"
               autocomplete="off" inputmode="text" autocorrect="off" autocapitalize="none" spellcheck="false" />
+          </div>
         </li>
         <li>Take a pic of the band or with the band, a selfie, a jump, a scream - anyway, show the energy!
           <input type="file" id="file" name="file" accept="image/*" required />
@@ -378,18 +367,16 @@
       </ol>
     </div>
 
-    <button type="submit" id="upload-btn" class="disabled-btn" disabled>
-      Upload and enter the raffle!
+    <button id="upload-btn" class="locked">
+      Upload to enter the raffle!
     </button>
 
     <progress id="progress" value="0" max="100" style="display: none"></progress>
     <div class="message" id="message"></div>
 
-    <!-- Bonus tips -->
-
-    <div class="blink" style="text-align:center;line-height:1.5rem;font-size:1.5rem;color:#9edfff"><strong>SCROLL DOWN
-        AND CHECK OUT
-        THE UPLOADS GALLERY!</Strong></div>
+    <div class="blink" style="text-align:center;line-height:1.5rem;font-size:1.5rem;color:#9edfff">
+      <strong>SCROLL DOWN AND CHECK OUT THE UPLOADS GALLERY!</strong>
+    </div>
     <div class="form-note">
       <p style="font-size: 1rem; color: #dddddd;">
         🔥 Each upload = 1 raffle entry<br />
@@ -401,8 +388,7 @@
     </div>
     <div class="followers-wrapper">
       <div class="follower-block">
-        <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/c/c3/FB_Logo_PNG.png/640px-FB_Logo_PNG.png"
-          width="16">
+        <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/c/c3/FB_Logo_PNG.png/640px-FB_Logo_PNG.png" width="16">
         <span id="fb-followers">—</span><span> followers</span>
       </div>
       <div class="follower-block">
@@ -411,16 +397,14 @@
       </div>
     </div>
 
+    <h2 style="text-align: center; color: #ff5900; padding-bottom:1rem">Tonight's show gallery</h2>
+    <div class="grid" id="gallery"></div>
+
+    <div id="imageModal" class="hidden" onclick="this.classList.add('hidden')">
+      <img id="fullImage" src="" />
+    </div>
   </form>
 
-  <h2>Tonight's show gallery</h2>
-  <div class="grid" id="gallery"></div>
-
-  <div id="imageModal" class="hidden" onclick="this.classList.add('hidden')">
-    <img id="fullImage" src="" />
-  </div>
-
-  <!-- Winner Celebration Modal -->
   <div id="winnerModal"
     style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.95); color:white; z-index:9999; justify-content:center; align-items:center; flex-direction:column; text-align:center; padding:2rem;">
     <h1 style="font-size:3rem; margin:0;">🎉 Raffle Winner 🎉</h1>
@@ -428,87 +412,50 @@
     <button onclick="hideWinnerModal()"
       style="margin-top:2rem; padding:0.8rem 1.5rem; font-size:1rem; background:#e91e63; border:none; color:white; border-radius:8px;">Close</button>
   </div>
-  <script>async function loadFollowerCounts() {
+
+  <script type="module">
+    import confetti from 'https://cdn.skypack.dev/canvas-confetti';
+    window.confetti = confetti;
+  </script>
+
+  <script>
+    let isWindowOpen = false;
+    let r2AccountId = "";
+    let r2BucketName = "";
+
+    async function fetchEnv() {
+      try {
+        const res = await fetch("/api/env");
+        const data = await res.json();
+        r2AccountId = data.r2AccountId;
+        r2BucketName = data.r2BucketName;
+      } catch (err) {
+        console.error("❌ Failed to fetch R2 env vars:", err);
+      }
+    }
+
+    async function loadFollowerCounts() {
       try {
         const res = await fetch('/api/admin?action=followers');
         const data = await res.json();
-
         const fbCount = parseInt(data.facebook || 0);
         const igCount = parseInt(data.instagram || 0);
-
-        const fbEl = document.getElementById('fb-followers');
-        const igEl = document.getElementById('ig-followers');
-
-        if (fbEl && fbCount > 0) {
-          fbEl.textContent = ` ${fbCount}`;
-        }
-        if (igEl && igCount > 0) {
-          igEl.textContent = `${igCount}`;
-        }
+        document.getElementById('fb-followers').textContent = fbCount > 0 ? `${fbCount}` : '—';
+        document.getElementById('ig-followers').textContent = igCount > 0 ? `${igCount}` : '—';
       } catch (err) {
         console.warn("⚠️ Failed to fetch follower counts", err);
       }
     }
 
-  </script>
-  <script>
-  async function checkFollowGate() {
-    try {
-      const res = await fetch("/api/admin?action=check-follow");
-      const data = await res.json();
-      const allowed = data.allowed === true;
-
-      const uploadBtn = document.getElementById("uploadBtn");
-      if (uploadBtn) {
-        uploadBtn.disabled = !allowed;
-      }
-
-      if (allowed) {
-        localStorage.setItem("followed", "true");
-      } else {
-        localStorage.removeItem("followed");
-      }
-    } catch (err) {
-      console.warn("❌ Failed to check follow status:", err);
-    }
-  }
-
-  // Call on load
-  window.addEventListener("DOMContentLoaded", checkFollowGate);
-</script>
-
-  <script>
-    function fetchWithTimeout(resource, options = {}) {
-      const { timeout = 3000 } = options;
-
-      return Promise.race([
-        fetch(resource, options),
-        new Promise((_, reject) =>
-          setTimeout(() => reject(new Error("Request timed out")), timeout)
-        )
-      ]);
-    }
-  </script>
-
-
-  <script>
-    let isWindowOpen = false;
-
     async function checkUploadWindow() {
       try {
         const res = await fetch("/api/admin?action=config");
         if (!res.ok) throw new Error("Config fetch failed");
-
         const config = await res.json();
         const now = Date.now();
         const start = new Date(config.startTime).getTime();
         const end = new Date(config.endTime).getTime();
-        const open = now >= start && now <= end;
-        isWindowOpen = open;
-        const banner = document.getElementById("upload-banner");
-        if (banner) {
-          banner.textContent = open ? "" : "Uploads are currently closed";
-        }
+        isWindowOpen = now >= start && now <= end;
       } catch (err) {
         console.error("Failed to check upload window", err);
       }
@@ -516,146 +463,34 @@
 
     function maybeEnableUpload() {
       const uploadBtn = document.getElementById("upload-btn");
+      const nameInput = document.getElementById("user-display-name");
       const gate = document.getElementById("follow-gate");
       const followed = localStorage.getItem("followed") === "true";
+      const nameEntered = nameInput.value.trim() !== "";
 
-      if (!isWindowOpen) return;
-
-      // Always render the follow links
       gate.innerHTML = `
-    <div style="display: flex; justify-content: center; gap: 1rem">
- 
-           <a href="https://www.facebook.com/90surge"
-   target="_blank"
-   rel="noopener noreferrer"
-   class="follow-btn-fb"
-   onclick="window.open(this.href, '_blank', 'noopener'); localStorage.setItem('followed','true'); localStorage.setItem('followedTime', Date.now()); maybeEnableUpload(); return false;">
-   Facebook
-</a>
-     <a href="https://www.instagram.com/90_surge"
-   target="_blank"
-   rel="noopener noreferrer"
-   class="follow-btn-ig"
-   onclick="window.open(this.href, '_blank', 'noopener'); localStorage.setItem('followed','true'); localStorage.setItem('followedTime', Date.now()); maybeEnableUpload(); return false;">
-   Instagram
-</a>
-    </div>`;
+        <div style="display: flex; justify-content: center; gap: 1rem">
+          <a href="https://www.facebook.com/90surge" target="_blank" class="follow-btn-fb" onclick="followUser();">Facebook</a>
+          <a href="https://www.instagram.com/90_surge" target="_blank" class="follow-btn-ig" onclick="followUser();">Instagram</a>
+        </div>`;
       gate.style.display = "block";
 
-      if (followed) {
-        uploadBtn.disabled = false;
-        uploadBtn.classList.remove("disabled-btn");
+      if (followed && isWindowOpen && nameEntered) {
+        uploadBtn.classList.remove("locked");
       } else {
-        uploadBtn.disabled = true;
-        uploadBtn.classList.add("disabled-btn");
+        uploadBtn.classList.add("locked");
       }
     }
 
-    async function checkShutdownStatusAndLabel() {
-      const res = await fetch("/api/admin?action=shutdown-status");
-      const data = await res.json();
-      const btn = document.getElementById("shutdown-toggle-btn");
-      if (btn) {
-        btn.textContent = data.isShutdown ? "Re-enable App" : "Shut Down App";
-      }
-    }
-
-    async function toggleShutdown() {
-      const res = await fetch("/api/admin?action=toggle-shutdown", {
-        method: "POST",
-        headers: {
-          Authorization: "Bearer " + (localStorage.getItem("adminPassword") || ""),
-        },
-      });
-
-      if (res.ok) {
-        await checkShutdownStatusAndLabel();
-        alert("App shutdown status toggled.");
-      } else {
-        alert("Failed to toggle shutdown.");
-      }
-    }
-
-    // ✅ Safely attach if the button exists
-    const shutdownBtn = document.getElementById("shutdown-toggle-btn");
-    if (shutdownBtn) {
-      shutdownBtn.addEventListener("click", toggleShutdown);
-      checkShutdownStatusAndLabel();
-    }
-
-
-    async function init() {
-      try {
-        const res = await fetchWithTimeout("/api/admin?action=shutdown-status", { timeout: 4000 });
-        const { isShutdown } = await res.json();
-
-        if (isShutdown) {
-          document.body.innerHTML = `
-        <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100vh; text-align:center; color:#ccc;">
-          <div style="display: flex;;justify-content: center;"><img
-          src="https://pub-d919971fb927454bab9481eee8a435e3.r2.dev/logo-horizontal-white.png" width="200" height="auto"
-          style="display: block;"></div>
-          <h1 style="font-size:2rem;">⚠️ Sorry, the raffle is closed.</h1>
-          <p>We'll be back soon.</p>
-        </div>`;
-          return;
-        }
-      } catch (err) {
-        console.warn("⏱ Shutdown status check skipped (timeout or error):", err.message);
-        // App proceeds anyway — fail-open mode
-      }
-
-      // Proceed with app
-      await checkUploadWindow();
+    function followUser() {
+      localStorage.setItem("followed", "true");
       maybeEnableUpload();
-      await loadFollowerCounts();
-      await setHeadline();
-      await loadGallery();
     }
 
-    window.addEventListener("DOMContentLoaded", init);
-
-    window.addEventListener("storage", (event) => {
-      if (event.key === "shutdownToggle") {
-        location.reload(); // re-trigger init()
-      }
-    });
-    const message = document.getElementById("message");
-
-
-    function getVotedImageIds() {
-      try {
-        return JSON.parse(localStorage.getItem("votedImages") || "[]");
-      } catch {
-        return [];
-      }
-    }
-
-    function markImageVoted(id) {
-      const voted = getVotedImageIds();
-      if (!voted.includes(id)) {
-        voted.push(id);
-        localStorage.setItem("votedImages", JSON.stringify(voted));
-      }
-    }
-
-    async function setHeadline() {
-      try {
-        const res = await fetch('/api/admin?action=config');
-        const config = await res.json();
-        document.getElementById("headline").textContent = config?.showName || "90 Surge";
-      } catch {
-        document.getElementById("headline").textContent = "Upload to 90 Surge";
-      }
-    }
-  </script>
-
-  <script>
     async function loadGallery() {
       try {
         const uploadsRes = await fetch("/api/admin?action=uploads");
         const uploads = await uploadsRes.json();
-
         const gallery = document.getElementById("gallery");
         gallery.innerHTML = "";
 
@@ -687,10 +522,10 @@
           const card = document.createElement("div");
           card.className = "card";
           card.dataset.id = upload.id || upload.fileName;
-
+          
           const wrapper = document.createElement("div");
           wrapper.style.position = "relative";
-
+          
           const img = document.createElement("img");
           img.src = upload.fileUrl;
           img.loading = "lazy";
@@ -711,11 +546,7 @@
 
           const info = document.createElement("div");
           info.className = "info";
-          const displayName =
-            upload.userName ||
-            upload.userNameRaw ||
-            upload.fileName.split("_").slice(2).join("_").replace(/_/g, " ") ||
-            "Anonymous";
+          const displayName = upload.userName || upload.userNameRaw || "Anonymous";
           info.innerHTML = `Uploaded by @${displayName}`;
 
           const voteInfo = document.createElement("div");
@@ -733,30 +564,28 @@
           upvoteBtn.textContent = hasVoted ? "Voted" : "Upvote";
           upvoteBtn.disabled = hasVoted;
           upvoteBtn.style.cssText = `
-          margin: 0.5rem auto;
-          display: block;
-          padding: 0.4rem 1rem;
-          border: none;
-          border-radius: 8px;
-          font-weight: bold;
-          background: ${hasVoted ? "#444" : "#e91e63"};
-          color: white;
-        `;
+            margin: 0.5rem auto;
+            display: block;
+            padding: 0.4rem 1rem;
+            border: none;
+            border-radius: 8px;
+            font-weight: bold;
+            background: ${hasVoted ? "#444" : "#e91e63"};
+            color: white;
+          `;
 
           upvoteBtn.addEventListener("click", async () => {
             if (hasVoted) return;
-
             upvoteBtn.disabled = true;
             upvoteBtn.textContent = "⏳ Voting...";
             upvoteBtn.style.background = "#888";
-
+            
             try {
               const res = await fetch("/api/admin?action=upvote", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ fileId: upload.id || upload.fileName }),
               });
-
               const result = await res.json();
               if (result.success) {
                 voteInfo.textContent = `👍 ${result.votes}`;
@@ -774,7 +603,7 @@
               upvoteBtn.style.background = "#e91e63";
             }
           });
-
+          
           wrapper.appendChild(img);
           card.appendChild(wrapper);
           card.appendChild(info);
@@ -788,60 +617,88 @@
       }
     }
 
-    // 🔁 Listen for uploads on this or other tabs
-    window.addEventListener("storage", (event) => {
-      if (event.key === "galleryRefresh") loadGallery();
-    });
+    let hasShownWinner = false;
 
-    const evtSource = new EventSource("https://vote-stream-server.onrender.com");
-
-    evtSource.addEventListener("reset", () => {
-      Object.keys(localStorage).forEach((k) => {
-        if (k.startsWith("voted_")) localStorage.removeItem(k);
-      });
-      loadGallery();
-      console.log("🎯 Votes reset received via SSE. Local votes cleared.");
-    });
-
-  </script>
-
-
-  <script>
-    let r2AccountId = "";
-    let r2BucketName = "";
-
-    async function fetchEnv() {
-      try {
-        const res = await fetch("/api/env");
-        const data = await res.json();
-        r2AccountId = data.r2AccountId;
-        r2BucketName = data.r2BucketName;
-      } catch (err) {
-        console.error("❌ Failed to fetch R2 env vars:", err);
-      }
+    function showWinnerModal(name) {
+      if (hasShownWinner) return;
+      hasShownWinner = true;
+      localStorage.setItem("shownWinnerName", name);
+      const modal = document.getElementById('winnerModal');
+      document.getElementById('winnerName').textContent = name;
+      modal.style.display = 'flex';
+      triggerConfetti();
     }
 
-    (async () => {
+    function hideWinnerModal() {
+      document.getElementById('winnerModal').style.display = 'none';
+    }
+
+    function triggerConfetti() {
+      if (!window.confetti) return;
+      const duration = 3000;
+      const end = Date.now() + duration;
+      (function frame() {
+        confetti({ particleCount: 5, angle: 60, spread: 55, origin: { x: 0 } });
+        confetti({ particleCount: 5, angle: 120, spread: 55, origin: { x: 1 } });
+        if (Date.now() < end) requestAnimationFrame(frame);
+      })();
+    }
+
+    async function init() {
+      try {
+        const res = await fetch("/api/admin?action=shutdown-status");
+        const { isShutdown } = await res.json();
+        if (isShutdown) {
+          document.body.innerHTML = `
+            <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100vh; text-align:center; color:#ccc;">
+              <div style="display: flex; justify-content: center;">
+                <img src="https://pub-d919971fb927454bab9481eee8a435e3.r2.dev/logo-horizontal-white.png" width="200" height="auto" style="display: block;">
+              </div>
+              <h1 style="font-size:2rem;">⚠️ Sorry, the raffle is closed.</h1>
+              <p>We'll be back soon.</p>
+            </div>`;
+          return;
+        }
+      } catch (err) {
+        console.warn("⏱ Shutdown status check skipped (timeout or error):", err.message);
+      }
+
+      await checkUploadWindow();
+      maybeEnableUpload();
+      await loadGallery();
+      await loadFollowerCounts();
       await fetchEnv();
 
-      const form = document.querySelector("form");
+      const form = document.getElementById("upload-form");
       const message = document.getElementById("message");
       const fileInput = document.getElementById("file");
       const nameInput = document.getElementById("user-display-name");
       const progress = document.getElementById("progress");
+      const uploadBtn = document.getElementById("upload-btn");
 
-      // Prefill name if available
       const savedName = localStorage.getItem("userName");
       if (savedName) {
         nameInput.value = savedName;
       }
-
+      
       form.addEventListener("submit", async (e) => {
+        if (uploadBtn.classList.contains("locked")) {
+          e.preventDefault();
+          message.style.color = "orange";
+          message.textContent = "⚠️ Please follow us to upload.";
+          return;
+        }
+
         e.preventDefault();
         message.textContent = "";
 
         const file = fileInput.files[0];
         const userName = nameInput.value.trim();
+        
+        if (!file || !userName) {
+          message.textContent = "Name and file are required.";
+          return;
+        }
 
         const originalName = file.name.toLowerCase().replace(/\s+/g, "_");
         const uploadKey = `uploaded_${userName.toLowerCase()}_${originalName}`;
@@ -851,23 +708,16 @@
           return;
         }
 
-        if (!file || !userName) {
-          message.textContent = "Name and file are required.";
-          return;
-        }
-
-        localStorage.setItem("userName", userName); // ✅ Persist name
-
+        localStorage.setItem("userName", userName);
+        
         const sanitize = (str) =>
           String(str || "")
             .toLowerCase()
             .replace(/[^a-z0-9]+/gi, "_")
             .replace(/^_+|_+$/g, "");
-
         const fileName = `${sanitize(userName)}_${Date.now()}_${sanitize(file.name)}`;
         const fileUrl = `https://${r2AccountId}.r2.cloudflarestorage.com/${r2BucketName}/${fileName}`;
         const mimeType = file.type;
-        const type = mimeType.startsWith("video/") ? "video" : "image";
 
         progress.style.display = "block";
         progress.value = 0;
@@ -875,7 +725,6 @@
         message.textContent = "⏳ Uploading...";
 
         try {
-          // 1. Get presigned upload URL
           const presignRes = await fetch("/api/get-upload-url", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -885,44 +734,30 @@
           const { url } = await presignRes.json();
           if (!url) throw new Error("Failed to get presigned URL");
 
-          // 2. Upload directly to R2
           await new Promise((resolve, reject) => {
             const xhr = new XMLHttpRequest();
             xhr.open("PUT", url, true);
             xhr.setRequestHeader("Content-Type", mimeType);
-
             xhr.upload.onprogress = (e) => {
               if (e.lengthComputable) {
-                const percent = Math.round((e.loaded / e.total) * 100);
-                progress.value = percent;
+                progress.value = Math.round((e.loaded / e.total) * 100);
               }
             };
-
             xhr.onload = () => {
               if (xhr.status >= 200 && xhr.status < 300) resolve();
               else reject(new Error("Upload failed with status " + xhr.status));
             };
-
             xhr.onerror = () => reject(new Error("Network error during upload"));
             xhr.send(file);
           });
-
-          // 3. Save metadata
-          const metadata = {
-            fileName,
-            fileUrl,
-            mimeType,
-            userName,
-            originalFileName: file.name, // ✅ Send original filename
-          };
-          console.log("🧾 Sending metadata:", metadata);
-
+          
+          const metadata = { fileName, fileUrl, mimeType, userName, originalFileName: file.name };
           const metaRes = await fetch("/api/admin?action=save-upload", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(metadata),
           });
-
+          
           const metaData = await metaRes.json();
           if (!metaData.success) {
             await fetch("/api/admin?action=delete-file", {
@@ -938,7 +773,7 @@
           fileInput.value = "";
           progress.value = 100;
           localStorage.setItem(uploadKey, "1");
-          if (typeof loadGallery === "function") loadGallery();
+          loadGallery();
           setTimeout(() => (message.textContent = ""), 3000);
         } catch (err) {
           console.error("❌ Upload error:", err);
@@ -947,199 +782,13 @@
           progress.style.display = "none";
         }
       });
-    })();
-  </script>
-
-  <script>
-    function waitForFollowGateAndEnable() {
-      const gate = document.getElementById("follow-gate");
-      if (gate) {
-        maybeEnableUpload();
-      } else {
-        setTimeout(waitForFollowGateAndEnable, 100);
-      }
     }
 
-    window.addEventListener("load", () => {
-      const followedTimeRaw = localStorage.getItem("followedTime");
-      const lastRefresh = localStorage.getItem("softRefreshDone");
-
-      const followedTime = parseInt(followedTimeRaw || "0", 10);
-      const now = Date.now();
-
-      const within1Min = now - followedTime < 60000;
-
-      if (within1Min && !lastRefresh) {
-        console.log("🔄 Soft-refresh triggered");
-        waitForFollowGateAndEnable();
-        localStorage.setItem("softRefreshDone", "true");
-      }
-
-      // For testing: allow refresh to re-trigger every 5 minutes
-      if (now - followedTime > 5 * 60 * 1000) {
-        localStorage.removeItem("softRefreshDone");
-      }
+    window.addEventListener("DOMContentLoaded", init);
+    window.addEventListener("storage", (event) => {
+      if (event.key === "galleryRefresh") loadGallery();
     });
-  </script>
-
-
-  <!-- Load confetti globally -->
-  <script type="module">
-    import confetti from 'https://cdn.skypack.dev/canvas-confetti';
-    window.confetti = confetti;
-  </script>
-
-  <script>
-    let hasShownWinner = false;
-
-    function showWinnerModal(name) {
-      if (hasShownWinner) return; // 🧱 Prevent showing again in this session
-
-      hasShownWinner = true;
-      localStorage.setItem("shownWinnerName", name); // ✅ Store to persist across reloads
-
-      const modal = document.getElementById('winnerModal');
-      document.getElementById('winnerName').textContent = name;
-      modal.style.display = 'flex';
-      triggerConfetti();
-    }
-
-    function hideWinnerModal() {
-      document.getElementById('winnerModal').style.display = 'none';
-      // ❌ DO NOT clear shownWinnerName here
-      // It would cause the modal to reappear on next refresh
-    }
-
-    function triggerConfetti() {
-      if (!window.confetti) return;
-      const duration = 3000;
-      const end = Date.now() + duration;
-      (function frame() {
-        confetti({ particleCount: 5, angle: 60, spread: 55, origin: { x: 0 } });
-        confetti({ particleCount: 5, angle: 120, spread: 55, origin: { x: 1 } });
-        if (Date.now() < end) requestAnimationFrame(frame);
-      })();
-    }
-
-    const sse = new EventSource(
-      location.hostname === "localhost"
-        ? "http://localhost:3001/events"
-        : "https://winner-sse-server.onrender.com/events"
-    );
-
-    sse.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      const currentWinner = data.winner;
-
-      if (
-        currentWinner &&
-        !hasShownWinner && // 🧱 Prevent re-show during session
-        currentWinner !== localStorage.getItem("shownWinnerName") // ✅ Don't repeat winner from last time
-      ) {
-        showWinnerModal(currentWinner);
-      }
-    };
-
     window.hideWinnerModal = hideWinnerModal;
   </script>
-  <script>
-    async function checkIfShutDown() {
-      try {
-        const res = await fetch("/api/admin?action=shutdown-status");
-        const data = await res.json();
-        if (data.isShutdown) {
-          document.getElementById("upload-form").style.display = "none";
-          document.getElementById("shutdown-banner").style.display = "block";
-          return true;
-        } else {
-          document.getElementById("upload-form").style.display = "block";
-          document.getElementById("shutdown-banner").style.display = "none";
-          return false;
-        }
-      } catch (err) {
-        console.error("🔻 Failed to check shutdown status:", err);
-        return false;
-      }
-    }
-
-  </script>
-  <script>
-    async function upvote(fileId) {
-      const key = `voted_${fileId}`;
-      if (localStorage.getItem(key)) return;
-
-      localStorage.setItem(key, "1");
-
-      const countEl = document.querySelector(`[data-id="${fileId}"] .like-count`);
-
-      try {
-        await fetch("/api/admin?action=upvote", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ fileId }),
-        });
-      } catch (err) {
-        console.error("❌ Failed to upvote:", err);
-      }
-    }
-  </script>
-
-<script>
-document.addEventListener("DOMContentLoaded", () => {
-  const uploadBtn = document.getElementById("upload-btn");
-  const nameInput = document.getElementById("user-display-name");
-
-  if (!uploadBtn || !nameInput) return; // hard guard if markup changes
-
-  function isFollowed() {
-    return localStorage.getItem("followed") === "true";
-  }
-
-  // lock/unlock purely by classes/data-attr (not the disabled property)
-  function updateUploadState() {
-    const ok = isFollowed() && window.isWindowOpen === true;
-    if (ok) {
-      uploadBtn.dataset.locked = "0";
-      uploadBtn.classList.remove("disabled-btn");
-    } else {
-      uploadBtn.dataset.locked = "1";
-      uploadBtn.classList.add("disabled-btn");
-    }
-  }
-
-  // Show message when the button is visually disabled
-  uploadBtn.addEventListener("click", (e) => {
-    if (uploadBtn.dataset.locked === "1") {
-      e.preventDefault();
-      const msg = window.isWindowOpen === true
-        ? "⚠️ Please follow us on Facebook or Instagram first to unlock uploading."
-        : "Uploads are currently closed.";
-      alert(msg);
-      uploadBtn.classList.add("shake");
-      setTimeout(() => uploadBtn.classList.remove("shake"), 400);
-    }
-  });
-
-  nameInput.addEventListener("input", updateUploadState);
-
-  // Call after your config window check runs
-  // You already call checkUploadWindow() in init(); just run this after it:
-  // await checkUploadWindow(); then:
-  updateUploadState();
-
-  // If your follow links set localStorage('followed'), re-check after that:
-  window.maybeEnableUpload = new Proxy(window.maybeEnableUpload || function(){}, {
-    apply(target, thisArg, args) {
-      const result = target.apply(thisArg, args);
-      updateUploadState();
-      return result;
-    }
-  });
-});
-</script>
-
-
-
 </body>
-
 </html>
