@@ -733,42 +733,60 @@ async function saveConfig() {
         items.map(([n, v]) => `<div class="chip" style="margin:4px 6px 0 0; display:inline-flex;">${n}: <strong style="margin-left:6px; color:#fff;">${v}</strong></div>`).join('');
     }
 
-    async function pickWinner() {
-      if (!confirm('Pick a random winner from all uploads?')) return;
-      try {
-        const res = await fetch('/api/admin?action=pick-winner', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer:super:' + (localStorage.getItem('adminKey') || '') }, body: JSON.stringify({ role: 'admin' }) });
-        const result = await res.json();
-        if (result && result.winner && result.winner.name) {
-          const winnerName = result.winner.name;
-          $('#winnerDisplay').textContent = `🎉 Winner: ${winnerName}`;
-          await fetch(location.hostname === 'localhost' ? 'http://localhost:3001/broadcast' : 'https://winner-sse-server.onrender.com/announce-winner', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ winner: winnerName }) });
-          localStorage.setItem('shownWinnerName', winnerName);
-          toast('Winner announced', 'success');
+    async function pickWinner(){
+  if(!confirm('Pick a random winner from all uploads?')) return;
+  try{
+    const res = await fetch('/api/admin?action=pick-winner', {
+      method:'POST',
+      headers:{
+        'Content-Type':'application/json',
+        'Authorization':'Bearer:super:'+ (localStorage.getItem('adminKey')||'')
+      },
+      body: JSON.stringify({ role:'admin' })
+    });
+    const result = await res.json();
+    if(result && result.winner && result.winner.name){
+      const winnerName = result.winner.name;
+      $('#winnerDisplay').textContent = `🎉 Winner: ${winnerName}`;
+
+      // 🔔 send SSE broadcast (FIXED ENDPOINT)
+      await fetch(
+        location.hostname==='localhost'
+          ? 'http://localhost:3001/broadcast'
+          : 'https://winner-sse-server.onrender.com/broadcast',
+        {
+          method:'POST',
+          headers:{ 'Content-Type':'application/json' },
+          body: JSON.stringify({ winner: winnerName })
         }
-      } catch (e) { toast('Failed to pick winner', 'error'); }
+      );
+
+      localStorage.setItem('shownWinnerName', winnerName);
+      toast('Winner announced','success');
     }
+  }catch(e){ toast('Failed to pick winner','error'); }
+}
+
 
     async function resetWinner(){
   if(!confirm('Clear the current winner?')) return;
   try{
-    const res = await fetch('/api/admin?action=reset-winner', {
-      method:'POST',
-      headers:{
-        'Content-Type':'application/json',
-        'Authorization':'Bearer:super:' + (localStorage.getItem('adminKey')||'')
-      }
-    });
-    const json = await res.json();
-    if(!res.ok || !json.success) throw new Error(json.error||'failed');
-    // UI update
-    document.getElementById('winnerDisplay').textContent = 'No winner yet';
-    // optional toast if you use it elsewhere
-    // toast('Winner cleared','success');
-  }catch(e){
-    // toast('Failed to clear winner','error');
-    alert('Failed to clear winner');
-  }
+    // clear on your API
+    await fetch('/api/admin?action=reset-winner', { method:'POST' });
+
+    // broadcast reset to SSE clients
+    await fetch(
+      location.hostname==='localhost'
+        ? 'http://localhost:3001/reset-winner'
+        : 'https://winner-sse-server.onrender.com/reset-winner',
+      { method:'POST' }
+    );
+
+    $('#winnerDisplay').textContent = 'No winner yet';
+    toast('Winner reset','success');
+  }catch(e){ toast('Failed to reset winner','error'); }
 }
+
 
     // ---------- gallery ----------
     let lastGalleryLoadTime = 0;
