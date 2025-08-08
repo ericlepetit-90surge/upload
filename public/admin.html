@@ -3,691 +3,874 @@
 
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>90 Surge Admin Panel</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>90 Surge • Admin Panel</title>
   <style>
+    :root {
+      --bg: #0f0f12;
+      /* page bg */
+      --card: #17181c;
+      /* card bg */
+      --muted: #a3a7b3;
+      /* secondary text */
+      --text: #eef2ff;
+      /* primary text */
+      --accent: #e91e63;
+      /* brand */
+      --accent-2: #7c4dff;
+      /* secondary brand */
+      --danger: #ef4444;
+      /* red */
+      --success: #10b981;
+      /* green */
+      --reset: #f3bf64;
+      /* yellow/orange */
+      --radius: 14px;
+      --gap: 16px;
+    }
+
+    * {
+      box-sizing: border-box
+    }
+
+    html,
     body {
-      font-family: Arial, sans-serif;
-      background: #121212;
-      color: #f0f0f0;
+      height: 100%
+    }
+
+    body {
       margin: 0;
-      padding: 20px;
+      padding: 0;
+      background: var(--bg);
+      color: var(--text);
+      font: 14px/1.35 system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
     }
 
-    h1 {
-      text-align: center;
-      margin-bottom: 20px;
-      font-size: 1.6em;
+    /* layout */
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 24px;
     }
 
-    #admin-gallery {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-      gap: 15px;
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      backdrop-filter: saturate(140%) blur(6px);
+      background: linear-gradient(180deg, rgba(15, 15, 18, .85), rgba(15, 15, 18, .6));
+      border-bottom: 1px solid rgba(255, 255, 255, .06);
     }
 
-    .admin-item {
-      background: #1e1e1e;
-      padding: 10px;
+    .topbar-inner {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 14px 24px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 700;
+      letter-spacing: .3px;
+    }
+
+    .brand img {
+      height: 24px;
+      width: auto;
+      filter: drop-shadow(0 0 8px rgba(233, 30, 99, .35));
+    }
+
+    .spacer {
+      flex: 1
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 10px;
+      border-radius: 999px;
+      font-weight: 600;
+      font-size: 12px;
+    }
+
+    .badge.admin {
+      background: rgba(233, 30, 99, .12);
+      color: #ffd6e6;
+      border: 1px solid rgba(233, 30, 99, .35);
+    }
+
+    .badge.moderator {
+      background: rgba(124, 77, 255, .12);
+      color: #e5dbff;
+      border: 1px solid rgba(124, 77, 255, .35);
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 10px 14px;
       border-radius: 10px;
-      text-align: center;
-      box-shadow: 0 0 6px rgba(255, 255, 255, 0.05);
-    }
-
-    .admin-item img,
-    .admin-item video {
-      width: 100%;
-      height: auto;
-      border-radius: 6px;
-      max-height: 200px;
-      object-fit: cover;
-    }
-
-    .admin-item p {
-      font-size: 0.9em;
-      margin: 8px 0;
-      word-break: break-word;
-    }
-
-    .admin-item button {
-      background: #e53935;
-      color: white;
-      border: none;
-      padding: 6px 12px;
-      border-radius: 4px;
-      font-size: 0.9em;
+      border: 1px solid transparent;
       cursor: pointer;
+      font-weight: 600;
+      color: var(--text);
+      background: #24262c;
+      transition: transform .04s ease, border-color .15s ease, background .15s ease;
     }
 
-    .admin-item button:hover {
-      background: #c62828;
+    .btn:hover {
+      transform: translateY(-1px);
     }
 
-    @media (max-width: 600px) {
-      h1 {
-        font-size: 1.2em;
-      }
+    .btn:active {
+      transform: translateY(0);
+    }
 
-      .admin-item p {
-        font-size: 0.8em;
-      }
+    .btn.primary {
+      background: var(--accent);
+    }
 
-      .admin-item button {
-        padding: 4px 10px;
-        font-size: 0.8em;
-      }
+    .btn.success {
+      background: var(--success);
+    }
+
+    .btn.warning {
+      background: var(--reset);
+      color: #111;
+    }
+
+    .btn.danger {
+      background: var(--danger);
+    }
+
+    .btn.ghost {
+      background: var(--reset);
+      border-color: rgba(255, 255, 255, .12);
+    }
+
+    .btn.small {
+      padding: 7px 10px;
+      font-size: 12px;
     }
 
     .grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-      gap: 12px;
-      margin-top: 1rem;
-      width: 100%;
-      max-width: 800px;
+      grid-template-columns: repeat(12, 1fr);
+      gap: var(--gap);
+      margin-top: var(--gap);
+    }
+
+    .col-4 {
+      grid-column: span 4;
+    }
+
+    .col-6 {
+      grid-column: span 6;
+    }
+
+    .col-8 {
+      grid-column: span 8;
+    }
+
+    .col-12 {
+      grid-column: span 12;
+    }
+
+    @media (max-width: 920px) {
+
+      .col-4,
+      .col-6,
+      .col-8 {
+        grid-column: span 12;
+      }
     }
 
     .card {
-      background: #1a1a1a;
-      border-radius: 10px;
+      background: var(--card);
+      border: 1px solid rgba(255, 255, 255, .06);
+      border-radius: var(--radius);
       overflow: hidden;
-      box-shadow: 0 2px 6px rgba(255, 255, 255, 0.05);
     }
 
-    .card img,
-    .card video {
+    .card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 16px 18px;
+      border-bottom: 1px solid rgba(255, 255, 255, .06);
+    }
+
+    .card-title {
+      font-weight: 700;
+      letter-spacing: .2px;
+    }
+
+    .card-subtle {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .card-body {
+      padding: 16px 18px;
+    }
+
+    .field {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+
+    .field label {
+      color: var(--muted);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+    }
+
+    .input {
+      background: #101216;
+      color: var(--text);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 10px;
+      padding: 10px 12px;
+      outline: none;
+    }
+
+    .input:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(233, 30, 99, .15);
+    }
+
+    .inline-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 10px;
+      border-radius: 10px;
+      background: #0f1319;
+      color: var(--muted);
+      border: 1px solid rgba(255, 255, 255, .08);
+      font-weight: 600;
+    }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: #0f1319;
+      border: 1px solid rgba(255, 255, 255, .1);
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    /* table */
+    table {
       width: 100%;
-      display: block;
-      max-height: 220px;
-      object-fit: cover;
+      border-collapse: separate;
+      border-spacing: 0 6px;
     }
 
-    .card .info {
-      font-size: 0.8rem;
-      padding: 0.5rem;
-      text-align: center;
-      color: #aaa;
+    thead th {
+      text-align: left;
+      font-size: 12px;
+      color: var(--muted);
+      padding: 6px 10px;
+    }
+
+    tbody tr {
+      background: #121318;
+      border: 1px solid rgba(255, 255, 255, .06);
+    }
+
+    tbody td {
+      padding: 10px;
+    }
+
+    /* gallery */
+    .gallery {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+      gap: 12px;
+    }
+
+    .tile {
+      background: #121318;
+      border: 1px solid rgba(255, 255, 255, .06);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+
+    .tile .media {
+      width: 100%;
+      height: 200px;
+      object-fit: cover;
+      display: block;
+    }
+
+    .tile .meta {
+      padding: 10px;
+      color: var(--muted);
+      font-size: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    /* login */
+    #login-section {
+      max-width: 420px;
+      margin: 50px auto;
+      background: var(--card);
+      border: 1px solid rgba(255, 255, 255, .06);
+      border-radius: var(--radius);
+      padding: 22px;
+    }
+
+    #login-section h2 {
+      margin: 0 0 10px 0
+    }
+
+    .muted {
+      color: var(--muted)
+    }
+
+    .mt-8 {
+      margin-top: 8px
+    }
+
+    .mt-12 {
+      margin-top: 12px
+    }
+
+    .mt-16 {
+      margin-top: 16px
+    }
+
+    .mt-20 {
+      margin-top: 20px
+    }
+
+    .mb-0 {
+      margin-bottom: 0
+    }
+
+    .mb-8 {
+      margin-bottom: 8px
+    }
+
+    .mb-16 {
+      margin-bottom: 16px
     }
   </style>
 </head>
 
 <body>
-
-  <div id="login-section">
-    <h2>Admin Login</h2>
-    <input type="password" id="admin-password" placeholder="Enter password" />
-    <button onclick="handleLogin()">Login</button>
-    <p id="login-error" style="color: red;"></p>
+  <!-- topbar -->
+  <div class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">
+        <img src="https://pub-d919971fb927454bab9481eee8a435e3.r2.dev/logo-horizontal-white.png" alt="90 Surge" />
+        <span>Admin Panel</span>
+      </div>
+      <div class="spacer"></div>
+      <span id="role-banner" class="badge" title="Your current permission"></span>
+      <button class="btn ghost small" id="logout-btn" title="Logout">🚪 Logout</button>
+    </div>
   </div>
 
-  <h3 id="role-banner"></h3>
+  <div class="container">
+    <!-- LOGIN -->
+    <section id="login-section">
+      <h2 class="mb-8">Admin Login</h2>
+      <div class="field">
+        <label for="admin-password">Password</label>
+        <input class="input" type="password" id="admin-password" placeholder="Enter password" />
+      </div>
+      <div class="inline-actions">
+        <button class="btn primary" id="login-btn">Login</button>
+        <span id="login-error" class="muted" style="color:#ff6b6b"></span>
+      </div>
+    </section>
 
-  <div id="admin-content" style="display:none;">
-    <button onclick="logout()" style="float:right; margin-bottom:1rem;">🚪 Logout</button>
-    <button id="clearAllBtn"
-      style="display:none; margin-top: 1em; background: red; color: white; padding: 0.5em 1em;">🧨 Clear All</button>
-    <button id="reset-social-clicks" style="margin-top: 1rem;">Reset Social Clicks (Local Test Only)</button>
-    <br>
-    <button id="shutdown-toggle-btn" class="button danger">Shut Down App</button>
+    <!-- MAIN CONTENT -->
+    <section id="admin-content" style="display:none;">
+      <div class="grid">
+        <!-- Controls -->
+        <div class="card col-12">
+          <div class="card-header">
+            <div class="card-title">Controls</div>
+            <div class="card-subtle">Quick actions for the show</div>
+          </div>
 
+          <div class="card-body">
+            <!-- Row 1: Warm + Status -->
+            <div class="inline-actions">
+              <button class="btn" id="warm-redis-btn">Warm Redis</button>
+              <span id="redis-status" class="status">Status: —</span>
+            </div>
 
-    <div style="margin-top: 2rem;">
-      <label>Show Name:
-        <input type="text" id="showName" placeholder="Live!" />
-      </label><br /><br />
-      <label>Start Time (UTC):
-        <input type="datetime-local" id="startTime" />
-      </label><br /><br />
-      <label>End Time (UTC):
-        <input type="datetime-local" id="endTime" />
-      </label><br /><br />
-      <div class="admin-only">
-        <button onclick="saveConfig(event)">Save Config</button>
-        <div style="margin-top: 1rem;">
-          <button id="warm-redis-btn">Warm Up Redis</button>
-          <span id="redis-status" style="margin-left:1rem;font-weight:bold;">Status: —</span>
+            <!-- Row 2: Resets -->
+            <div class="inline-actions mt-12">
+              <button class="btn warning admin-only" id="reset-votes-btn">Reset All Votes</button>
+              <button class="btn ghost admin-only" id="reset-social-clicks">Reset Social Links</button>
+                <button class="btn ghost admin-only" id="reset-winner-btn">Reset Winner</button>
 
+            </div>
+
+            <!-- Row 3: Nuclear + Power -->
+            <div class="inline-actions mt-12">
+              <button class="btn danger admin-only" id="clearAllBtn">🧨 Clear All</button>
+              <button class="btn danger" id="shutdown-toggle-btn">Shut Down App</button>
+            </div>
+          </div>
         </div>
 
+
+        <!-- Config (replace your existing Config card with this) -->
+        <div class="card col-6">
+          <div class="card-header">
+            <div class="card-title">Show Config</div>
+          </div>
+          <div class="card-body">
+            <div class="field">
+              <label for="showName">Show Name</label>
+              <input class="input" type="text" id="showName" placeholder="Live!" />
+            </div>
+
+            <div class="grid" style="grid-template-columns:repeat(2,1fr); gap:12px;">
+              <div class="field">
+                <label for="startDate">Start Date</label>
+                <input class="input" type="date" id="startDate" />
+              </div>
+
+              <div class="field">
+                <label for="endDate">End Date</label>
+                <input class="input" type="date" id="endDate" />
+              </div>
+
+            <div class="inline-actions mt-12">
+              <button class="btn primary admin-only" id="save-config-btn">Save Config</button>
+            </div>
+          </div>
+        </div>
+
+
+        <!-- Social status -->
+        <div class="card col-6">
+          <div class="card-header">
+            <div class="card-title">Social Follows</div>
+            <span class="card-subtle">Live from server</span>
+          </div>
+          <div class="card-body">
+            <div id="social-totals" class="mb-8">Loading…</div>
+            <div style="max-height:280px; overflow:auto; border:1px solid rgba(255,255,255,.06); border-radius:12px;">
+              <table id="social-table">
+                <thead>
+                  <tr>
+                    <th>IP</th>
+                    <th>Followed</th>
+                    <th>Facebook</th>
+                    <th>Instagram</th>
+                    <th>First Seen</th>
+                    <th>Last Seen</th>
+                    <th>Clicks</th>
+                    <th>TTL (s)</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- Winner -->
+        <div class="card col-12">
+          <div class="card-header">
+            <div class="card-title">🎉 Raffle</div>
+          </div>
+          <div class="card-body">
+            <div class="inline-actions">
+              <button class="btn primary admin-only" id="pick-winner-btn">Pick Random Winner</button>
+              <div id="winnerDisplay" class="status">No winner yet</div>
+            </div>
+            <div id="entries-by-user" class="mt-16"></div>
+          </div>
+        </div>
+
+        <!-- Gallery -->
+        <div class="card col-12">
+          <div class="card-header">
+            <div class="card-title">Uploads</div>
+            <span class="card-subtle">Latest first</span>
+          </div>
+          <div class="card-body">
+            <div id="admin-gallery" class="gallery">Loading uploads…</div>
+          </div>
+        </div>
       </div>
-    </div>
-
-
-    <button onclick="pickWinner()" class="admin-only" style="margin-bottom: 2rem; font-weight: bold;">🎉 Pick Random
-      Winner</button>
-    <div id="winnerDisplay" style="font-size: 1.2em; margin-top: 1rem;"></div>
-    <div id="entries-by-user" style="margin: 2rem 0; color: #f0f0f0;"></div>
-
-    <div id="admin-gallery">Loading uploads...</div>
+    </section>
   </div>
 
-  <script>
+  <script type="module">
+    // ---------- helpers ----------
+    const $ = (sel, root = document) => root.querySelector(sel);
+    const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
-    function renderEntriesPerUser(uploads) {
-      const entryMap = {};
-
-      uploads.forEach(upload => {
-        const name = upload.userName || upload.userNameRaw || "Unknown";
-        if (!entryMap[name]) entryMap[name] = 0;
-
-        const baseEntry = 1;
-        const extraVotes = Math.max(parseInt(upload.votes || 0), 0);
-        entryMap[name] += baseEntry + extraVotes;
-      });
-
-      const container = document.getElementById("entries-by-user");
-      container.innerHTML = `<h3>🎟️ Raffle Entries by User</h3>`;
-      const list = document.createElement("ul");
-      list.style.listStyle = "none";
-      list.style.padding = "0";
-
-      Object.entries(entryMap)
-        .sort((a, b) => b[1] - a[1])
-        .forEach(([name, totalEntries]) => {
-          const li = document.createElement("li");
-          li.textContent = `${name}: ${totalEntries} entries`;
-          list.appendChild(li);
-        });
-
-      container.appendChild(list);
-    }
-  </script>
-  <!-- admin.html only -->
-  <script>
-    // ✅ Show current Redis status
-    async function checkRedisStatus() {
-      const el = document.getElementById("redis-status");
-      if (!el) return;
-      try {
-        const res = await fetch("/api/admin?action=redis-status");
-        const data = await res.json();
-        if (data.status === "active") {
-          el.textContent = "Status: ✅ Active";
-          el.style.color = "limegreen";
-        } else if (data.status === "idle") {
-          el.textContent = "Status: 💤 Idle";
-          el.style.color = "orange";
-        } else {
-          el.textContent = "Status: ❓ Unknown";
-          el.style.color = "gray";
-        }
-      } catch (err) {
-        el.textContent = "Status: ❌ Error";
-        el.style.color = "red";
-      }
+    function toast(msg, type = "info") {
+      const el = document.createElement('div');
+      el.textContent = msg;
+      el.style.position = 'fixed';
+      el.style.bottom = '20px';
+      el.style.left = '50%';
+      el.style.transform = 'translateX(-50%)';
+      el.style.padding = '10px 14px';
+      el.style.borderRadius = '10px';
+      el.style.zIndex = '9999';
+      el.style.fontWeight = '700';
+      el.style.background = type === 'error' ? 'var(--danger)' : (type === 'success' ? 'var(--success)' : '#2b2f36');
+      el.style.color = '#fff';
+      document.body.appendChild(el);
+      setTimeout(() => el.remove(), 1800);
     }
 
-    document.addEventListener("DOMContentLoaded", () => {
-      // ✅ Make sure the ID matches the button in your HTML
-      const warmBtn = document.getElementById("warm-redis-btn");
-      if (warmBtn) {
-        warmBtn.addEventListener("click", async () => {
-          // server requires Bearer:super:<ADMIN_PASS>
-          const adminKey = localStorage.getItem("adminKey") || "";
-          if (!adminKey) {
-            alert("You must be logged in as admin to warm Redis.");
-            return;
-          }
-
-          try {
-            const res = await fetch("/api/admin?action=warm-redis", {
-              method: "POST",
-              headers: { Authorization: "Bearer:super:" + adminKey },
-            });
-
-            if (!res.ok) {
-              const txt = await res.text().catch(() => "");
-              throw new Error(txt || "Request failed");
-            }
-
-            const json = await res.json().catch(() => ({}));
-            alert("✅ Redis warm-up triggered" + (json.pong ? ` (${json.pong})` : ""));
-          } catch (err) {
-            console.error("Warm-up error:", err);
-            alert("❌ Failed to warm Redis.");
-          } finally {
-            // refresh the status either way
-            checkRedisStatus();
-          }
-        });
-
-        // initial status check
-        checkRedisStatus();
-      }
-    });
-  </script>
-
-  <script>
-    document.addEventListener("DOMContentLoaded", () => {
-      const shutdownBtn = document.getElementById("shutdown-toggle-btn");
-      if (shutdownBtn) {
-        shutdownBtn.addEventListener("click", toggleShutdown);
-        checkShutdownStatusAndLabel();
-        checkRedisStatus(); // now this exists 👍
-      }
-    });
-  </script>
-
-  <script>
-
-    async function checkShutdownStatusAndLabel() {
-      try {
-        const res = await fetch("/api/admin?action=shutdown-status");
-        if (!res.ok) throw new Error("Failed to fetch status");
-        const { isShutdown } = await res.json();
-
-        const btn = document.getElementById("shutdown-toggle-btn");
-        if (btn) {
-          btn.textContent = isShutdown ? "Re-enable App" : "Shut Down App";
-          btn.classList.toggle("danger", !isShutdown);
-          btn.classList.toggle("safe", isShutdown);
-        }
-      } catch (err) {
-        console.error("❌ Failed to fetch shutdown status", err);
-      }
-    }
-
-    async function toggleShutdown() {
-      try {
-        const res = await fetch("/api/admin?action=toggle-shutdown", {
-          method: "POST",
-          headers: {
-            "Authorization": "Bearer:super:" + (localStorage.getItem("adminKey") || ""),
-          },
-        });
-
-        if (!res.ok) throw new Error("Failed to toggle");
-        await checkShutdownStatusAndLabel();
-        alert("✅ App shutdown status updated.");
-
-        // 🔁 Notify public page to reload (fires storage event)
-        localStorage.setItem("shutdownToggle", Date.now());
-
-      } catch (err) {
-        alert("❌ Failed to update shutdown status.");
-        console.error(err);
-      }
-    }
-
-  </script>
-
-
-  <script>
-    async function resetVotes() {
-      if (!confirm("Reset all votes and re-enable voting?")) return;
-
-      console.log("🔐 Role being sent:", localStorage.getItem('role'));
-
-      const res = await fetch('/api/admin?action=reset-votes', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ role: localStorage.getItem('role') })
-      });
-
-      const data = await res.json();
-      if (res.ok && data.success) {
-        Object.keys(localStorage).forEach(key => {
-          if (key.startsWith("voted_")) localStorage.removeItem(key);
-        });
-
-        alert('✅ Votes reset! Voting re-enabled.');
-        throttledLoadAdminGallery();
-      } else {
-        alert('❌ Failed to reset votes: ' + (data.error || res.status));
-      }
-    }
-
-  </script>
-  <script>
-    document.getElementById('reset-social-clicks')?.addEventListener('click', async () => {
-      if (!confirm("Reset all social follow click tracking?")) return;
-      try {
-        const res = await fetch('/api/admin?action=reset-social', { method: 'POST' });
-        const json = await res.json();
-        if (res.ok && json.success) {
-          alert('✅ Social clicks reset!');
-        } else {
-          throw new Error(json.error || 'Failed to reset');
-        }
-      } catch (err) {
-        alert('❌ Error resetting social clicks: ' + err.message);
-      }
-    });
-  </script>
-  <script>
-
+    // ---------- login/logout ----------
     async function handleLogin() {
-      const password = document.getElementById('admin-password').value;
-      const res = await fetch('/api/admin?action=login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password })
-      });
+      const password = $('#admin-password').value;
+      const res = await fetch('/api/admin?action=login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password }) });
       const data = await res.json();
       if (data.success) {
         localStorage.setItem('role', data.role);
         localStorage.setItem('authToken', password);
-        if (data.role === 'admin') {
-          localStorage.setItem('adminKey', password); // ✅ only for full admin
-        }
+        if (data.role === 'admin') localStorage.setItem('adminKey', password);
         location.reload();
       } else {
-        document.getElementById('login-error').textContent = '❌ Incorrect password';
+        $('#login-error').textContent = '❌ Incorrect password';
       }
     }
-
 
     function logout() {
-      localStorage.clear(); // more reliable than removing one key
-      window.location.href = "/admin?ts=" + Date.now(); // bypass cache
+      localStorage.clear();
+      location.href = '/admin?ts=' + Date.now();
     }
 
-
-    async function loadConfig(currentRole) {
-      if (currentRole !== 'admin') return;
-
-      const cached = sessionStorage.getItem("cachedConfig");
-      if (cached) {
-        try {
-          const parsed = JSON.parse(cached);
-          if (parsed.timestamp > Date.now() - 5 * 60 * 1000) {
-            applyConfig(parsed.data); // Custom function to set fields
-            return;
-          }
-        } catch { }
-      }
-
+    // ---------- redis ----------
+    async function checkRedisStatus() {
+      const el = $('#redis-status'); if (!el) return;
       try {
-        const res = await fetch('/api/admin?action=config');
-        const config = await res.json();
-        sessionStorage.setItem("cachedConfig", JSON.stringify({
-          timestamp: Date.now(),
-          data: config
-        }));
-        applyConfig(config);
-      } catch (err) {
-        alert('❌ Failed to load config');
-        console.error(err);
-      }
-    }
-    function applyConfig(config) {
-      document.getElementById('showName').value = config.showName || '';
-      if (config.startTime) {
-        document.getElementById('startTime').value = config.startTime.slice(0, 16);
-      }
-      if (config.endTime) {
-        document.getElementById('endTime').value = config.endTime.slice(0, 16);
-      }
+        const res = await fetch('/api/admin?action=redis-status');
+        const data = await res.json();
+        if (data.status === 'active') { el.textContent = 'Status: ✅ Active'; el.style.color = 'var(--success)'; }
+        else if (data.status === 'idle') { el.textContent = 'Status: 💤 Idle'; el.style.color = 'var(--warning)'; }
+        else { el.textContent = 'Status: ❓ Unknown'; el.style.color = 'var(--muted)'; }
+      } catch { el.textContent = 'Status: ❌ Error'; el.style.color = 'var(--danger)'; }
     }
 
-    async function loadConfigWithRetry(attempts = 3) {
-      for (let i = 0; i < attempts; i++) {
-        try {
-          await loadConfig('admin');
-          return;
-        } catch (err) {
-          console.warn(`⚠️ Attempt ${i + 1} to load config failed:`, err.message);
-          if (i < attempts - 1) await new Promise(res => setTimeout(res, 1000));
+    async function warmRedis() {
+      const adminKey = localStorage.getItem('adminKey') || '';
+      if (!adminKey) { toast('Login as admin to warm Redis', 'error'); return; }
+      try {
+        const res = await fetch('/api/admin?action=warm-redis', { method: 'POST', headers: { Authorization: 'Bearer:super:' + adminKey } });
+        if (!res.ok) throw new Error();
+        const json = await res.json().catch(() => ({}));
+        toast('Redis warmed' + (json.pong ? ` (${json.pong})` : ''), 'success');
+      } catch { toast('Failed to warm Redis', 'error'); }
+      checkRedisStatus();
+    }
+
+    // ---------- shutdown ----------
+    async function checkShutdownStatusAndLabel() {
+      try {
+        const res = await fetch('/api/admin?action=shutdown-status');
+        const { isShutdown } = await res.json();
+        const btn = $('#shutdown-toggle-btn');
+        if (btn) {
+          btn.textContent = isShutdown ? 'Re-enable App' : 'Shut Down App';
+          btn.classList.toggle('danger', !isShutdown);
+          btn.classList.toggle('success', isShutdown);
         }
-      }
-      alert('❌ Unable to load config after multiple attempts');
+      } catch (e) { console.error('shutdown status error', e); }
     }
-
-    async function saveConfig(event) {
-      const role = localStorage.getItem('role');
-      if (role !== 'admin') return;
-      event.preventDefault();
-      const showName = document.getElementById('showName')?.value?.trim();
-      const startTimeRaw = document.getElementById('startTime')?.value;
-      const endTimeRaw = document.getElementById('endTime')?.value;
-      if (!showName || !startTimeRaw || !endTimeRaw) {
-        alert('❌ Please fill in all fields');
-        return;
-      }
-      const body = {
-        showName,
-        startTime: new Date(startTimeRaw).toISOString(),
-        endTime: new Date(endTimeRaw).toISOString()
-      };
+    async function toggleShutdown() {
       try {
-        const res = await fetch('/api/admin?action=config', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body)
-        });
-        const json = await res.json();
-        if (res.ok) alert('✅ Config saved!');
-        else alert('❌ Save failed: ' + (json.error || 'Unknown error'));
-      } catch (err) {
-        alert('❌ Save failed (network error)');
-        console.error(err);
-      }
+        const res = await fetch('/api/admin?action=toggle-shutdown', { method: 'POST', headers: { Authorization: 'Bearer:super:' + (localStorage.getItem('adminKey') || '') } });
+        if (!res.ok) throw new Error('toggle failed');
+        await checkShutdownStatusAndLabel();
+        toast('App shutdown status updated', 'success');
+        localStorage.setItem('shutdownToggle', Date.now());
+      } catch (e) { toast('Failed to update shutdown', 'error'); }
     }
-    let lastGalleryLoadTime = 0;
 
+    // ---------- social status (admin view) ----------
+    async function loadSocialStatus() {
+      try {
+        const res = await fetch('/api/admin?action=social-status');
+        const data = await res.json();
+        const totals = data.totals || {};
+        $('#social-totals').textContent = `Unique: ${totals.uniqueIPsTracked || 0}  |  Unlocked: ${totals.unlocked || 0}  |  FB clicks: ${totals.facebookClicks || 0}  |  IG clicks: ${totals.instagramClicks || 0}`;
+        const tbody = $('#social-table tbody');
+        tbody.innerHTML = '';
+        (data.entries || []).forEach(row => {
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td>${row.ip}</td>
+            <td>${row.followed ? '✅' : '❌'}</td>
+            <td>${row.platforms?.fb ? '✅' : '—'}</td>
+            <td>${row.platforms?.ig ? '✅' : '—'}</td>
+            <td>${row.firstSeen ? new Date(row.firstSeen).toLocaleString() : '—'}</td>
+            <td>${row.lastSeen ? new Date(row.lastSeen).toLocaleString() : '—'}</td>
+            <td>${row.count ?? 0}</td>
+            <td>${typeof row.ttlSeconds === 'number' ? row.ttlSeconds : '—'}</td>`;
+          tbody.appendChild(tr);
+        });
+      } catch (e) { $('#social-totals').textContent = 'Failed to load.'; console.error(e); }
+    }
+
+    async function resetSocialClicks() {
+      if (!confirm('Reset all social follow tracking?')) return;
+      try {
+        const res = await fetch('/api/admin?action=reset-social', { method: 'POST' });
+        const json = await res.json();
+        if (res.ok && json.success) { toast('Social clicks reset', 'success'); loadSocialStatus(); }
+        else throw new Error(json.error || 'failed');
+      } catch (e) { toast('Error resetting social clicks', 'error'); }
+    }
+
+// ---------- config (date-only) ----------
+function toDateInputValue(isoString) {
+  if (!isoString) return "";
+  const d = new Date(isoString);
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`; // what <input type="date"> expects
+}
+
+function applyConfig(c) {
+  $('#showName').value = c.showName || '';
+  $('#startDate').value = toDateInputValue(c.startTime);
+  $('#endDate').value   = toDateInputValue(c.endTime);
+}
+
+async function loadConfig() {
+  const res = await fetch('/api/admin?action=config');
+  const config = await res.json();
+  applyConfig(config);
+}
+
+async function saveConfig() {
+  const role = localStorage.getItem('role');
+  if (role !== 'admin') return;
+
+  const showName  = $('#showName').value.trim();
+  const startDate = $('#startDate').value; // yyyy-mm-dd
+  const endDate   = $('#endDate').value;   // yyyy-mm-dd
+
+  if (!showName || !startDate || !endDate) {
+    toast('Fill all fields', 'error');
+    return;
+  }
+
+  // Treat as whole local days
+  const start = new Date(`${startDate}T00:00:00`);
+  const end   = new Date(`${endDate}T23:59:59.999`);
+
+  if (end < start) {
+    toast('End date must be on or after start date', 'error');
+    return;
+  }
+
+  const body = {
+    showName,
+    startTime: start.toISOString(),
+    endTime: end.toISOString(),
+  };
+
+  try {
+    const res = await fetch('/api/admin?action=config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const json = await res.json();
+    if (res.ok) {
+      toast('Config saved', 'success');
+    } else {
+      throw new Error(json.error || 'Save failed');
+    }
+  } catch (e) {
+    toast('Save failed', 'error');
+  }
+}
+
+    // ---------- raffle UI ----------
+    function renderEntriesPerUser(uploads) {
+      const entryMap = {};
+      uploads.forEach(u => {
+        const name = u.userName || u.userNameRaw || 'Unknown';
+        const base = 1; const votes = Math.max(parseInt(u.votes || 0), 0);
+        entryMap[name] = (entryMap[name] || 0) + base + votes;
+      });
+      const container = $('#entries-by-user');
+      const items = Object.entries(entryMap).sort((a, b) => b[1] - a[1]);
+      container.innerHTML = `<h3 class="mb-8">🎟️ Raffle Entries by User</h3>` +
+        items.map(([n, v]) => `<div class="chip" style="margin:4px 6px 0 0; display:inline-flex;">${n}: <strong style="margin-left:6px; color:#fff;">${v}</strong></div>`).join('');
+    }
+
+    async function pickWinner() {
+      if (!confirm('Pick a random winner from all uploads?')) return;
+      try {
+        const res = await fetch('/api/admin?action=pick-winner', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer:super:' + (localStorage.getItem('adminKey') || '') }, body: JSON.stringify({ role: 'admin' }) });
+        const result = await res.json();
+        if (result && result.winner && result.winner.name) {
+          const winnerName = result.winner.name;
+          $('#winnerDisplay').textContent = `🎉 Winner: ${winnerName}`;
+          await fetch(location.hostname === 'localhost' ? 'http://localhost:3001/broadcast' : 'https://winner-sse-server.onrender.com/announce-winner', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ winner: winnerName }) });
+          localStorage.setItem('shownWinnerName', winnerName);
+          toast('Winner announced', 'success');
+        }
+      } catch (e) { toast('Failed to pick winner', 'error'); }
+    }
+
+    async function resetWinner(){
+  if(!confirm('Clear the current winner?')) return;
+  try{
+    const res = await fetch('/api/admin?action=reset-winner', {
+      method:'POST',
+      headers:{
+        'Content-Type':'application/json',
+        'Authorization':'Bearer:super:' + (localStorage.getItem('adminKey')||'')
+      }
+    });
+    const json = await res.json();
+    if(!res.ok || !json.success) throw new Error(json.error||'failed');
+    // UI update
+    document.getElementById('winnerDisplay').textContent = 'No winner yet';
+    // optional toast if you use it elsewhere
+    // toast('Winner cleared','success');
+  }catch(e){
+    // toast('Failed to clear winner','error');
+    alert('Failed to clear winner');
+  }
+}
+
+    // ---------- gallery ----------
+    let lastGalleryLoadTime = 0;
     function throttledLoadAdminGallery() {
       const now = Date.now();
-      if (now - lastGalleryLoadTime > 1000) {
-        lastGalleryLoadTime = now;
-        loadAdminGallery();
-      } else {
-        console.log("🛑 Skipped gallery reload – throttled");
-      }
+      if (now - lastGalleryLoadTime > 1000) { lastGalleryLoadTime = now; loadAdminGallery(); }
+      else console.log('🛑 Skipped gallery reload – throttled');
     }
+
     async function loadAdminGallery() {
       try {
         const uploadsRes = await fetch('/api/admin?action=uploads');
         const uploads = await uploadsRes.json();
-
         const listRes = await fetch('/api/admin?action=list-r2-files');
         const fileList = await listRes.json();
-
-        const validFiles = new Set(fileList.files.map(f => f.key));
-
-        const galleryData = uploads
-          .filter(u => validFiles.has(u.fileName))
-          .sort((a, b) => new Date(b.createdTime).valueOf() - new Date(a.createdTime).valueOf());
-
+        const valid = new Set((fileList.files || []).map(f => f.key));
+        const galleryData = uploads.filter(u => valid.has(u.fileName)).sort((a, b) => new Date(b.createdTime) - new Date(a.createdTime));
         renderEntriesPerUser(galleryData);
-
-        const gallery = document.getElementById("admin-gallery");
-        gallery.innerHTML = "";
-
+        const wrap = $('#admin-gallery'); wrap.innerHTML = '';
         galleryData.forEach(file => {
-          const card = document.createElement("div");
-          card.className = "card";
-
-          const wrapper = document.createElement("div");
-          wrapper.style.position = "relative";
-
+          const card = document.createElement('div'); card.className = 'tile';
+          const isVideo = file.type === 'video';
           let media;
-          if (file.type === "video") {
-            media = document.createElement("video");
-            media.src = file.fileUrl;
-            media.controls = true;
-            media.muted = true;
-            media.style.width = "100%";
-            media.style.maxHeight = "220px";
-            media.style.objectFit = "cover";
-          } else {
-            media = document.createElement("img");
-            media.src = file.fileUrl;
-            media.loading = "lazy";
-            media.style.cursor = "pointer";
-            media.style.maxHeight = "220px";
-            media.style.width = "100%";
-            media.style.objectFit = "cover";
-            media.style.filter = "blur(8px)";
-            media.style.transition = "filter 0.5s";
-            media.addEventListener("load", () => {
-              media.style.filter = "none";
-            });
-          }
-
-          wrapper.appendChild(media);
-          card.appendChild(wrapper);
-
-          const info = document.createElement("div");
-          info.className = "info";
-          const displayName =
-            file.userName || file.userNameRaw || file.fileName.split("_").slice(2).join("_").replace(/_/g, " ") || "Anonymous";
-          info.textContent = `Uploaded by @${displayName}`;
-          card.appendChild(info);
-
-          const deleteBtn = document.createElement("button");
-          deleteBtn.textContent = "🗑 Delete";
-          deleteBtn.onclick = () => deleteFile(file.fileName, displayName);
-          card.appendChild(deleteBtn);
-
-          gallery.appendChild(card);
+          if (isVideo) { media = document.createElement('video'); media.src = file.fileUrl; media.controls = true; media.muted = true; media.className = 'media'; }
+          else { media = document.createElement('img'); media.src = file.fileUrl; media.loading = 'lazy'; media.className = 'media'; }
+          const meta = document.createElement('div'); meta.className = 'meta';
+          const displayName = file.userName || file.userNameRaw || 'Anonymous';
+          meta.innerHTML = `<span>@${displayName}</span>`;
+          const del = document.createElement('button'); del.className = 'btn danger small'; del.textContent = '🗑 Delete'; del.onclick = () => deleteFile(file.fileName, displayName);
+          meta.appendChild(del);
+          card.appendChild(media); card.appendChild(meta); wrap.appendChild(card);
         });
-
-      } catch (err) {
-        console.error("❌ Failed to load admin gallery:", err);
-        document.getElementById("admin-gallery").innerHTML = "<p style='color:red'>Failed to load gallery</p>";
-      }
+      } catch (e) { console.error('gallery load error', e); $('#admin-gallery').innerHTML = "<p style='color:#ef4444'>Failed to load gallery</p>"; }
     }
 
     async function deleteFile(fileId, name) {
-      if (!fileId) return alert('Invalid file ID');
-      const confirmDelete = confirm(`Are you sure you want to delete:\n\n${name}?`);
-      if (!confirmDelete) return;
-      const res = await fetch('/api/admin?action=delete-file', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fileId })
-      });
-      const result = await res.json();
-      if (res.ok) {
-        alert('✅ File deleted');
-        throttledLoadAdminGallery();
-        localStorage.setItem('galleryRefresh', Date.now());
-      }
-      else {
-        alert('❌ ' + (result.error || 'Failed to delete file.'));
-      }
+      if (!fileId) return toast('Invalid file ID', 'error');
+      if (!confirm(`Delete upload by ${name}?`)) return;
+      const res = await fetch('/api/admin?action=delete-file', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fileId }) });
+      const json = await res.json();
+      if (res.ok) { toast('File deleted', 'success'); throttledLoadAdminGallery(); localStorage.setItem('galleryRefresh', Date.now()); }
+      else toast(json.error || 'Delete failed', 'error');
     }
 
-    document.getElementById('clearAllBtn')?.addEventListener('click', async () => {
-      if (!confirm("This will remove all files from R2 and Redis")) return;
-
-      console.log("🔐 Sending auth:", localStorage.getItem('adminKey'));
-
-      try {
-        const res = await fetch('/api/admin?action=clear-all', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': 'Bearer:super:' + localStorage.getItem('adminKey'),
-          },
-          body: JSON.stringify({})
-        });
-
-        const text = await res.text();
-        let result;
-
-        try {
-          result = JSON.parse(text);
-        } catch (e) {
-          console.error("❌ Invalid JSON from server:", text);
-          throw new Error("Server error: " + text);
-        }
-
-        if (!res.ok || !result.success) {
-          throw new Error(result?.error || "Unknown server error");
-        }
-
-        alert('✅ All uploads cleared!');
-        location.reload();
-
-      } catch (err) {
-        console.error("❌ Failed to clear all:", err);
-        alert('❌ Failed to clear all: ' + err.message);
-      }
-    });
-
-
-  </script>
-  <script>
-    async function pickWinner() {
-      if (!confirm("Pick a random winner from all uploads?")) return;
-      try {
-        const res = await fetch('/api/admin?action=pick-winner', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': 'Bearer:super:' + localStorage.getItem('adminKey'),
-          },
-          body: JSON.stringify({ role: 'admin' })  // ✅ required!
-        });
-
-        const result = await res.json();
-
-        if (result && result.winner && result.winner.name) {
-          const winnerName = result.winner.name;
-
-          // 🔁 Fire SSE broadcast
-          await fetch(
-            location.hostname === "localhost"
-              ? "http://localhost:3001/broadcast"
-              : "https://winner-sse-server.onrender.com/announce-winner",
-            {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ winner: winnerName }),
-            }
-          );
-
-          localStorage.setItem("shownWinnerName", result.winner.name);
-          document.getElementById('winnerDisplay').textContent = `🎉 Winner: ${winnerName}`;
-        }
-      } catch (err) {
-        console.error("❌ Error picking winner:", err);
-        alert("❌ Failed to pick winner");
-      }
+    // ---------- votes ----------
+    async function resetVotes() {
+      if (!confirm('Reset all votes and re-enable voting?')) return;
+      const res = await fetch('/api/admin?action=reset-votes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ role: localStorage.getItem('role') }) });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        Object.keys(localStorage).forEach(k => { if (k.startsWith('voted_')) localStorage.removeItem(k); });
+        toast('Votes reset', 'success'); throttledLoadAdminGallery();
+      } else toast('Failed to reset votes', 'error');
     }
-  </script>
 
-  <script>
-    document.addEventListener('DOMContentLoaded', () => {
+    async function clearAll() {
+      if (!confirm('This removes all files from R2 and Redis. Continue?')) return;
+      try {
+        const res = await fetch('/api/admin?action=clear-all', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer:super:' + localStorage.getItem('adminKey') }, body: JSON.stringify({}) });
+        const text = await res.text(); let result; try { result = JSON.parse(text); } catch { throw new Error('Server error: ' + text) }
+        if (!res.ok || !result.success) throw new Error(result?.error || 'Unknown server error');
+        toast('All uploads cleared', 'success'); location.reload();
+      } catch (e) { toast('Failed to clear all', 'error'); }
+    }
+
+    // ---------- bootstrap ----------
+    document.addEventListener('DOMContentLoaded', async () => {
+      // wiring
+      $('#login-btn').addEventListener('click', handleLogin);
+      $('#logout-btn').addEventListener('click', logout);
+      $('#warm-redis-btn').addEventListener('click', warmRedis);
+      $('#shutdown-toggle-btn').addEventListener('click', toggleShutdown);
+      $('#save-config-btn').addEventListener('click', saveConfig);
+      $('#pick-winner-btn').addEventListener('click', pickWinner);
+      $('#reset-social-clicks').addEventListener('click', resetSocialClicks);
+      $('#reset-votes-btn').addEventListener('click', resetVotes);
+      $('#clearAllBtn').addEventListener('click', clearAll);
+      $('#reset-winner-btn').addEventListener('click', resetWinner);
+
+
+      // role gate
       const role = localStorage.getItem('role');
-      if (!role) return;
+      const login = $('#login-section');
+      const app = $('#admin-content');
+      if (!role) { login.style.display = 'block'; app.style.display = 'none'; $('#role-banner').textContent = 'Logged out'; $('#logout-btn').style.display = 'none'; return; }
 
-      document.getElementById('login-section').style.display = 'none';
-      document.getElementById('admin-content').style.display = 'block';
+      login.style.display = 'none'; app.style.display = 'block'; $('#logout-btn').style.display = 'inline-flex';
+      const banner = $('#role-banner');
+      if (role === 'moderator') { banner.textContent = 'Moderator'; banner.classList.add('badge', 'moderator'); $$('.admin-only').forEach(el => el.style.display = 'none'); $('#clearAllBtn').style.display = 'none'; $('#reset-social-clicks').style.display = 'none'; }
+      else { banner.textContent = 'Admin'; banner.classList.add('badge', 'admin'); $('#clearAllBtn').style.display = 'inline-flex'; $('#reset-social-clicks').style.display = 'inline-flex'; }
 
-      loadConfigWithRetry(); // ✅ safer than single attempt
-      loadAdminGallery();
+      // initial loads
+      await loadConfig();
+      await loadAdminGallery();
+      await loadSocialStatus();
+      await checkRedisStatus();
+      await checkShutdownStatusAndLabel();
 
-      if (role === 'moderator') {
-        document.getElementById('role-banner').textContent = '👮 Moderator View – Delete Only';
-        document.getElementById('clearAllBtn').style.display = 'none';
-        document.getElementById('reset-social-clicks').style.display = 'none';
-        document.querySelectorAll('.admin-only').forEach(el => el.style.display = 'none');
-
-      } else {
-        document.getElementById('role-banner').textContent = '👑 Admin View – Full Access';
-        document.getElementById('clearAllBtn').style.display = 'inline-block';
-        document.getElementById('reset-social-clicks').style.display = 'inline-block';
-
-
-        const resetBtn = document.createElement("button");
-        resetBtn.textContent = "Reset All Votes";
-        resetBtn.style.background = "orange";
-        resetBtn.style.color = "white";
-        resetBtn.style.padding = "0.5rem 1rem";
-        resetBtn.style.borderRadius = "6px";
-        resetBtn.style.marginTop = "0.5rem";
-        resetBtn.onclick = resetVotes;
-
-        const clearBtn = document.getElementById("clearAllBtn");
-        clearBtn.insertAdjacentElement("afterend", resetBtn);
-      }
+      // intervals
+      setInterval(loadSocialStatus, 15000);
     });
   </script>
-
-
-
 </body>
 
 </html>

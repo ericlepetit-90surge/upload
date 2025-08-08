@@ -1,0 +1,372 @@
+/* ===========================
+   Theme Tokens
+=========================== */
+:root {
+  --primary-bg: #0d0d0d;
+  --card-bg: #1a1a1a;
+  --text-color: #f0f0f0;
+  --muted: #a3a7b3;
+  --accent-color: #e91e63;
+  --font: "Helvetica Neue", sans-serif;
+  --border-radius: 12px;
+}
+
+/* ===========================
+   Resets / Base
+=========================== */
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--primary-bg);
+  color: var(--text-color);
+  font-family: var(--font);
+  line-height: 1.5;
+  overflow-x: hidden;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 1rem;
+}
+
+.hidden { display: none !important; }
+img { max-width: 100%; height: auto; display: block; }
+
+h1 {
+  font-size: 1.6rem;
+  text-align: center;
+  margin-bottom: 1rem;
+}
+
+#headline {
+  font-size: 1.3rem;
+  margin: 0 !important;
+}
+
+/* ===========================
+   Animations
+=========================== */
+@keyframes flash { 0%,100% {opacity:1} 50% {opacity:.25} }
+.blink { animation: flash 2s infinite; }
+
+@keyframes shake {
+  0%,100% { transform: translateX(0); }
+  25% { transform: translateX(-5px); }
+  50% { transform: translateX(5px); }
+  75% { transform: translateX(-5px); }
+}
+.shake { animation: shake .4s; }
+
+/* ===========================
+   Form Shell
+=========================== */
+form {
+  background: var(--card-bg);
+  padding: .1rem;
+  border-radius: var(--border-radius);
+  width: 100%;
+  max-width: 420px;          /* form stays narrow (gallery can be wider if moved outside) */
+  margin: 0 auto;
+  box-shadow: 0 4px 16px rgba(255,255,255,.05);
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.rules {
+  font-size: .85rem;
+  background: var(--card-bg);
+  padding: 0 1.1rem;
+  border-radius: 10px;
+  color: #eee;
+  line-height: 1.5;
+  max-width: 100%;
+}
+
+.rules h2 { font-size: 1.5rem; margin-top: 1.25rem; }
+.rules h2.raffle { font-size: 1.4rem; line-height: 1.5rem; }
+
+.rules ol {
+  list-style: decimal inside;
+  padding-left: 0;
+  margin-top: 1rem;
+  font-size: 1.1rem;
+  line-height: 1.5rem;
+}
+.rules li { margin: 0 0 1.5rem 0; line-height: 1.2rem; }
+.rules ol > li:last-child { margin-bottom: 0; }
+
+.input-group { display: flex; flex-direction: column; gap: .25rem; width: 100%; }
+.input-label { font-size: 1rem; font-weight: bold; color: var(--text-color); }
+
+input[type="text"],
+input[type="file"] {
+  background: #2c2c2c;
+  color: var(--text-color);
+  border: 1px solid #444;
+  padding: .75rem;
+  margin-top: .5rem;
+  border-radius: 8px;
+  width: 100%;
+  font-size: 1rem;
+  transition: border-color .2s ease;
+}
+
+input[type="text"]:focus,
+input[type="file"]:focus { outline: none; border-color: var(--accent-color); }
+input[type="text"]::placeholder { color: #aaa; opacity: .7; }
+
+input[type="file"]::file-selector-button {
+  background: var(--accent-color);
+  color: #fff;
+  border: none;
+  padding: .4rem .75rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: bold;
+  margin-right: .75rem;
+}
+input[type="file"]::file-selector-button:hover { background: #d81b60; }
+
+/* Buttons */
+button {
+  background-color: var(--accent-color);
+  color: #fff;
+  font-weight: bold;
+  padding: .75rem;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background .2s ease;
+  width: 100%;
+  font-size: 17px;
+}
+button:hover { background-color: #d81b60; }
+button:disabled {
+  background: #555 !important;
+  cursor: not-allowed !important;
+  opacity: .6 !important;
+  pointer-events: none;  /* wrapper handles clicks */
+}
+
+.form-note { padding: 0 1rem; }
+
+/* ===========================
+   Social follow links / counters
+=========================== */
+#follow-gate { padding-top: 7px; }
+.logo-wrap { display: flex; justify-content: center; }
+.follow-links { display: flex; justify-content: center; gap: 1rem; }
+
+.follow-btn-fb,
+.follow-btn-ig {
+  color: #fff;
+  padding: .5rem 1rem;
+  border-radius: 8px;
+  text-decoration: none;
+  font-weight: bold;
+  display: inline-block;
+}
+.follow-btn-fb { background: #1877f2; }
+.follow-btn-ig { background: #c13584; }
+
+.followers-wrapper {
+  display: flex;
+  gap: .5rem;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  margin: .5rem 0;
+}
+.follower-block { display: flex; align-items: center; gap: .4rem; font-size: 1rem; }
+
+/* ===========================
+   Progress + Messages
+=========================== */
+progress { height: 10px; border-radius: 5px; width: 100%; }
+.message { text-align: center; font-size: 1rem; color: green; }
+
+/* ===========================
+   CTA (locked/unlocked)
+=========================== */
+.cta-state { width: 100%; }
+
+.cta-guard {
+  cursor: pointer;
+  position: relative;
+}
+.cta-guard:hover button[disabled] { filter: brightness(.95); }
+.cta-guard:focus { outline: 2px solid var(--accent-color); outline-offset: 4px; }
+
+.cta-message {
+  text-align: center;
+  margin: .5rem 0 .25rem;
+  min-height: 1.25rem;     /* keep layout stable */
+}
+
+/* ===========================
+   Section Titles
+=========================== */
+.raffle-title { text-align: center; color: #ff5900; padding-bottom: 1rem; }
+.section-title { text-align: center; color: #ff5900; padding-bottom: 1rem; }
+.gallery-title {
+  margin-top: 2rem;
+  font-size: 1.7rem;
+  font-weight: bold;
+  text-align: center;
+  color: #c7ff3a;
+  padding-bottom: 0;
+}
+.scroll-cta { text-align: center; line-height: 1.5rem; font-size: 1.5rem; color: #9edfff; }
+
+/* ===========================
+   Image Modal
+=========================== */
+#imageModal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.9);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  padding: 1rem;
+  box-sizing: border-box;
+}
+#imageModal.hidden { display: none; }
+#imageModal img {
+  max-width: 90vw;
+  max-height: 90vh;
+  border: 4px solid #fff;
+  border-radius: 10px;
+}
+
+/* ===========================
+   Winner Modal
+=========================== */
+.winner-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.95);
+  color: #fff;
+  z-index: 9999;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  flex-direction: column;
+  text-align: center;
+  padding: 2rem;
+}
+.winner-title { font-size: 3rem; margin: 0; }
+.winner-name { font-size: 2rem; margin-top: 1rem; }
+.btn-modal-close {
+  margin-top: 2rem;
+  padding: .8rem 1.5rem;
+  font-size: 1rem;
+  background: var(--accent-color);
+  border: none;
+  color: white;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+/* ===========================
+   Gallery (Admin-style, mobile-first)
+   NOTE: Make sure your HTML uses: <div id="gallery" class="gallery"></div>
+=========================== */
+.gallery {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));   /* always 2 columns (mobile-first) */
+  gap: 10px;
+  margin-top: 1rem;
+  width: 100%;
+  max-width: 1200px;      /* if you move gallery outside the narrow form, it can grow */
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/* Card look aligned with admin tiles */
+.card {
+  background: #121318;
+  border: 1px solid rgba(255,255,255,.06);
+  border-radius: 12px;
+  overflow: hidden;
+  transition: transform .12s ease, box-shadow .12s ease;
+}
+.card:hover { transform: translateY(-2px); box-shadow: 0 6px 18px rgba(0,0,0,.35); }
+
+/* Media area height like admin */
+.card img,
+.card video {
+  width: 100%;
+  height: 200px;
+  object-fit: cover;
+  display: block;
+}
+
+/* Footer/meta strip — uploader on left, actions on right */
+.card .info {
+  padding: 10px;
+  color: var(--muted);
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  background: transparent;
+  border-top: 1px solid rgba(255,255,255,.06);
+}
+
+/* Right-side actions (likes + upvote) */
+.meta-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.vote-info { font-size: 12px; color: #cfd3df; }
+
+/* Compact upvote button */
+.card .btn-compact {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 10px;
+  font-size: 12px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  cursor: pointer;
+  background: var(--accent-color);
+  color: #fff;
+}
+.card .btn-compact[disabled] {
+  background: #2b2f36;
+  color: #9aa0ac;
+  cursor: not-allowed;
+  border-color: rgba(255,255,255,.12);
+}
+
+/* Stack the vote count below the upvote button */
+.meta-actions {
+  display: inline-flex;
+  flex-direction: column;   /* button on top, count below */
+  align-items: center;      /* center-align looks nicer in the card footer */
+  gap: 6px;
+}
+
+/* Slightly smaller/count styling */
+.vote-info {
+  font-size: 11px;
+  color: #cfd3df;
+  opacity: 0.95;
+}
+
+/* Keep the compact button tidy */
+.card .btn-compact {
+  padding: 6px 10px;
+  font-size: 12px;
+}

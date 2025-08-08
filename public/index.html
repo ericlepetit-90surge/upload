@@ -1,354 +1,24 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>90 Surge - Free T-shirt!</title>
 
-  <style>
-    :root {
-      --primary-bg: #0d0d0d;
-      --card-bg: #1a1a1a;
-      --text-color: #f0f0f0;
-      --accent-color: #e91e63;
-      --font: "Helvetica Neue", sans-serif;
-      --border-radius: 12px;
-    }
-
-    *,
-    *::before,
-    *::after {
-      box-sizing: border-box;
-    }
-
-    html,
-    body {
-      margin: 0;
-      padding: 0;
-      background: var(--primary-bg);
-      color: var(--text-color);
-      font-family: var(--font);
-      line-height: 1.5;
-      overflow-x: hidden;
-    }
-
-    body {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      padding: 1rem 1rem;
-    }
-
-    h1 {
-      font-size: 1.6rem;
-      text-align: center;
-      margin-bottom: 1rem;
-    }
-
-    .rules {
-      font-size: 0.85rem;
-      background: #1a1a1a;
-      padding: 0 1.1rem;
-      border-radius: 10px;
-      color: #eee;
-      line-height: 1.5;
-      max-width: 100%;
-    }
-
-    .rules h2 {
-      font-size: 1.5rem;
-      margin-top: 1.25rem;
-    }
-
-    .rules h2.raffle {
-      font-size: 1.4rem;
-      margin-top: 1.25rem;
-      line-height: 1.5rem;
-    }
-
-    .rules ol {
-      list-style: decimal inside;
-      padding-left: 0rem;
-      margin: 1rem 0;
-      font-size: 1.1rem;
-      line-height: 1.5rem;
-    }
-
-    .rules li {
-      margin: 0 0 1.5rem 0;
-      line-height: 1.2rem;
-    }
-
-    @keyframes flash {
-      0%, 100% {
-        opacity: 1;
-      }
-      50% {
-        opacity: 0;
-      }
-    }
-
-    .blink {
-      animation: flash 1.5s infinite;
-    }
-
-    #headline {
-      font-size: 1.3rem;
-      margin: 0rem !important;
-    }
-
-    @keyframes shake {
-      0%, 100% {
-        transform: translateX(0);
-      }
-      25% {
-        transform: translateX(-5px);
-      }
-      50% {
-        transform: translateX(5px);
-      }
-      75% {
-        transform: translateX(-5px);
-      }
-    }
-
-    .shake {
-      animation: shake 0.4s;
-    }
-
-    form {
-      background: var(--card-bg);
-      padding: 0.1rem;
-      border-radius: var(--border-radius);
-      width: 100%;
-      max-width: 420px;
-      margin: 0 auto;
-      box-shadow: 0 4px 16px rgba(255, 255, 255, 0.05);
-      display: flex;
-      flex-direction: column;
-      gap: 1rem;
-    }
-
-    .input-group {
-      display: flex;
-      flex-direction: column;
-      gap: 0.25rem;
-      width: 100%;
-    }
-
-    .input-label {
-      font-size: 1rem;
-      font-weight: bold;
-      color: var(--text-color);
-    }
-
-    input[type="text"],
-    input[type="file"] {
-      background: #2c2c2c;
-      color: var(--text-color);
-      border: 1px solid #444;
-      padding: 0.75rem;
-      margin-top: 0.5rem;
-      border-radius: 8px;
-      width: 100%;
-      font-size: 1rem;
-      transition: border-color 0.2s ease;
-    }
-
-    input[type="text"]:focus,
-    input[type="file"]:focus {
-      outline: none;
-      border-color: var(--accent-color);
-    }
-
-    input[type="text"]::placeholder {
-      color: #aaa;
-      opacity: 0.7;
-    }
-
-    input[type="file"]::-webkit-file-upload-button,
-    input[type="file"]::file-selector-button {
-      background: var(--accent-color);
-      color: white;
-      border: none;
-      padding: 0.4rem 0.75rem;
-      border-radius: 6px;
-      cursor: pointer;
-      font-weight: bold;
-      margin-right: 0.75rem;
-    }
-
-    input[type="file"]::file-selector-button:hover {
-      background: #d81b60;
-    }
-
-    button {
-      background-color: var(--accent-color);
-      color: white;
-      font-weight: bold;
-      padding: 0.75rem;
-      border: none;
-      border-radius: 8px;
-      cursor: pointer;
-      transition: background 0.2s ease;
-      width: 100%;
-      font-size: 17px;
-    }
-
-    button:hover {
-      background-color: #d81b60;
-    }
-
-    .locked {
-      background-color: #555 !important;
-      cursor: not-allowed;
-      opacity: 0.6;
-      pointer-events: none; /* Crucial change to prevent clicks */
-    }
-
-    .form-note {
-      padding: 0 1rem;
-    }
-
-    img {
-      max-width: 100%;
-      height: auto;
-      display: block;
-    }
-
-    .follow-btn-fb {
-      background: #1877F2;
-      color: white;
-      padding: 0.5rem 1rem;
-      border-radius: 8px;
-      text-decoration: none;
-      font-weight: bold;
-      display: inline-block;
-    }
-
-    .follow-btn-ig {
-      background: #c13584;
-      color: white;
-      padding: 0.5rem 1rem;
-      border-radius: 8px;
-      text-decoration: none;
-      font-weight: bold;
-      display: inline-block;
-    }
-
-    .message {
-      text-align: center;
-      font-size: 1rem;
-      color: green;
-    }
-
-    #winnerModal {
-      transition: opacity 0.3s ease;
-    }
-
-    .gallery-title {
-      margin-top: 2rem;
-      font-size: 1.2rem;
-      font-weight: bold;
-      text-align: center;
-      color: var(--text-color);
-    }
-
-    .grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-      gap: 20px;
-      margin-top: 1rem;
-      width: 100%;
-      max-width: 100%;
-      padding: 0 10px;
-    }
-
-    .card {
-      background: var(--card-bg);
-      border-radius: 10px;
-      overflow: hidden;
-      box-shadow: 0 2px 6px rgba(255, 255, 255, 0.05);
-    }
-
-    .card img,
-    .card video {
-      width: 100%;
-      height: auto;
-      max-height: 220px;
-      object-fit: cover;
-      display: block;
-    }
-
-    .card .info {
-      font-size: 0.8rem;
-      padding: 0.5rem;
-      text-align: center;
-      color: #000;
-      background: #fff;
-    }
-
-    #imageModal {
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100vw;
-      height: 100vh;
-      background: rgba(0, 0, 0, 0.9);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      z-index: 9999;
-      padding: 1rem;
-      box-sizing: border-box;
-    }
-
-    #imageModal.hidden {
-      display: none;
-    }
-
-    #imageModal img {
-      max-width: 90vw;
-      max-height: 90vh;
-      border: 4px solid white;
-      border-radius: 10px;
-    }
-
-    #follow-gate {
-      padding-top: 7px;
-    }
-
-    .followers-wrapper {
-      display: flex;
-      gap: 0.5rem;
-      flex-wrap: wrap;
-      justify-content: center;
-      align-items: center;
-      margin: 0.5rem 0;
-    }
-
-    .follower-block {
-      display: flex;
-      align-items: center;
-      gap: 0.4rem;
-      font-size: 1rem;
-    }
-
-    progress {
-      height: 10px;
-      border-radius: 5px;
-      width: 100%;
-    }
-  </style>
+  <link rel="stylesheet" href="/public/styles.css" />
+  <script type="module" src="/public/app.js"></script>
 </head>
+
 <body>
   <form id="upload-form" enctype="multipart/form-data" method="POST">
     <div class="rules">
-      <div style="display: flex; justify-content: center;">
-        <img src="https://pub-d919971fb927454bab9481eee8a435e3.r2.dev/logo-horizontal-white.png" width="200" height="auto" style="display: block;">
+      <div class="logo-wrap">
+        <img src="https://pub-d919971fb927454bab9481eee8a435e3.r2.dev/logo-horizontal-white.png" width="200"
+          height="auto" alt="90 Surge logo">
       </div>
       <h1 id="headline">90 SURGE TONIGHT</h1>
-      <h2 class="raffle blink" style="text-align: center; color: #ff5900; padding-bottom:1rem">
+      <h2 class="raffle raffle-title blink">
         <strong>ENTER OUR RAFFLE FOR A CHANCE TO WIN A 90 SURGE TEE!</strong>
       </h2>
       <ol>
@@ -358,437 +28,76 @@
               autocomplete="off" inputmode="text" autocorrect="off" autocapitalize="none" spellcheck="false" />
           </div>
         </li>
-        <li>Take a pic of the band or with the band, a selfie, a jump, a scream - anyway, show the energy!
+        <li>Take a pic of the band, with the band, a selfie, a jump, ... Show the energy!
           <input type="file" id="file" name="file" accept="image/*" required />
         </li>
-        <li>Follow us on Facebook or Insta
+        <li>Follow us on Facebook or Insta (support us!)
           <div id="follow-gate"></div>
         </li>
       </ol>
     </div>
 
-    <button id="upload-btn" class="locked">
-      Upload to enter the raffle!
-    </button>
+    <!-- CTA: locked vs unlocked states -->
+    <div id="upload-cta">
+      <div id="cta-locked">
+        <div class="hint" style="margin-top:.35rem; font-size:.9rem; color:#aaa;"></div>
+        <div id="cta-guard" role="button" tabindex="0" aria-label="Uploads locked. Tap for details">
+          <button id="upload-btn-disabled" type="button" disabled>
+            CLICK HERE TO UPLOAD YOUR PIC<br> AND ENTER THE RAFFLE!
+          </button>
+        </div>
+      </div>
+
+      <div id="cta-unlocked" class="hidden">
+        <button id="upload-btn" type="submit">Upload to enter the raffle!</button>
+      </div>
+    </div>
 
     <progress id="progress" value="0" max="100" style="display: none"></progress>
     <div class="message" id="message"></div>
 
-    <div class="blink" style="text-align:center;line-height:1.5rem;font-size:1.5rem;color:#9edfff">
+    <div class="blink scroll-cta">
       <strong>SCROLL DOWN AND CHECK OUT THE UPLOADS GALLERY!</strong>
     </div>
+
     <div class="form-note">
       <p style="font-size: 1rem; color: #dddddd;">
         🔥 Each upload = 1 raffle entry<br />
         👍 Every upvote = 1 more entry<br />
         🎤 Winner announced during the last break<br />
         ❌ Off-topic uploads may be removed<br />
-        💥 Love us ❤️ and wanna be a legend? Tag @90Surge + @CJ's Backstage on IG/FB for eternal glory
+        ❤️ Love us and wanna be a legend? Tag @90Surge and @CJ's Backstage on IG/FB for eternal glory
       </p>
     </div>
+
     <div class="followers-wrapper">
       <div class="follower-block">
-        <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/c/c3/FB_Logo_PNG.png/640px-FB_Logo_PNG.png" width="16">
+        <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/c/c3/FB_Logo_PNG.png/640px-FB_Logo_PNG.png"
+          width="16" alt="Facebook">
         <span id="fb-followers">—</span><span> followers</span>
       </div>
       <div class="follower-block">
-        <img src="https://upload.wikimedia.org/wikipedia/commons/a/a5/Instagram_icon.png" width="16">
+        <img src="https://upload.wikimedia.org/wikipedia/commons/a/a5/Instagram_icon.png" width="16" alt="Instagram">
         <span id="ig-followers">—</span><span> followers</span>
       </div>
     </div>
 
-    <h2 style="text-align: center; color: #ff5900; padding-bottom:1rem">Tonight's show gallery</h2>
-    <div class="grid" id="gallery"></div>
+    <h2 class="gallery-title">Tonight's show gallery</h2>
+    <!-- changed class from "grid" to "gallery" -->
+    <div id="gallery" class="gallery"></div>
 
+    <!-- Lightbox -->
     <div id="imageModal" class="hidden" onclick="this.classList.add('hidden')">
-      <img id="fullImage" src="" />
+      <img id="fullImage" src="" alt="Full image" />
     </div>
   </form>
 
-  <div id="winnerModal"
-    style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.95); color:white; z-index:9999; justify-content:center; align-items:center; flex-direction:column; text-align:center; padding:2rem;">
-    <h1 style="font-size:3rem; margin:0;">🎉 Raffle Winner 🎉</h1>
-    <p id="winnerName" style="font-size:2rem; margin-top:1rem;"></p>
-    <button onclick="hideWinnerModal()"
-      style="margin-top:2rem; padding:0.8rem 1.5rem; font-size:1rem; background:#e91e63; border:none; color:white; border-radius:8px;">Close</button>
+  <!-- Winner modal -->
+  <div id="winnerModal" class="winner-modal hidden">
+    <h1 class="winner-title">🎉 Raffle Winner 🎉</h1>
+    <p id="winnerName" class="winner-name"></p>
+    <button onclick="hideWinnerModal()" class="btn-modal-close">Close</button>
   </div>
 
-  <script type="module">
-    import confetti from 'https://cdn.skypack.dev/canvas-confetti';
-    window.confetti = confetti;
-  </script>
-
-  <script>
-    let isWindowOpen = false;
-    let r2AccountId = "";
-    let r2BucketName = "";
-
-    async function fetchEnv() {
-      try {
-        const res = await fetch("/api/env");
-        const data = await res.json();
-        r2AccountId = data.r2AccountId;
-        r2BucketName = data.r2BucketName;
-      } catch (err) {
-        console.error("❌ Failed to fetch R2 env vars:", err);
-      }
-    }
-
-    async function loadFollowerCounts() {
-      try {
-        const res = await fetch('/api/admin?action=followers');
-        const data = await res.json();
-        const fbCount = parseInt(data.facebook || 0);
-        const igCount = parseInt(data.instagram || 0);
-        document.getElementById('fb-followers').textContent = fbCount > 0 ? `${fbCount}` : '—';
-        document.getElementById('ig-followers').textContent = igCount > 0 ? `${igCount}` : '—';
-      } catch (err) {
-        console.warn("⚠️ Failed to fetch follower counts", err);
-      }
-    }
-
-    async function checkUploadWindow() {
-      try {
-        const res = await fetch("/api/admin?action=config");
-        if (!res.ok) throw new Error("Config fetch failed");
-        const config = await res.json();
-        const now = Date.now();
-        const start = new Date(config.startTime).getTime();
-        const end = new Date(config.endTime).getTime();
-        isWindowOpen = now >= start && now <= end;
-      } catch (err) {
-        console.error("Failed to check upload window", err);
-      }
-    }
-
-    function maybeEnableUpload() {
-      const uploadBtn = document.getElementById("upload-btn");
-      const nameInput = document.getElementById("user-display-name");
-      const gate = document.getElementById("follow-gate");
-      const followed = localStorage.getItem("followed") === "true";
-      const nameEntered = nameInput.value.trim() !== "";
-
-      gate.innerHTML = `
-        <div style="display: flex; justify-content: center; gap: 1rem">
-          <a href="https://www.facebook.com/90surge" target="_blank" class="follow-btn-fb" onclick="followUser();">Facebook</a>
-          <a href="https://www.instagram.com/90_surge" target="_blank" class="follow-btn-ig" onclick="followUser();">Instagram</a>
-        </div>`;
-      gate.style.display = "block";
-
-      if (followed && isWindowOpen && nameEntered) {
-        uploadBtn.classList.remove("locked");
-      } else {
-        uploadBtn.classList.add("locked");
-      }
-    }
-
-    function followUser() {
-      localStorage.setItem("followed", "true");
-      maybeEnableUpload();
-    }
-
-    async function loadGallery() {
-      try {
-        const uploadsRes = await fetch("/api/admin?action=uploads");
-        const uploads = await uploadsRes.json();
-        const gallery = document.getElementById("gallery");
-        gallery.innerHTML = "";
-
-        const uniqueMap = new Map();
-        uploads.forEach(upload => {
-          const id = upload.id || upload.fileName;
-          if (!uniqueMap.has(id)) uniqueMap.set(id, upload);
-        });
-
-        const uniqueUploads = Array.from(uniqueMap.values()).sort((a, b) => {
-          const aTime = new Date(a.createdTime || 0).getTime();
-          const bTime = new Date(b.createdTime || 0).getTime();
-          return bTime - aTime;
-        });
-
-        function connectVoteStream(fileId, voteElement) {
-          const stream = new EventSource(`https://vote-stream-server.onrender.com/votes/${fileId}`);
-          stream.onmessage = (event) => {
-            const { votes } = JSON.parse(event.data);
-            voteElement.textContent = `👍 ${votes}`;
-          };
-          stream.onerror = () => {
-            console.warn(`❌ Vote stream error for ${fileId}`);
-            stream.close();
-          };
-        }
-
-        uniqueUploads.forEach(upload => {
-          const card = document.createElement("div");
-          card.className = "card";
-          card.dataset.id = upload.id || upload.fileName;
-          
-          const wrapper = document.createElement("div");
-          wrapper.style.position = "relative";
-          
-          const img = document.createElement("img");
-          img.src = upload.fileUrl;
-          img.loading = "lazy";
-          img.style.cursor = "pointer";
-          img.style.maxHeight = "220px";
-          img.style.width = "100%";
-          img.style.objectFit = "cover";
-          img.style.filter = "blur(8px)";
-          img.style.transition = "filter 0.5s";
-          img.addEventListener("load", () => {
-            img.style.filter = "none";
-          });
-          img.addEventListener("click", () => {
-            const modal = document.getElementById("imageModal");
-            document.getElementById("fullImage").src = upload.fileUrl;
-            modal.classList.remove("hidden");
-          });
-
-          const info = document.createElement("div");
-          info.className = "info";
-          const displayName = upload.userName || upload.userNameRaw || "Anonymous";
-          info.innerHTML = `Uploaded by @${displayName}`;
-
-          const voteInfo = document.createElement("div");
-          voteInfo.className = "vote-info";
-          voteInfo.style.textAlign = "center";
-          voteInfo.style.marginBottom = "0.25rem";
-          voteInfo.style.marginTop = "0.25rem";
-          voteInfo.textContent = `👍 ${upload.votes || 0}`;
-          connectVoteStream(upload.id || upload.fileName, voteInfo);
-
-          const voted = localStorage.getItem(`voted_${upload.id || upload.fileName}`);
-          const hasVoted = !!voted;
-
-          const upvoteBtn = document.createElement("button");
-          upvoteBtn.textContent = hasVoted ? "Voted" : "Upvote";
-          upvoteBtn.disabled = hasVoted;
-          upvoteBtn.style.cssText = `
-            margin: 0.5rem auto;
-            display: block;
-            padding: 0.4rem 1rem;
-            border: none;
-            border-radius: 8px;
-            font-weight: bold;
-            background: ${hasVoted ? "#444" : "#e91e63"};
-            color: white;
-          `;
-
-          upvoteBtn.addEventListener("click", async () => {
-            if (hasVoted) return;
-            upvoteBtn.disabled = true;
-            upvoteBtn.textContent = "⏳ Voting...";
-            upvoteBtn.style.background = "#888";
-            
-            try {
-              const res = await fetch("/api/admin?action=upvote", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ fileId: upload.id || upload.fileName }),
-              });
-              const result = await res.json();
-              if (result.success) {
-                voteInfo.textContent = `👍 ${result.votes}`;
-                localStorage.setItem(`voted_${upload.id || upload.fileName}`, "1");
-                upvoteBtn.textContent = "✅ Voted";
-                upvoteBtn.style.background = "#444";
-              } else {
-                throw new Error("Vote failed");
-              }
-            } catch (err) {
-              alert("Voting failed. Try again.");
-              console.error(err);
-              upvoteBtn.disabled = false;
-              upvoteBtn.textContent = "Upvote";
-              upvoteBtn.style.background = "#e91e63";
-            }
-          });
-          
-          wrapper.appendChild(img);
-          card.appendChild(wrapper);
-          card.appendChild(info);
-          card.appendChild(voteInfo);
-          card.appendChild(upvoteBtn);
-          gallery.appendChild(card);
-        });
-      } catch (err) {
-        console.error("❌ Failed to load gallery", err);
-        document.getElementById("gallery").textContent = "Failed to load gallery.";
-      }
-    }
-
-    let hasShownWinner = false;
-
-    function showWinnerModal(name) {
-      if (hasShownWinner) return;
-      hasShownWinner = true;
-      localStorage.setItem("shownWinnerName", name);
-      const modal = document.getElementById('winnerModal');
-      document.getElementById('winnerName').textContent = name;
-      modal.style.display = 'flex';
-      triggerConfetti();
-    }
-
-    function hideWinnerModal() {
-      document.getElementById('winnerModal').style.display = 'none';
-    }
-
-    function triggerConfetti() {
-      if (!window.confetti) return;
-      const duration = 3000;
-      const end = Date.now() + duration;
-      (function frame() {
-        confetti({ particleCount: 5, angle: 60, spread: 55, origin: { x: 0 } });
-        confetti({ particleCount: 5, angle: 120, spread: 55, origin: { x: 1 } });
-        if (Date.now() < end) requestAnimationFrame(frame);
-      })();
-    }
-
-    async function init() {
-      try {
-        const res = await fetch("/api/admin?action=shutdown-status");
-        const { isShutdown } = await res.json();
-        if (isShutdown) {
-          document.body.innerHTML = `
-            <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100vh; text-align:center; color:#ccc;">
-              <div style="display: flex; justify-content: center;">
-                <img src="https://pub-d919971fb927454bab9481eee8a435e3.r2.dev/logo-horizontal-white.png" width="200" height="auto" style="display: block;">
-              </div>
-              <h1 style="font-size:2rem;">⚠️ Sorry, the raffle is closed.</h1>
-              <p>We'll be back soon.</p>
-            </div>`;
-          return;
-        }
-      } catch (err) {
-        console.warn("⏱ Shutdown status check skipped (timeout or error):", err.message);
-      }
-
-      await checkUploadWindow();
-      maybeEnableUpload();
-      await loadGallery();
-      await loadFollowerCounts();
-      await fetchEnv();
-
-      const form = document.getElementById("upload-form");
-      const message = document.getElementById("message");
-      const fileInput = document.getElementById("file");
-      const nameInput = document.getElementById("user-display-name");
-      const progress = document.getElementById("progress");
-      const uploadBtn = document.getElementById("upload-btn");
-
-      const savedName = localStorage.getItem("userName");
-      if (savedName) {
-        nameInput.value = savedName;
-      }
-      
-      form.addEventListener("submit", async (e) => {
-        if (uploadBtn.classList.contains("locked")) {
-          e.preventDefault();
-          message.style.color = "orange";
-          message.textContent = "⚠️ Please follow us to upload.";
-          return;
-        }
-
-        e.preventDefault();
-        message.textContent = "";
-
-        const file = fileInput.files[0];
-        const userName = nameInput.value.trim();
-        
-        if (!file || !userName) {
-          message.textContent = "Name and file are required.";
-          return;
-        }
-
-        const originalName = file.name.toLowerCase().replace(/\s+/g, "_");
-        const uploadKey = `uploaded_${userName.toLowerCase()}_${originalName}`;
-        if (localStorage.getItem(uploadKey)) {
-          message.style.color = "orange";
-          message.textContent = "⚠️ You've already uploaded this file.";
-          return;
-        }
-
-        localStorage.setItem("userName", userName);
-        
-        const sanitize = (str) =>
-          String(str || "")
-            .toLowerCase()
-            .replace(/[^a-z0-9]+/gi, "_")
-            .replace(/^_+|_+$/g, "");
-        const fileName = `${sanitize(userName)}_${Date.now()}_${sanitize(file.name)}`;
-        const fileUrl = `https://${r2AccountId}.r2.cloudflarestorage.com/${r2BucketName}/${fileName}`;
-        const mimeType = file.type;
-
-        progress.style.display = "block";
-        progress.value = 0;
-        message.style.color = "#999";
-        message.textContent = "⏳ Uploading...";
-
-        try {
-          const presignRes = await fetch("/api/get-upload-url", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ fileName, mimeType }),
-          });
-
-          const { url } = await presignRes.json();
-          if (!url) throw new Error("Failed to get presigned URL");
-
-          await new Promise((resolve, reject) => {
-            const xhr = new XMLHttpRequest();
-            xhr.open("PUT", url, true);
-            xhr.setRequestHeader("Content-Type", mimeType);
-            xhr.upload.onprogress = (e) => {
-              if (e.lengthComputable) {
-                progress.value = Math.round((e.loaded / e.total) * 100);
-              }
-            };
-            xhr.onload = () => {
-              if (xhr.status >= 200 && xhr.status < 300) resolve();
-              else reject(new Error("Upload failed with status " + xhr.status));
-            };
-            xhr.onerror = () => reject(new Error("Network error during upload"));
-            xhr.send(file);
-          });
-          
-          const metadata = { fileName, fileUrl, mimeType, userName, originalFileName: file.name };
-          const metaRes = await fetch("/api/admin?action=save-upload", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(metadata),
-          });
-          
-          const metaData = await metaRes.json();
-          if (!metaData.success) {
-            await fetch("/api/admin?action=delete-file", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ fileId: fileName }),
-            });
-            throw new Error("Metadata save failed. File deleted.");
-          }
-
-          message.style.color = "#4caf50";
-          message.textContent = "✅ Upload complete!";
-          fileInput.value = "";
-          progress.value = 100;
-          localStorage.setItem(uploadKey, "1");
-          loadGallery();
-          setTimeout(() => (message.textContent = ""), 3000);
-        } catch (err) {
-          console.error("❌ Upload error:", err);
-          message.style.color = "red";
-          message.textContent = "❌ Upload failed: " + err.message;
-          progress.style.display = "none";
-        }
-      });
-    }
-
-    window.addEventListener("DOMContentLoaded", init);
-    window.addEventListener("storage", (event) => {
-      if (event.key === "galleryRefresh") loadGallery();
-    });
-    window.hideWinnerModal = hideWinnerModal;
-  </script>
 </body>
 </html>
