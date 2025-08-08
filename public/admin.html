@@ -430,7 +430,7 @@
             <div class="inline-actions mt-12">
               <button class="btn warning admin-only" id="reset-votes-btn">Reset All Votes</button>
               <button class="btn ghost admin-only" id="reset-social-clicks">Reset Social Links</button>
-                <button class="btn ghost admin-only" id="reset-winner-btn">Reset Winner</button>
+              <button class="btn ghost admin-only" id="reset-winner-btn">Reset Winner</button>
 
             </div>
 
@@ -465,66 +465,66 @@
                 <input class="input" type="date" id="endDate" />
               </div>
 
-            <div class="inline-actions mt-12">
-              <button class="btn primary admin-only" id="save-config-btn">Save Config</button>
+              <div class="inline-actions mt-12">
+                <button class="btn primary admin-only" id="save-config-btn">Save Config</button>
+              </div>
+            </div>
+          </div>
+
+
+          <!-- Social status -->
+          <div class="card col-6">
+            <div class="card-header">
+              <div class="card-title">Social Follows</div>
+              <span class="card-subtle">Live from server</span>
+            </div>
+            <div class="card-body">
+              <div id="social-totals" class="mb-8">Loading…</div>
+              <div style="max-height:280px; overflow:auto; border:1px solid rgba(255,255,255,.06); border-radius:12px;">
+                <table id="social-table">
+                  <thead>
+                    <tr>
+                      <th>IP</th>
+                      <th>Followed</th>
+                      <th>Facebook</th>
+                      <th>Instagram</th>
+                      <th>First Seen</th>
+                      <th>Last Seen</th>
+                      <th>Clicks</th>
+                      <th>TTL (s)</th>
+                    </tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <!-- Winner -->
+          <div class="card col-12">
+            <div class="card-header">
+              <div class="card-title">🎉 Raffle</div>
+            </div>
+            <div class="card-body">
+              <div class="inline-actions">
+                <button class="btn primary admin-only" id="pick-winner-btn">Pick Random Winner</button>
+                <div id="winnerDisplay" class="status">No winner yet</div>
+              </div>
+              <div id="entries-by-user" class="mt-16"></div>
+            </div>
+          </div>
+
+          <!-- Gallery -->
+          <div class="card col-12">
+            <div class="card-header">
+              <div class="card-title">Uploads</div>
+              <span class="card-subtle">Latest first</span>
+            </div>
+            <div class="card-body">
+              <div id="admin-gallery" class="gallery">Loading uploads…</div>
             </div>
           </div>
         </div>
-
-
-        <!-- Social status -->
-        <div class="card col-6">
-          <div class="card-header">
-            <div class="card-title">Social Follows</div>
-            <span class="card-subtle">Live from server</span>
-          </div>
-          <div class="card-body">
-            <div id="social-totals" class="mb-8">Loading…</div>
-            <div style="max-height:280px; overflow:auto; border:1px solid rgba(255,255,255,.06); border-radius:12px;">
-              <table id="social-table">
-                <thead>
-                  <tr>
-                    <th>IP</th>
-                    <th>Followed</th>
-                    <th>Facebook</th>
-                    <th>Instagram</th>
-                    <th>First Seen</th>
-                    <th>Last Seen</th>
-                    <th>Clicks</th>
-                    <th>TTL (s)</th>
-                  </tr>
-                </thead>
-                <tbody></tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-
-        <!-- Winner -->
-        <div class="card col-12">
-          <div class="card-header">
-            <div class="card-title">🎉 Raffle</div>
-          </div>
-          <div class="card-body">
-            <div class="inline-actions">
-              <button class="btn primary admin-only" id="pick-winner-btn">Pick Random Winner</button>
-              <div id="winnerDisplay" class="status">No winner yet</div>
-            </div>
-            <div id="entries-by-user" class="mt-16"></div>
-          </div>
-        </div>
-
-        <!-- Gallery -->
-        <div class="card col-12">
-          <div class="card-header">
-            <div class="card-title">Uploads</div>
-            <span class="card-subtle">Latest first</span>
-          </div>
-          <div class="card-body">
-            <div id="admin-gallery" class="gallery">Loading uploads…</div>
-          </div>
-        </div>
-      </div>
     </section>
   </div>
 
@@ -577,7 +577,7 @@
         const res = await fetch('/api/admin?action=redis-status');
         const data = await res.json();
         if (data.status === 'active') { el.textContent = 'Status: ✅ Active'; el.style.color = 'var(--success)'; }
-        else if (data.status === 'idle') { el.textContent = 'Status: 💤 Idle'; el.style.color = 'var(--warning)'; }
+else if(data.status==='idle'){ el.textContent='Status: 💤 Idle'; el.style.color='var(--reset)'; }
         else { el.textContent = 'Status: ❓ Unknown'; el.style.color = 'var(--muted)'; }
       } catch { el.textContent = 'Status: ❌ Error'; el.style.color = 'var(--danger)'; }
     }
@@ -652,72 +652,72 @@
       } catch (e) { toast('Error resetting social clicks', 'error'); }
     }
 
-// ---------- config (date-only) ----------
-function toDateInputValue(isoString) {
-  if (!isoString) return "";
-  const d = new Date(isoString);
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  return `${yyyy}-${mm}-${dd}`; // what <input type="date"> expects
-}
-
-function applyConfig(c) {
-  $('#showName').value = c.showName || '';
-  $('#startDate').value = toDateInputValue(c.startTime);
-  $('#endDate').value   = toDateInputValue(c.endTime);
-}
-
-async function loadConfig() {
-  const res = await fetch('/api/admin?action=config');
-  const config = await res.json();
-  applyConfig(config);
-}
-
-async function saveConfig() {
-  const role = localStorage.getItem('role');
-  if (role !== 'admin') return;
-
-  const showName  = $('#showName').value.trim();
-  const startDate = $('#startDate').value; // yyyy-mm-dd
-  const endDate   = $('#endDate').value;   // yyyy-mm-dd
-
-  if (!showName || !startDate || !endDate) {
-    toast('Fill all fields', 'error');
-    return;
-  }
-
-  // Treat as whole local days
-  const start = new Date(`${startDate}T00:00:00`);
-  const end   = new Date(`${endDate}T23:59:59.999`);
-
-  if (end < start) {
-    toast('End date must be on or after start date', 'error');
-    return;
-  }
-
-  const body = {
-    showName,
-    startTime: start.toISOString(),
-    endTime: end.toISOString(),
-  };
-
-  try {
-    const res = await fetch('/api/admin?action=config', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    const json = await res.json();
-    if (res.ok) {
-      toast('Config saved', 'success');
-    } else {
-      throw new Error(json.error || 'Save failed');
+    // ---------- config (date-only) ----------
+    function toDateInputValue(isoString) {
+      if (!isoString) return "";
+      const d = new Date(isoString);
+      const yyyy = d.getFullYear();
+      const mm = String(d.getMonth() + 1).padStart(2, "0");
+      const dd = String(d.getDate()).padStart(2, "0");
+      return `${yyyy}-${mm}-${dd}`; // what <input type="date"> expects
     }
-  } catch (e) {
-    toast('Save failed', 'error');
-  }
-}
+
+    function applyConfig(c) {
+      $('#showName').value = c.showName || '';
+      $('#startDate').value = toDateInputValue(c.startTime);
+      $('#endDate').value = toDateInputValue(c.endTime);
+    }
+
+    async function loadConfig() {
+      const res = await fetch('/api/admin?action=config');
+      const config = await res.json();
+      applyConfig(config);
+    }
+
+    async function saveConfig() {
+      const role = localStorage.getItem('role');
+      if (role !== 'admin') return;
+
+      const showName = $('#showName').value.trim();
+      const startDate = $('#startDate').value; // yyyy-mm-dd
+      const endDate = $('#endDate').value;   // yyyy-mm-dd
+
+      if (!showName || !startDate || !endDate) {
+        toast('Fill all fields', 'error');
+        return;
+      }
+
+      // Treat as whole local days
+      const start = new Date(`${startDate}T00:00:00`);
+      const end = new Date(`${endDate}T23:59:59.999`);
+
+      if (end < start) {
+        toast('End date must be on or after start date', 'error');
+        return;
+      }
+
+      const body = {
+        showName,
+        startTime: start.toISOString(),
+        endTime: end.toISOString(),
+      };
+
+      try {
+        const res = await fetch('/api/admin?action=config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        const json = await res.json();
+        if (res.ok) {
+          toast('Config saved', 'success');
+        } else {
+          throw new Error(json.error || 'Save failed');
+        }
+      } catch (e) {
+        toast('Save failed', 'error');
+      }
+    }
 
     // ---------- raffle UI ----------
     function renderEntriesPerUser(uploads) {
@@ -733,59 +733,71 @@ async function saveConfig() {
         items.map(([n, v]) => `<div class="chip" style="margin:4px 6px 0 0; display:inline-flex;">${n}: <strong style="margin-left:6px; color:#fff;">${v}</strong></div>`).join('');
     }
 
-    async function pickWinner(){
-  if(!confirm('Pick a random winner from all uploads?')) return;
-  try{
-    const res = await fetch('/api/admin?action=pick-winner', {
-      method:'POST',
-      headers:{
-        'Content-Type':'application/json',
-        'Authorization':'Bearer:super:'+ (localStorage.getItem('adminKey')||'')
-      },
-      body: JSON.stringify({ role:'admin' })
-    });
-    const result = await res.json();
-    if(result && result.winner && result.winner.name){
-      const winnerName = result.winner.name;
-      $('#winnerDisplay').textContent = `🎉 Winner: ${winnerName}`;
+    async function pickWinner() {
+      if (!confirm('Pick a random winner from all uploads?')) return;
+      try {
+        const res = await fetch('/api/admin?action=pick-winner', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer:super:' + (localStorage.getItem('adminKey') || '')
+          },
+          body: JSON.stringify({ role: 'admin' })
+        });
+        const result = await res.json();
+        if (result && result.winner && result.winner.name) {
+          const winnerName = result.winner.name;
+          $('#winnerDisplay').textContent = `🎉 Winner: ${winnerName}`;
 
-      // 🔔 send SSE broadcast (FIXED ENDPOINT)
-      await fetch(
-        location.hostname==='localhost'
-          ? 'http://localhost:3001/broadcast'
-          : 'https://winner-sse-server.onrender.com/broadcast',
-        {
-          method:'POST',
-          headers:{ 'Content-Type':'application/json' },
-          body: JSON.stringify({ winner: winnerName })
+          // 🔔 send SSE broadcast (FIXED ENDPOINT)
+          await fetch(
+            location.hostname === 'localhost'
+              ? 'http://localhost:3001/broadcast'
+              : 'https://winner-sse-server.onrender.com/broadcast',
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ winner: winnerName })
+            }
+          );
+
+          localStorage.setItem('shownWinnerName', winnerName);
+          toast('Winner announced', 'success');
         }
-      );
-
-      localStorage.setItem('shownWinnerName', winnerName);
-      toast('Winner announced','success');
+      } catch (e) { toast('Failed to pick winner', 'error'); }
     }
-  }catch(e){ toast('Failed to pick winner','error'); }
-}
 
 
-    async function resetWinner(){
-  if(!confirm('Clear the current winner?')) return;
-  try{
-    // clear on your API
-    await fetch('/api/admin?action=reset-winner', { method:'POST' });
+    async function resetWinner() {
+      if (!confirm('Clear the current winner?')) return;
 
-    // broadcast reset to SSE clients
-    await fetch(
-      location.hostname==='localhost'
-        ? 'http://localhost:3001/reset-winner'
-        : 'https://winner-sse-server.onrender.com/reset-winner',
-      { method:'POST' }
-    );
+      try {
+        // 1) Clear on your API (needs admin auth)
+        const apiRes = await fetch('/api/admin?action=reset-winner', {
+          method: 'POST',
+          headers: {
+            Authorization: 'Bearer:super:' + (localStorage.getItem('adminKey') || '')
+          }
+        });
+        const apiJson = await apiRes.json().catch(() => ({}));
+        if (!apiRes.ok || !apiJson.success) throw new Error(apiJson.error || 'Reset failed');
 
-    $('#winnerDisplay').textContent = 'No winner yet';
-    toast('Winner reset','success');
-  }catch(e){ toast('Failed to reset winner','error'); }
-}
+        // 2) Broadcast reset to clients (SSE server uses /reset)
+        await fetch(
+          location.hostname === 'localhost'
+            ? 'http://localhost:3001/reset'
+            : 'https://winner-sse-server.onrender.com/reset',
+          { method: 'POST' }
+        );
+
+        $('#winnerDisplay').textContent = 'No winner yet';
+        toast('Winner reset', 'success');
+      } catch (e) {
+        console.error(e);
+        toast('Failed to reset winner', 'error');
+      }
+    }
+
 
 
     // ---------- gallery ----------
