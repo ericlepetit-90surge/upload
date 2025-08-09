@@ -28,37 +28,58 @@ async function fetchEnv() {
   }
 }
 
+function installDeepLinkGuards() {
+  const block = (e) => {
+    const a = e.target.closest(
+      'a[href*="facebook.com"], a[href*="instagram.com"]'
+    );
+    if (!a) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+  };
+  // Catch it early on iOS
+  document.addEventListener("touchstart", block, true);
+  document.addEventListener("pointerdown", block, { capture: true });
+  document.addEventListener("click", block, true);
+}
+
 // ==== Deep-link helpers ====
 const FB_PAGE_ID = "130023783530481";
 const FB_PAGE_URL = "https://www.facebook.com/90surge";
 const IG_USERNAME = "90_surge";
-const IG_WEB_URL  = "https://www.instagram.com/90_surge";
+const IG_WEB_URL = "https://www.instagram.com/90_surge";
 
-function isiOS(){ return /iPad|iPhone|iPod/.test(navigator.userAgent); }
-function isAndroid(){ return /android/i.test(navigator.userAgent); }
+function isiOS() {
+  return /iPad|iPhone|iPod/.test(navigator.userAgent);
+}
+function isAndroid() {
+  return /android/i.test(navigator.userAgent);
+}
 
 function showManualFallback(webUrl, label) {
-  let bar = document.getElementById('deeplink-fallback');
+  let bar = document.getElementById("deeplink-fallback");
   if (!bar) {
-    bar = document.createElement('div');
-    bar.id = 'deeplink-fallback';
+    bar = document.createElement("div");
+    bar.id = "deeplink-fallback";
     bar.style.cssText = `
       position: fixed; left: 0; right: 0; bottom: 12px; z-index: 99999;
       display:flex; justify-content:center;
     `;
-    const inner = document.createElement('div');
+    const inner = document.createElement("div");
     inner.style.cssText = `
       background: rgba(20,20,24,.95); color:#fff; border:1px solid rgba(255,255,255,.15);
       padding: 10px 14px; border-radius: 10px; font-weight: 700;
     `;
-    const a = document.createElement('a');
-    a.href = webUrl; a.target = '_blank'; a.rel = 'noopener';
-    a.textContent = label || 'Open in browser';
-    a.style.cssText = 'color:#7dd3fc; text-decoration:none;';
+    const a = document.createElement("a");
+    a.href = webUrl;
+    a.target = "_blank";
+    a.rel = "noopener";
+    a.textContent = label || "Open in browser";
+    a.style.cssText = "color:#7dd3fc; text-decoration:none;";
     inner.appendChild(a);
     bar.appendChild(inner);
     document.body.appendChild(bar);
-    setTimeout(()=> bar.remove(), 7000);
+    setTimeout(() => bar.remove(), 7000);
   }
 }
 
@@ -68,35 +89,39 @@ function showManualFallback(webUrl, label) {
  * Android/Desktop: open web FIRST in a new tab, then (Android) try intent in that tab.
  *   - If the app isn't installed, the tab stays on the web profile (never blank).
  */
-function openWithDeepLink(e, { iosScheme, androidIntent, webUrl, webLabel = "Open in browser" }) {
+function openWithDeepLink(
+  e,
+  { iosScheme, androidIntent, webUrl, webLabel = "Open in browser" }
+) {
   if (e) { e.preventDefault(); e.stopPropagation(); }
 
   if (isiOS()) {
     let left = false;
     let iframe = null;
+    let timerId = null; // <-- predeclare
 
     const cleanup = () => {
-      document.removeEventListener('visibilitychange', onVis, true);
-      window.removeEventListener('pagehide', onHide, true);
-      window.removeEventListener('blur', onHide, true);
-      clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVis, true);
+      window.removeEventListener("pagehide", onHide, true);
+      window.removeEventListener("blur", onHide, true);
+      if (timerId) clearTimeout(timerId);        // <-- guard
       if (iframe && iframe.parentNode) iframe.parentNode.removeChild(iframe);
     };
     const onHide = () => { left = true; cleanup(); };
-    const onVis = () => { if (document.visibilityState === 'hidden') onHide(); };
+    const onVis  = () => { if (document.visibilityState === "hidden") onHide(); };
 
-    document.addEventListener('visibilitychange', onVis, { once:true, capture:true });
-    window.addEventListener('pagehide', onHide, { once:true, capture:true });
-    window.addEventListener('blur', onHide, { once:true, capture:true });
+    document.addEventListener("visibilitychange", onVis, { once:true, capture:true });
+    window.addEventListener("pagehide", onHide, { once:true, capture:true });
+    window.addEventListener("blur", onHide, { once:true, capture:true });
 
-    // Try native app via hidden iframe (prevents navigating your tab)
-    iframe = document.createElement('iframe');
-    iframe.style.display = 'none';
+    // Try native app via hidden iframe (keeps this tab put)
+    iframe = document.createElement("iframe");
+    iframe.style.display = "none";
     iframe.src = iosScheme;
     document.body.appendChild(iframe);
 
-    // If the app doesn't open, offer a *manual* browser link instead of auto-nav
-    const timer = setTimeout(() => {
+    // If app didn’t open, show *manual* browser link (don’t auto-nav)
+    timerId = setTimeout(() => {
       if (!left) showManualFallback(webUrl, webLabel);
       cleanup();
     }, 1500);
@@ -104,45 +129,52 @@ function openWithDeepLink(e, { iosScheme, androidIntent, webUrl, webLabel = "Ope
     return false;
   }
 
-  // Android / Desktop
+  // Android / Desktop: open web in a new tab first, then try intent
   let tab = null;
-  try { tab = window.open(webUrl, '_blank', 'noopener'); } catch {}
+  try { tab = window.open(webUrl, "_blank", "noopener"); } catch {}
+  if (!tab) { showManualFallback(webUrl, webLabel); return false; }
 
-  if (!tab) {
-    // popup blocked: at least show a manual link chip
-    showManualFallback(webUrl, webLabel);
-    return false;
+  if (isAndroid()) {
+    setTimeout(() => { try { tab.location = androidIntent; } catch {} }, 80);
   }
+  return false;
+}
 
   if (isAndroid()) {
     // After the web is open, try the intent in that tab.
     setTimeout(() => {
-      try { tab.location = androidIntent; } catch {}
+      try {
+        tab.location = androidIntent;
+      } catch {}
     }, 80);
   }
   return false;
 }
 
 // Facebook
-async function openFacebook(e){
-  try { await followClick('fb'); } catch {}
+async function openFacebook(e) {
+  try {
+    await followClick("fb");
+  } catch {}
   return openWithDeepLink(e, {
     iosScheme: `fb://page/${FB_PAGE_ID}`,
     androidIntent: `intent://page/${FB_PAGE_ID}#Intent;scheme=fb;package=com.facebook.katana;end`,
     webUrl: FB_PAGE_URL,
-    webLabel: "Open Facebook"
+    webLabel: "Open Facebook",
   });
 }
 window.openFacebook = openFacebook;
 
 // Instagram
-async function openInstagram(e){
-  try { await followClick('ig'); } catch {}
+async function openInstagram(e) {
+  try {
+    await followClick("ig");
+  } catch {}
   return openWithDeepLink(e, {
     iosScheme: `instagram://user?username=${IG_USERNAME}`,
     androidIntent: `intent://instagram.com/_u/${IG_USERNAME}#Intent;scheme=https;package=com.instagram.android;end`,
     webUrl: IG_WEB_URL,
-    webLabel: "Open Instagram"
+    webLabel: "Open Instagram",
   });
 }
 window.openInstagram = openInstagram;
@@ -151,7 +183,9 @@ function escapeHtml(str = "") {
   return String(str).replace(
     /[&<>"']/g,
     (s) =>
-      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[s])
+      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[
+        s
+      ])
   );
 }
 
@@ -159,7 +193,9 @@ function setWinnerBanner(name) {
   const banner = document.querySelector(".raffle-title");
   if (!banner) return;
   banner.classList.remove("blink");
-  banner.innerHTML = `<strong>Tonight's winner is: ${escapeHtml(name)}</strong>`;
+  banner.innerHTML = `<strong>Tonight's winner is: ${escapeHtml(
+    name
+  )}</strong>`;
 }
 
 function clearWinnerBanner() {
@@ -599,6 +635,8 @@ async function init() {
   const bannerEl = document.querySelector(".raffle-title");
   if (bannerEl && !originalRaffleText) originalRaffleText = bannerEl.innerHTML;
 
+  installDeepLinkGuards();
+
   await hydrateWinnerBanner();
   await checkUploadWindow();
   buildFollowGate();
@@ -654,7 +692,9 @@ async function init() {
         .toLowerCase()
         .replace(/[^a-z0-9]+/gi, "_")
         .replace(/^_+|_+$/g, "");
-    const fileName = `${sanitize(userName)}_${Date.now()}_${sanitize(file.name)}`;
+    const fileName = `${sanitize(userName)}_${Date.now()}_${sanitize(
+      file.name
+    )}`;
     const fileUrl = `https://${r2AccountId}.r2.cloudflarestorage.com/${r2BucketName}/${fileName}`;
     const mimeType = file.type;
 
@@ -803,10 +843,16 @@ async function init() {
     winnerSSE.addEventListener("reset", resetHandler);
 
     winnerSSE.onerror = (e) => {
-      console.warn("Winner SSE error; will fall back to polling.", e?.message || e);
+      console.warn(
+        "Winner SSE error; will fall back to polling.",
+        e?.message || e
+      );
     };
   } catch (e) {
-    console.warn("Failed to start Winner SSE; will use polling.", e?.message || e);
+    console.warn(
+      "Failed to start Winner SSE; will use polling.",
+      e?.message || e
+    );
   }
 
   // Fallback polling (keeps banner in sync if SSE down)
