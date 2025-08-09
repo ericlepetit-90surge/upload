@@ -12,51 +12,105 @@
     }
     *{box-sizing:border-box}
     html,body{height:100%}
-    body{margin:0;padding:0;background:var(--bg);color:var(--text);
-         font:14px/1.35 system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,"Apple Color Emoji","Segoe UI Emoji";}
+    body{
+      margin:0; padding:0; background:var(--bg); color:var(--text);
+      font:14px/1.35 system-ui,-apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+    }
+
     .container{max-width:1200px;margin:0 auto;padding:24px;}
-    .topbar{position:sticky;top:0;z-index:20;backdrop-filter:saturate(140%) blur(6px);
-            background:linear-gradient(180deg,rgba(15,15,18,.85),rgba(15,15,18,.6));
-            border-bottom:1px solid rgba(255,255,255,.06);}
+    .topbar{
+      position:sticky;top:0;z-index:20;backdrop-filter:saturate(140%) blur(6px);
+      background:linear-gradient(180deg,rgba(15,15,18,.85),rgba(15,15,18,.6));
+      border-bottom:1px solid rgba(255,255,255,.06);
+    }
     .topbar-inner{display:flex;align-items:center;gap:12px;padding:14px 24px;}
     .brand{display:flex;align-items:center;gap:10px;font-weight:700;letter-spacing:.3px;}
     .brand img{height:24px;width:auto;filter:drop-shadow(0 0 8px rgba(233,30,99,.35));}
     .spacer{flex:1}
+
     .badge{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:999px;font-weight:600;font-size:12px;}
     .badge.admin{background:rgba(233,30,99,.12);color:#ffd6e6;border:1px solid rgba(233,30,99,.35);}
     .badge.moderator{background:rgba(124,77,255,.12);color:#e5dbff;border:1px solid rgba(124,77,255,.35);}
-    .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:10px 14px;border-radius:10px;border:1px solid transparent;
-         cursor:pointer;font-weight:600;color:var(--text);background:#24262c;transition:transform .04s ease,border-color .15s ease,background .15s ease;}
-    .btn:hover{transform:translateY(-1px)} .btn:active{transform:translateY(0)}
-    .btn.primary{background:var(--accent)} .btn.success{background:var(--success)} .btn.warning{background:var(--reset);color:#111}
-    .btn.danger{background:var(--danger)} .btn.ghost{background:var(--reset);border-color:rgba(255,255,255,.12)} .btn.small{padding:7px 10px;font-size:12px}
+
+    .btn{
+      display:inline-flex;align-items:center;justify-content:center;gap:8px;
+      padding:10px 14px;border-radius:10px;border:1px solid transparent;
+      cursor:pointer;font-weight:600;color:var(--text);background:#24262c;
+      transition:transform .04s ease,border-color .15s ease,background .15s ease;
+    }
+    .btn:hover{transform:translateY(-1px)}
+    .btn:active{transform:translateY(0)}
+    .btn.primary{background:var(--accent)}
+    .btn.success{background:var(--success)}
+    .btn.warning{background:var(--reset);color:#111}
+    .btn.danger{background:var(--danger)}
+    .btn.ghost{background:#30333a;border-color:rgba(255,255,255,.12)}
+    .btn.small{padding:7px 10px;font-size:12px}
+
     .grid{display:grid;grid-template-columns:repeat(12,1fr);gap:var(--gap);margin-top:var(--gap);}
-    .col-4{grid-column:span 4} .col-6{grid-column:span 6} .col-8{grid-column:span 8} .col-12{grid-column:span 12}
-    @media (max-width:920px){.col-4,.col-6,.col-8{grid-column:span 12}}
+    .col-4{grid-column:span 4}
+    .col-6{grid-column:span 6}
+    .col-8{grid-column:span 8}
+    .col-12{grid-column:span 12}
+
     .card{background:var(--card);border:1px solid rgba(255,255,255,.06);border-radius:var(--radius);overflow:hidden;}
-    .card-header{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:16px 18px;border-bottom:1px solid rgba(255,255,255,.06);}
+    .card-header{
+      display:flex;align-items:center;justify-content:space-between;gap:10px;
+      padding:16px 18px;border-bottom:1px solid rgba(255,255,255,.06);
+    }
     .card-title{font-weight:700;letter-spacing:.2px;}
     .card-subtle{color:var(--muted);font-size:12px;}
     .card-body{padding:16px 18px;}
+
     .field{display:flex;flex-direction:column;gap:8px;margin-bottom:12px;}
     .field label{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.08em;}
     .input{background:#101216;color:var(--text);border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:10px 12px;outline:none;}
     .input:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(233,30,99,.15);}
+
     .inline-actions{display:flex;flex-wrap:wrap;gap:10px;}
-    .status{display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border-radius:10px;background:#0f1319;color:var(--muted);
-            border:1px solid rgba(255,255,255,.08);font-weight:600;}
-    .chip{display:inline-flex;align-items:center;gap:6px;padding:4px 8px;border-radius:999px;background:#0f1319;border:1px solid rgba(255,255,255,.1);
-          font-size:12px;color:var(--muted);}
+    @media (max-width: 720px){
+      .inline-actions{flex-direction:column}
+      .inline-actions > *{width:100%}
+      .inline-actions .btn{width:100%}
+      .inline-actions .status{justify-content:center}
+    }
+
+    .status{
+      display:inline-flex;align-items:center;gap:8px;padding:10px 12px;border-radius:10px;
+      background:#0f1319;color:var(--muted);border:1px solid rgba(255,255,255,.08);font-weight:600;
+    }
+
+    .chip{
+      display:inline-flex;align-items:center;gap:6px;padding:4px 8px;border-radius:999px;
+      background:#0f1319;border:1px solid rgba(255,255,255,.1);font-size:12px;color:var(--muted);
+    }
+
     table{width:100%;border-collapse:separate;border-spacing:0 6px;}
     thead th{text-align:left;font-size:12px;color:var(--muted);padding:6px 10px;}
     tbody tr{background:#121318;border:1px solid rgba(255,255,255,.06);}
     tbody td{padding:10px;}
+    .table-scroll{max-height:280px;overflow:auto;border:1px solid rgba(255,255,255,.06);border-radius:12px;}
+
     .gallery{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;}
     .tile{background:#121318;border:1px solid rgba(255,255,255,.06);border-radius:12px;overflow:hidden;}
     .tile .media{width:100%;height:200px;object-fit:cover;display:block;}
     .tile .meta{padding:10px;color:var(--muted);font-size:12px;display:flex;align-items:center;justify-content:space-between;gap:8px;}
-    #login-section{max-width:420px;margin:50px auto;background:var(--card);border:1px solid rgba(255,255,255,.06);border-radius:var(--radius);padding:22px;}
+
+    #login-section{
+      max-width:420px;margin:32px auto;background:var(--card);
+      border:1px solid rgba(255,255,255,.06);border-radius:var(--radius);padding:22px;
+    }
     #login-section h2{margin:0 0 10px 0}
+
+    @media (max-width: 920px){
+      .col-4,.col-6,.col-8{grid-column:span 12}
+    }
+    @media (max-width: 560px){
+      .container{padding:16px}
+      .topbar-inner{padding:12px 16px}
+      .card-header,.card-body{padding:14px 16px}
+    }
+
     .muted{color:var(--muted)}
     .mt-8{margin-top:8px} .mt-12{margin-top:12px} .mt-16{margin-top:16px} .mt-20{margin-top:20px}
     .mb-0{margin-bottom:0} .mb-8{margin-bottom:8px} .mb-16{margin-bottom:16px}
@@ -68,7 +122,6 @@
     <div class="topbar-inner">
       <div class="brand">
         <img src="https://pub-d919971fb927454bab9481eee8a435e3.r2.dev/logo-horizontal-white.png" alt="90 Surge" />
-        <span>Admin Panel</span>
       </div>
       <div class="spacer"></div>
       <span id="role-banner" class="badge" title="Your current permission"></span>
@@ -93,25 +146,22 @@
     <!-- MAIN CONTENT -->
     <section id="admin-content" style="display:none;">
       <div class="grid">
-        <!-- Controls -->
-        <div class="card col-12">
+        <!-- Controls (ADMIN ONLY) -->
+        <div class="card col-12 admin-only-block">
           <div class="card-header">
             <div class="card-title">Controls</div>
             <div class="card-subtle">Quick actions for the show</div>
           </div>
           <div class="card-body">
-            <!-- Row 1: Warm + Status -->
             <div class="inline-actions">
               <button class="btn" id="warm-redis-btn">Warm Redis</button>
               <span id="redis-status" class="status">Status: —</span>
             </div>
-            <!-- Row 2: Resets -->
             <div class="inline-actions mt-12">
               <button class="btn warning admin-only" id="reset-votes-btn">Reset All Votes</button>
               <button class="btn ghost admin-only" id="reset-social-clicks">Reset Social Links</button>
               <button class="btn ghost admin-only" id="reset-winner-btn">Reset Winner</button>
             </div>
-            <!-- Row 3: Nuclear + Power -->
             <div class="inline-actions mt-12">
               <button class="btn danger admin-only" id="clearAllBtn">🧨 Clear All</button>
               <button class="btn danger" id="shutdown-toggle-btn">Shut Down App</button>
@@ -119,8 +169,20 @@
           </div>
         </div>
 
-        <!-- Config -->
-        <div class="card col-6">
+        <!-- 🎉 Raffle (ADMIN ONLY) -->
+        <div class="card col-12 admin-only-block">
+          <div class="card-header"><div class="card-title">🎉 Raffle</div></div>
+          <div class="card-body">
+            <div class="inline-actions">
+              <button class="btn primary admin-only" id="pick-winner-btn">Pick Random Winner</button>
+              <div id="winnerDisplay" class="status">No winner yet</div>
+            </div>
+            <div id="entries-by-user" class="mt-16"></div>
+          </div>
+        </div>
+
+        <!-- Config (ADMIN ONLY) -->
+        <div class="card col-6 admin-only-block">
           <div class="card-header"><div class="card-title">Show Config</div></div>
           <div class="card-body">
             <div class="field">
@@ -143,15 +205,15 @@
           </div>
         </div>
 
-        <!-- Social status -->
-        <div class="card col-6">
+        <!-- Social status (ADMIN ONLY) -->
+        <div class="card col-6 admin-only-block">
           <div class="card-header">
             <div class="card-title">Social Follows</div>
             <span class="card-subtle">Live from server</span>
           </div>
           <div class="card-body">
             <div id="social-totals" class="mb-8">Loading…</div>
-            <div style="max-height:280px;overflow:auto;border:1px solid rgba(255,255,255,.06);border-radius:12px;">
+            <div class="table-scroll">
               <table id="social-table">
                 <thead>
                   <tr>
@@ -165,19 +227,7 @@
           </div>
         </div>
 
-        <!-- Winner -->
-        <div class="card col-12">
-          <div class="card-header"><div class="card-title">🎉 Raffle</div></div>
-          <div class="card-body">
-            <div class="inline-actions">
-              <button class="btn primary admin-only" id="pick-winner-btn">Pick Random Winner</button>
-              <div id="winnerDisplay" class="status">No winner yet</div>
-            </div>
-            <div id="entries-by-user" class="mt-16"></div>
-          </div>
-        </div>
-
-        <!-- Gallery -->
+        <!-- Gallery (Admins + Moderators) -->
         <div class="card col-12">
           <div class="card-header">
             <div class="card-title">Uploads</div>
@@ -230,19 +280,16 @@
       try{
         const res = await fetch('/api/admin?action=redis-status');
         const d = await res.json();
-
         const status = d.status || 'unknown';
         const ping = d.pingMs ?? d.latencyMs ?? null;
         const keys = d.keyCount ?? d.keys ?? null;
         const when = d.lastWarmAt ? new Date(d.lastWarmAt).toLocaleString() : '—';
         const rate = (d.hitRate!=null) ? `${d.hitRate}%` : '—';
         const seeded = (d.seeded!=null) ? d.seeded : '—';
-
         el.textContent =
           `Status: ${status==='active' ? '✅ Active' : '❓ Unknown'}  |  ` +
           `Ping: ${ping ?? '—'}ms  |  Keys: ${keys ?? '—'}  |  ` +
           `Seeded: ${seeded}  |  Last warm: ${when}  |  Hit rate: ${rate}`;
-
         el.style.color = status==='active' ? 'var(--success)' : 'var(--muted)';
       }catch(e){
         el.textContent = 'Status: ❌ Error';
@@ -288,7 +335,7 @@
         if(!res.ok) throw new Error('toggle failed');
         await checkShutdownStatusAndLabel();
         toast('App shutdown status updated','success');
-        localStorage.setItem('shutdownToggle', Date.now()); // ping user tabs
+        localStorage.setItem('shutdownToggle', Date.now());
       }catch(e){ toast('Failed to update shutdown','error'); }
     }
 
@@ -531,43 +578,55 @@
     document.addEventListener('DOMContentLoaded', async ()=>{
       $('#login-btn').addEventListener('click', handleLogin);
       $('#logout-btn').addEventListener('click', logout);
-      $('#warm-redis-btn').addEventListener('click', warmRedis);
-      $('#shutdown-toggle-btn').addEventListener('click', toggleShutdown);
-      $('#save-config-btn').addEventListener('click', saveConfig);
-      $('#pick-winner-btn').addEventListener('click', pickWinner);
-      $('#reset-social-clicks').addEventListener('click', resetSocialClicks);
-      $('#reset-votes-btn').addEventListener('click', resetVotes);
-      $('#clearAllBtn').addEventListener('click', clearAll);
-      $('#reset-winner-btn').addEventListener('click', resetWinner);
 
+      // Role gate
       const role = localStorage.getItem('role');
       const login = $('#login-section');
       const app = $('#admin-content');
+
       if(!role){
         login.style.display='block'; app.style.display='none';
         $('#role-banner').textContent='Logged out'; $('#logout-btn').style.display='none';
         return;
       }
       login.style.display='none'; app.style.display='block'; $('#logout-btn').style.display='inline-flex';
+
       const banner = $('#role-banner');
+
       if(role==='moderator'){
         banner.textContent='Moderator'; banner.classList.add('badge','moderator');
-        $$('.admin-only').forEach(el=> el.style.display='none');
-        $('#clearAllBtn').style.display='none';
-        $('#reset-social-clicks').style.display='none';
+
+        // Hide all admin-only blocks entirely
+        $$('.admin-only-block').forEach(el => el.style.display = 'none');
+        // Also hide any admin-only buttons that might remain
+        $$('.admin-only').forEach(el => el.style.display = 'none');
+
+        // Don’t register admin-only handlers
       }else{
         banner.textContent='Admin'; banner.classList.add('badge','admin');
-        $('#clearAllBtn').style.display='inline-flex';
-        $('#reset-social-clicks').style.display='inline-flex';
+
+        // Admin-only button handlers
+        $('#warm-redis-btn')?.addEventListener('click', warmRedis);
+        $('#shutdown-toggle-btn')?.addEventListener('click', toggleShutdown);
+        $('#save-config-btn')?.addEventListener('click', saveConfig);
+        $('#pick-winner-btn')?.addEventListener('click', pickWinner);
+        $('#reset-social-clicks')?.addEventListener('click', resetSocialClicks);
+        $('#reset-votes-btn')?.addEventListener('click', resetVotes);
+        $('#clearAllBtn')?.addEventListener('click', clearAll);
+        $('#reset-winner-btn')?.addEventListener('click', resetWinner);
       }
 
-      await loadConfig();
+      // Always: gallery (mods can delete)
       await loadAdminGallery();
-      await loadSocialStatus();
-      await checkRedisStatus();
-      await checkShutdownStatusAndLabel();
 
-      setInterval(loadSocialStatus, 15000);
+      if(role !== 'moderator'){
+        // Admin-only data fetch / timers
+        await loadConfig();
+        await loadSocialStatus();
+        await checkRedisStatus();
+        await checkShutdownStatusAndLabel();
+        setInterval(loadSocialStatus, 15000);
+      }
     });
   </script>
 </body>
