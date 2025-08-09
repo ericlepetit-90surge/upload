@@ -8,7 +8,7 @@
   --muted: #a3a7b3;
   --accent-color: #d81b60;
   --file-picker: #b45353;
-  --font: "Helvetica Neue", sans-serif;
+  --font: "Helvetica Neue", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
   --border-radius: 12px;
 }
 
@@ -17,12 +17,9 @@
 =========================== */
 *,
 *::before,
-*::after {
-  box-sizing: border-box;
-}
+*::after { box-sizing: border-box; }
 
-html,
-body {
+html, body {
   margin: 0;
   padding: 0;
   background: var(--primary-bg);
@@ -37,16 +34,12 @@ body {
   flex-direction: column;
   align-items: center;
   padding: 1rem;
+  -webkit-tap-highlight-color: transparent; /* iOS tap flash off */
 }
 
-.hidden {
-  display: none !important;
-}
-img {
-  max-width: 100%;
-  height: auto;
-  display: block;
-}
+.hidden { display: none !important; }
+
+img { max-width: 100%; height: auto; display: block; }
 
 h1 {
   font-size: 1.6rem;
@@ -54,45 +47,24 @@ h1 {
   margin-bottom: 1rem;
 }
 
-#headline {
-  font-size: 1.3rem;
-  margin: 0 !important;
-}
+#headline { font-size: 1.3rem; margin: 0 !important; }
 
 /* ===========================
    Animations
 =========================== */
-@keyframes flash {
-  10%,
-  30%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.25;
-  }
-}
-.blink {
-  animation: flash 2s infinite;
-}
+@keyframes flash { 10%,30%,100% {opacity:1} 50% {opacity:.25} }
+.blink { animation: flash 2s infinite; }
 
 @keyframes shake {
-  0%,
-  100% {
-    transform: translateX(0);
-  }
-  25% {
-    transform: translateX(-5px);
-  }
-  50% {
-    transform: translateX(5px);
-  }
-  75% {
-    transform: translateX(-5px);
-  }
+  0%,100% { transform: translateX(0); }
+  25% { transform: translateX(-5px); }
+  50% { transform: translateX(5px); }
+  75% { transform: translateX(-5px); }
 }
-.shake {
-  animation: shake 0.4s;
+.shake { animation: shake .4s; }
+
+@media (prefers-reduced-motion: reduce) {
+  .blink, .shake { animation: none !important; }
 }
 
 /* ===========================
@@ -100,19 +72,19 @@ h1 {
 =========================== */
 form {
   background: var(--card-bg);
-  padding: 0.1rem;
+  padding: .1rem;
   border-radius: var(--border-radius);
   width: 100%;
   max-width: 420px;
   margin: 0 auto;
-  box-shadow: 0 4px 16px rgba(255, 255, 255, 0.05);
+  box-shadow: 0 4px 16px rgba(255,255,255,.05);
   display: flex;
   flex-direction: column;
   gap: 1rem;
 }
 
 .rules {
-  font-size: 0.85rem;
+  font-size: .85rem;
   background: var(--card-bg);
   padding: 0 1.1rem;
   border-radius: 10px;
@@ -121,14 +93,8 @@ form {
   max-width: 100%;
 }
 
-.rules h2 {
-  font-size: 1.5rem;
-  margin-top: 1.25rem;
-}
-.rules h2.raffle {
-  font-size: 1.4rem;
-  line-height: 1.5rem;
-}
+.rules h2 { font-size: 1.5rem; margin-top: 1.25rem; }
+.rules h2.raffle { font-size: 1.4rem; line-height: 1.5rem; }
 
 .rules ol {
   list-style: decimal inside;
@@ -137,94 +103,49 @@ form {
   font-size: 1.1rem;
   line-height: 1.5rem;
 }
-.rules li {
-  margin: 0 0 1.5rem 0;
-  line-height: 1.2rem;
-}
-.rules ol > li:last-child {
-  margin-bottom: 0;
-}
+.rules li { margin: 0 0 1.5rem 0; line-height: 1.2rem; }
+.rules ol > li:last-child { margin-bottom: 0; }
 
-.input-group {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-  width: 100%;
-}
-.input-label {
-  font-size: 1rem;
-  font-weight: bold;
-  color: var(--text-color);
-}
+.input-group { display: flex; flex-direction: column; gap: .25rem; width: 100%; }
+.input-label { font-size: 1rem; font-weight: bold; color: var(--text-color); }
 
 input[type="text"],
 input[type="file"] {
   background: #2c2c2c;
   color: var(--text-color);
   border: 1px solid #444;
-  padding: 0.75rem;
-  margin-top: 0.5rem;
+  padding: .75rem;
+  margin-top: .5rem;
   border-radius: 8px;
   width: 100%;
   font-size: 1rem;
-  transition: border-color 0.2s ease;
+  transition: border-color .2s ease;
 }
-
 input[type="text"]:focus,
-input[type="file"]:focus {
-  outline: none;
-  border-color: var(--accent-color);
-}
-input[type="text"]::placeholder {
-  color: #aaa;
-  opacity: 0.7;
-}
+input[type="file"]:focus { outline: none; border-color: var(--accent-color); }
+input[type="text"]::placeholder { color: #aaa; opacity: .7; }
 
+/* Native file button (kept for browsers that show it) */
 input[type="file"]::file-selector-button {
   background: var(--file-picker);
   color: #fff;
   border: none;
-  padding: 0.4rem 0.75rem;
+  padding: .4rem .75rem;
   border-radius: 6px;
   cursor: pointer;
   font-weight: bold;
-  margin-right: 0.75rem;
-}
-input[type="file"]::file-selector-button:hover {
-  background: #d81b60;
+  margin-right: .75rem;
 }
 
-/* Buttons */
-button {
-  background-color: var(--accent-color);
-  color: #fff;
-  font-weight: bold;
-  padding: 0.75rem;
-  border: none;
-  border-radius: 8px;
-  cursor: pointer;
-  transition: background 0.2s ease;
-  width: 100%;
-  font-size: 17px;
-}
-button:hover {
-  background-color: #d81b60;
-}
-button:disabled {
-  background: #555 !important;
-  cursor: not-allowed !important;
-  opacity: 0.6 !important;
-  pointer-events: none;
-}
-
+/* Custom file control (recommended) */
 .file-picker {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-  padding-top: 0.5rem;
+  gap: .75rem;
+  padding-top: .5rem;
 }
 
-/* visually hide the native control */
+/* visually hide the native input; trigger via label[for="file"] or JS click */
 #file {
   position: absolute;
   left: -9999px;
@@ -233,100 +154,115 @@ button:disabled {
   overflow: hidden;
 }
 
-/* your custom button */
 .file-btn {
-  background: var(--file-picker); /* change color here */
+  background: var(--file-picker);
   color: #fff;
-  padding: 0.6rem 1rem;
+  padding: .6rem 1rem;
   border-radius: 8px;
   font-weight: 700;
   cursor: pointer;
   display: inline-block;
 }
-.file-btn:hover {
-  background: #d81b60;
+.file-picked { font-size: .9rem; color: #aaa; }
+.file-picked:empty { display: none; } /* hide “no file chosen” entirely */
+
+.form-note { padding: 0 1rem; }
+
+/* ===========================
+   Buttons (consistent states)
+=========================== */
+button,
+.follow-btn-fb,
+.follow-btn-ig,
+.btn-compact {
+  background-color: var(--accent-color);
+  color: #fff;
+  font-weight: bold;
+  padding: .75rem;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  width: 100%;
+  font-size: 17px;
+  transition: background .2s ease, box-shadow .2s ease;
+  -webkit-tap-highlight-color: transparent;
 }
 
-/* optional filename (hidden until there is one) */
-.file-picked {
-  font-size: 0.9rem;
-  color: #aaa;
+button:hover,
+button:focus,
+button:active,
+.follow-btn-fb:hover,
+.follow-btn-fb:focus,
+.follow-btn-fb:active,
+.follow-btn-ig:hover,
+.follow-btn-ig:focus,
+.follow-btn-ig:active,
+.btn-compact:hover,
+.btn-compact:focus,
+.btn-compact:active {
+  background-color: var(--accent-color); /* no color change on click/tap */
+  outline: none;
 }
-.file-picked:empty {
-  display: none;
-} /* removes the “no file chosen” text entirely */
 
-.form-note {
-  padding: 0 1rem;
+button:disabled {
+  background: #555 !important;
+  cursor: not-allowed !important;
+  opacity: .6 !important;
+  pointer-events: none;
+}
+
+/* Social-specific colors */
+.follow-btn-fb,
+.follow-btn-fb:hover,
+.follow-btn-fb:focus,
+.follow-btn-fb:active { background: #1877f2; }
+
+.follow-btn-ig,
+.follow-btn-ig:hover,
+.follow-btn-ig:focus,
+.follow-btn-ig:active { background: #c13584; }
+
+/* Compact vote button */
+.btn-compact {
+  padding: 6px 10px;
+  font-size: 12px;
+  border-radius: 8px;
+  width: auto;
+}
+.btn-compact[disabled] {
+  background: #2b2f36;
+  color: #9aa0ac;
+  cursor: not-allowed;
+  border: 1px solid rgba(255,255,255,.12);
 }
 
 /* ===========================
    Social follow links / counters
 =========================== */
-#follow-gate {
-  padding-top: 7px;
-}
-.logo-wrap {
-  display: flex;
-  justify-content: center;
-}
-.follow-links {
-  display: flex;
-  justify-content: center;
-  gap: 1rem;
-}
-
-.follow-btn-fb,
-.follow-btn-ig {
-  color: #fff;
-  padding: 0.5rem 1rem;
-  border-radius: 8px;
-  text-decoration: none;
-  font-weight: bold;
-  display: inline-block;
-}
-.follow-btn-fb {
-  background: #1877f2;
-}
-.follow-btn-ig {
-  background: #c13584;
-}
+#follow-gate { padding-top: 7px; }
+.logo-wrap { display: flex; justify-content: center; }
+.follow-links { display: flex; justify-content: center; gap: 1rem; }
 
 .followers-wrapper {
   display: flex;
-  gap: 0.5rem;
+  gap: .5rem;
   flex-wrap: wrap;
   justify-content: center;
   align-items: center;
-  margin: 0.5rem 0;
+  margin: .5rem 0;
 }
-.follower-block {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  font-size: 1rem;
-}
+.follower-block { display: flex; align-items: center; gap: .4rem; font-size: 1rem; }
 
 /* ===========================
    Progress + Messages
 =========================== */
-progress {
-  height: 10px;
-  border-radius: 5px;
-  width: 100%;
-}
-.message {
-  text-align: center;
-  font-size: 1rem;
-  color: green;
-}
+progress { height: 10px; border-radius: 5px; width: 100%; }
+.message { text-align: center; font-size: 1rem; color: green; }
 
 /* ===========================
    CTA (locked/unlocked)
 =========================== */
-.cta-state {
-  width: 100%;
-}
+.cta-state { width: 100%; }
 
 /* hidden by default; JS adds .show */
 .cta-message {
@@ -340,17 +276,9 @@ progress {
   color: orange;
 }
 
-.cta-guard {
-  cursor: pointer;
-  position: relative;
-}
-.cta-guard:hover button[disabled] {
-  filter: brightness(0.95);
-}
-.cta-guard:focus {
-  outline: 2px solid var(--accent-color);
-  outline-offset: 4px;
-}
+.cta-guard { cursor: pointer; position: relative; }
+.cta-guard:hover button[disabled] { filter: brightness(.95); }
+.cta-guard:focus { outline: 2px solid var(--accent-color); outline-offset: 4px; }
 
 /* Center + stabilize CTA */
 #upload-cta {
@@ -365,8 +293,7 @@ progress {
 }
 
 /* make both states behave identically */
-#cta-locked,
-#cta-unlocked {
+#cta-locked, #cta-unlocked {
   width: 100%;
   display: flex;
   justify-content: center;
@@ -374,15 +301,10 @@ progress {
 }
 
 /* keep the clickable guard centered */
-#cta-guard {
-  width: 100%;
-  display: flex;
-  justify-content: center;
-}
+#cta-guard { width: 100%; display: flex; justify-content: center; }
 
 /* consistent button sizing + centering */
-#upload-btn,
-#upload-btn-disabled {
+#upload-btn, #upload-btn-disabled {
   display: block;
   width: 100%;
   max-width: 360px;
@@ -392,20 +314,12 @@ progress {
   font-size: 1.05rem;
   box-sizing: border-box;
 }
-#upload-btn:active,
-#upload-btn-disabled:active {
-  transform: none;
-}
+#upload-btn:active, #upload-btn-disabled:active { transform: none; }
 
 /* ===========================
    Section Titles
 =========================== */
-.raffle-title {
-  text-align: center;
-  color: #ff5900;
-  padding-bottom: 1rem;
-}
-.section-title {
+.raffle-title, .section-title {
   text-align: center;
   color: #ff5900;
   padding-bottom: 1rem;
@@ -430,63 +344,35 @@ progress {
    Image Modal
 =========================== */
 #imageModal {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.9);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 9999;
-  padding: 1rem;
-  box-sizing: border-box;
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,.9);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 9999; padding: 1rem; box-sizing: border-box;
 }
-#imageModal.hidden {
-  display: none;
-}
+#imageModal.hidden { display: none; }
 #imageModal img {
-  max-width: 90vw;
-  max-height: 90vh;
-  border: 4px solid #fff;
-  border-radius: 10px;
+  max-width: 90vw; max-height: 90vh;
+  border: 4px solid #fff; border-radius: 10px;
 }
 
 /* ===========================
    Winner Modal
 =========================== */
 .winner-modal {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.95);
-  color: #fff;
-  z-index: 9999;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  flex-direction: column;
-  text-align: center;
-  padding: 2rem;
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,.95); color: #fff; z-index: 9999;
+  display: flex; justify-content: center; align-items: center; flex-direction: column;
+  text-align: center; padding: 2rem;
 }
-.winner-title {
-  font-size: 3rem;
-  margin: 0;
-}
-.winner-name {
-  font-size: 2rem;
-  margin-top: 1rem;
-}
+.winner-title { font-size: 3rem; margin: 0; }
+.winner-name { font-size: 2rem; margin-top: 1rem; }
 .btn-modal-close {
-  margin-top: 2rem;
-  padding: 0.8rem 1.5rem;
-  font-size: 1rem;
-  background: var(--accent-color);
-  border: none;
-  color: white;
-  border-radius: 8px;
-  cursor: pointer;
+  margin-top: 2rem; padding: .8rem 1.5rem; font-size: 1rem;
+  background: var(--accent-color); border: none; color: #fff; border-radius: 8px; cursor: pointer;
 }
 
 /* ===========================
-   Gallery (Admin-style, mobile-first)
+   Gallery (mobile-first)
 =========================== */
 .gallery {
   display: grid;
@@ -495,28 +381,22 @@ progress {
   margin-top: 1rem;
   width: 100%;
   max-width: 1200px;
-  margin-left: auto;
-  margin-right: auto;
+  margin-left: auto; margin-right: auto;
+}
+@media (max-width: 380px) {
+  .gallery { grid-template-columns: 1fr; }
 }
 
 .card {
   background: #121318;
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 12px;
-  overflow: hidden;
-  transition: transform 0.12s ease, box-shadow 0.12s ease;
+  border: 1px solid rgba(255,255,255,.06);
+  border-radius: 12px; overflow: hidden;
+  transition: transform .12s ease, box-shadow .12s ease;
 }
-.card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
-}
+.card:hover { transform: translateY(-2px); box-shadow: 0 6px 18px rgba(0,0,0,.35); }
 
-.card img,
-.card video {
-  width: 100%;
-  height: 200px;
-  object-fit: cover;
-  display: block;
+.card img, .card video {
+  width: 100%; height: 200px; object-fit: cover; display: block;
 }
 
 /* Footer layout:
@@ -532,21 +412,16 @@ progress {
   color: var(--muted);
   font-size: 12px;
   background: transparent;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  border-top: 1px solid rgba(255,255,255,.06);
 }
 
-/* username (already a direct child <span>) */
 .card .info > span {
   grid-column: 1 / 2; /* left side, row 1 */
   grid-row: 1 / 2;
   font-weight: 600;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  min-width: 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;
 }
 
-/* vote count element */
 .vote-info {
   grid-column: 2 / 3; /* right side, row 1 */
   grid-row: 1 / 2;
@@ -555,31 +430,12 @@ progress {
   color: #cfd3df;
 }
 
-/* vote button wrapper (second row, spans both columns) */
 .vote-row {
-  grid-column: 1 / -1;
-  grid-row: 2 / 3;
-  display: flex;
-  justify-content: flex-end; /* or 'center' if you prefer centered button */
+  grid-column: 1 / -1; grid-row: 2 / 3;
+  display: flex; justify-content: flex-end; /* use 'center' to center it */
 }
 
-/* Compact vote button */
-.btn-compact {
-  padding: 6px 10px;
-  font-size: 12px;
-  border-radius: 8px;
-  background: var(--accent-color);
-  color: #fff;
-  border: 1px solid transparent;
-  cursor: pointer;
-}
-.btn-compact[disabled] {
-  background: #2b2f36;
-  color: #9aa0ac;
-  cursor: not-allowed;
-  border-color: rgba(255, 255, 255, 0.12);
-}
-
-.disclaimer {
-  font-size: 11px;
-}
+/* ===========================
+   Misc
+=========================== */
+.disclaimer { font-size: 11px; }
