@@ -44,36 +44,62 @@ function isAndroid(){ return /android/i.test(navigator.userAgent); }
 function openWithDeepLink(e, { iosScheme, androidIntent, webUrl }) {
   if (e) e.preventDefault();
 
+  // Open a placeholder tab *synchronously* (allowed by popup blockers)
+  // If the app opens, we close this tab; otherwise we load the web URL in it.
+  let fallbackTab = null;
+  try {
+    fallbackTab = window.open('about:blank', '_blank', 'noopener'); // may be null if blocked
+  } catch {}
+
   let leftPage = false;
   const cleanup = () => {
-    document.removeEventListener("visibilitychange", onHide);
-    window.removeEventListener("pagehide", onHide);
-    window.removeEventListener("blur", onHide);
+    document.removeEventListener("visibilitychange", onHide, true);
+    window.removeEventListener("pagehide", onHide, true);
+    window.removeEventListener("blur", onHide, true);
     clearTimeout(timer);
   };
   const onHide = () => { leftPage = true; cleanup(); };
 
-  document.addEventListener("visibilitychange", onHide, { once: true });
-  window.addEventListener("pagehide", onHide, { once: true });
-  window.addEventListener("blur", onHide, { once: true });
+  // Detect native-app switch
+  document.addEventListener("visibilitychange", onHide, { once: true, capture: true });
+  window.addEventListener("pagehide", onHide, { once: true, capture: true });
+  window.addEventListener("blur", onHide, { once: true, capture: true });
 
-  // Fallback ONLY if we stayed on the page
+  // Fallback AFTER we gave the app time to launch
   const timer = setTimeout(() => {
-    if (!leftPage) window.location.href = webUrl;
+    if (!leftPage) {
+      if (fallbackTab) {
+        try { fallbackTab.location = webUrl; }
+        catch { window.location.href = webUrl; } // extreme fallback
+      } else {
+        // If popup blocked, navigate current tab as last resort
+        window.location.href = webUrl;
+      }
+    } else {
+      // App opened — close the placeholder tab if it exists
+      try { fallbackTab && fallbackTab.close(); } catch {}
+    }
     cleanup();
-  }, 1200); // 1.2s is a good balance
+  }, 1400); // slightly longer to avoid “double open” prompts
 
   // Kick the native app
   if (isiOS()) {
+    // iOS prefers scheme URLs
     window.location.href = iosScheme;
   } else if (isAndroid()) {
-    window.location.href = androidIntent; // Chrome understands intent://
+    // Chrome Android understands intent://
+    window.location.href = androidIntent;
   } else {
-    // Desktop: just open web in a new tab
-    window.open(webUrl, "_blank", "noopener");
+    // Desktop: just use web
+    if (fallbackTab) {
+      try { fallbackTab.location = webUrl; } catch { window.open(webUrl, '_blank'); }
+    } else {
+      window.open(webUrl, '_blank', 'noopener');
+    }
     cleanup();
   }
 }
+
 
 // Facebook
 async function openFacebook(e){
@@ -220,7 +246,7 @@ function buildFollowGate() {
   gate.innerHTML = `
     <div class="follow-links" style="display:flex; justify-content:center; gap:1rem;">
       <a href="${FB_PAGE_URL}" class="follow-btn-fb" onclick="openFacebook(event)">Facebook</a>
-      <a href="${IG_WEB_URL}"  class="follow-btn-ig" onclick="openInstagram(event)">Instagram</a>
+      <a href="${IG_WEB_URL}" class="follow-btn-ig" onclick="openInstagram(event)">Instagram</a>
     </div>`;
   gate.style.display = "block";
 }
