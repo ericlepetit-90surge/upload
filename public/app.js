@@ -674,7 +674,12 @@ async function init() {
       progress.value = 100;
       localStorage.setItem(uploadKey, "1");
       loadGallery();
-      setTimeout(() => (message.textContent = ""), 3000);
+      // hide success message + progress bar after 3s
+      setTimeout(() => {
+        message.textContent = "";
+        progress.style.display = "none";
+        progress.value = 0; // reset for next upload
+      }, 3000);
     } catch (err) {
       console.error("❌ Upload error:", err);
       message.style.color = "red";
