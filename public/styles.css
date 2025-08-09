@@ -50,7 +50,7 @@ h1 {
 /* ===========================
    Animations
 =========================== */
-@keyframes flash { 0%,100% {opacity:1} 50% {opacity:.25} }
+@keyframes flash { 10%,30%, 100% {opacity:1} 50% {opacity:.25} }
 .blink { animation: flash 2s infinite; }
 
 @keyframes shake {
@@ -69,7 +69,7 @@ form {
   padding: .1rem;
   border-radius: var(--border-radius);
   width: 100%;
-  max-width: 420px;          /* form stays narrow (gallery can be wider if moved outside) */
+  max-width: 420px;
   margin: 0 auto;
   box-shadow: 0 4px 16px rgba(255,255,255,.05);
   display: flex;
@@ -150,7 +150,7 @@ button:disabled {
   background: #555 !important;
   cursor: not-allowed !important;
   opacity: .6 !important;
-  pointer-events: none;  /* wrapper handles clicks */
+  pointer-events: none;
 }
 
 .form-note { padding: 0 1rem; }
@@ -195,18 +195,47 @@ progress { height: 10px; border-radius: 5px; width: 100%; }
 =========================== */
 .cta-state { width: 100%; }
 
-.cta-guard {
-  cursor: pointer;
-  position: relative;
-}
+/* hidden by default; JS adds .show */
+.cta-message { display: none; text-align: center; margin: 0 auto; }
+.cta-message.show { display: block; min-height: 1.25rem; color: orange; }
+
+.cta-guard { cursor: pointer; position: relative; }
 .cta-guard:hover button[disabled] { filter: brightness(.95); }
 .cta-guard:focus { outline: 2px solid var(--accent-color); outline-offset: 4px; }
 
-.cta-message {
+/* Center + stabilize CTA */
+#upload-cta {
+  margin: 0 auto;
+  padding: 0 16px;
+  max-width: 520px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
   text-align: center;
-  margin: .5rem 0 .25rem;
-  min-height: 1.25rem;     /* keep layout stable */
 }
+
+/* make both states behave identically */
+#cta-locked,
+#cta-unlocked { width: 100%; display: flex; justify-content: center; align-items: center; }
+
+/* keep the clickable guard centered */
+#cta-guard { width: 100%; display: flex; justify-content: center; }
+
+/* consistent button sizing + centering */
+#upload-btn,
+#upload-btn-disabled {
+  display: block;
+  width: 100%;
+  max-width: 360px;
+  margin: 0 auto;
+  padding: 14px 22px;
+  border-radius: 12px;
+  font-size: 1.05rem;
+  box-sizing: border-box;
+}
+#upload-btn:active,
+#upload-btn-disabled:active { transform: none; }
 
 /* ===========================
    Section Titles
@@ -214,12 +243,13 @@ progress { height: 10px; border-radius: 5px; width: 100%; }
 .raffle-title { text-align: center; color: #ff5900; padding-bottom: 1rem; }
 .section-title { text-align: center; color: #ff5900; padding-bottom: 1rem; }
 .gallery-title {
-  margin-top: 2rem;
-  font-size: 1.7rem;
+  margin: 1rem 0;
+  font-size: 1.6rem;
   font-weight: bold;
   text-align: center;
-  color: #c7ff3a;
+  background-color: #4aeaff;
   padding-bottom: 0;
+  color: #212121
 }
 .scroll-cta { text-align: center; line-height: 1.5rem; font-size: 1.5rem; color: #9edfff; }
 
@@ -276,20 +306,18 @@ progress { height: 10px; border-radius: 5px; width: 100%; }
 
 /* ===========================
    Gallery (Admin-style, mobile-first)
-   NOTE: Make sure your HTML uses: <div id="gallery" class="gallery"></div>
 =========================== */
 .gallery {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));   /* always 2 columns (mobile-first) */
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
   margin-top: 1rem;
   width: 100%;
-  max-width: 1200px;      /* if you move gallery outside the narrow form, it can grow */
+  max-width: 1200px;
   margin-left: auto;
   margin-right: auto;
 }
 
-/* Card look aligned with admin tiles */
 .card {
   background: #121318;
   border: 1px solid rgba(255,255,255,.06);
@@ -299,7 +327,6 @@ progress { height: 10px; border-radius: 5px; width: 100%; }
 }
 .card:hover { transform: translateY(-2px); box-shadow: 0 6px 18px rgba(0,0,0,.35); }
 
-/* Media area height like admin */
 .card img,
 .card video {
   width: 100%;
@@ -308,65 +335,65 @@ progress { height: 10px; border-radius: 5px; width: 100%; }
   display: block;
 }
 
-/* Footer/meta strip — uploader on left, actions on right */
+/* Footer layout:
+   - Row 1: username (left) + likes (right)
+   - Row 2: vote button
+*/
 .card .info {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-rows: auto auto;
+  gap: 6px 8px;
   padding: 10px;
   color: var(--muted);
   font-size: 12px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
   background: transparent;
   border-top: 1px solid rgba(255,255,255,.06);
 }
 
-/* Right-side actions (likes + upvote) */
-.meta-actions {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
+/* username (already a direct child <span>) */
+.card .info > span {
+  grid-column: 1 / 2;   /* left side, row 1 */
+  grid-row: 1 / 2;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
 }
-.vote-info { font-size: 12px; color: #cfd3df; }
 
-/* Compact upvote button */
-.card .btn-compact {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
+/* vote count element */
+.vote-info {
+  grid-column: 2 / 3;   /* right side, row 1 */
+  grid-row: 1 / 2;
+  justify-self: end;
+  font-weight: 600;
+  color: #cfd3df;
+}
+
+/* vote button wrapper (second row, spans both columns) */
+.vote-row {
+  grid-column: 1 / -1;
+  grid-row: 2 / 3;
+  display: flex;
+  justify-content: flex-end;   /* or 'center' if you prefer centered button */
+}
+
+/* Compact vote button */
+.btn-compact {
   padding: 6px 10px;
   font-size: 12px;
-  border: 1px solid transparent;
-  border-radius: 10px;
-  cursor: pointer;
+  border-radius: 8px;
   background: var(--accent-color);
   color: #fff;
+  border: 1px solid transparent;
+  cursor: pointer;
 }
-.card .btn-compact[disabled] {
+.btn-compact[disabled] {
   background: #2b2f36;
   color: #9aa0ac;
   cursor: not-allowed;
   border-color: rgba(255,255,255,.12);
 }
 
-/* Stack the vote count below the upvote button */
-.meta-actions {
-  display: inline-flex;
-  flex-direction: column;   /* button on top, count below */
-  align-items: center;      /* center-align looks nicer in the card footer */
-  gap: 6px;
-}
-
-/* Slightly smaller/count styling */
-.vote-info {
-  font-size: 11px;
-  color: #cfd3df;
-  opacity: 0.95;
-}
-
-/* Keep the compact button tidy */
-.card .btn-compact {
-  padding: 6px 10px;
-  font-size: 12px;
-}
+.disclaimer { font-size: 11px; }

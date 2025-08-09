@@ -27,6 +27,52 @@ async function fetchEnv() {
   }
 }
 
+// ==== FB deep link helpers ====
+const FB_PAGE_ID = "130023783530481";
+const FB_PAGE_URL = "https://www.facebook.com/90surge";
+
+function isiOS() {
+  return /iPad|iPhone|iPod/.test(navigator.userAgent);
+}
+function isAndroid() {
+  return /android/i.test(navigator.userAgent);
+}
+
+function openFacebook(e) {
+  if (e) e.preventDefault();
+
+  // fire-and-forget your existing tracking
+  try {
+    fetch("/api/admin?action=mark-follow&platform=fb", {
+      method: "POST",
+      keepalive: true,
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch {}
+
+  const webUrl = FB_PAGE_URL;
+  const appScheme = `fb://page/${FB_PAGE_ID}`;
+  const androidIntent = `intent://page/${FB_PAGE_ID}#Intent;scheme=fb;package=com.facebook.katana;end`;
+
+  const fallback = () => {
+    window.location.href = webUrl;
+  };
+
+  if (isiOS()) {
+    // try app scheme; fallback quickly if it fails
+    setTimeout(fallback, 700);
+    window.location.href = appScheme;
+  } else if (isAndroid()) {
+    // Chrome Android supports intent://
+    setTimeout(fallback, 700);
+    window.location.href = androidIntent;
+  } else {
+    // desktop: just open the web page
+    window.open(webUrl, "_blank", "noopener");
+  }
+}
+window.openFacebook = openFacebook;
+
 function escapeHtml(str = "") {
   return String(str).replace(
     /[&<>"']/g,
@@ -90,10 +136,16 @@ function ensureCtaMessageSlot() {
 }
 
 function setCtaMessage(text = "", color = "orange") {
-  const el = ensureCtaMessageSlot() || document.getElementById("message");
+  const el = document.getElementById("cta-message");
   if (!el) return;
+  if (!text) {
+    el.textContent = "";
+    el.classList.remove("show");
+    return;
+  }
   el.style.color = color;
   el.textContent = text;
+  el.classList.add("show");
 }
 
 function setFollowKeyFromConfig(config) {
@@ -140,7 +192,9 @@ function buildFollowGate() {
   if (!gate) return;
   gate.innerHTML = `
     <div class="follow-links" style="display:flex; justify-content:center; gap:1rem;">
-      <a href="https://www.facebook.com/90surge" target="_blank" rel="noopener" class="follow-btn-fb" onclick="followClick('fb')">Facebook</a>
+      <a href="${FB_PAGE_URL}" target="_blank" rel="noopener"
+   class="follow-btn-fb"
+   onclick="openFacebook(event); followClick('fb')">Facebook</a>
       <a href="https://www.instagram.com/90_surge" target="_blank" rel="noopener" class="follow-btn-ig" onclick="followClick('ig')">Instagram</a>
     </div>`;
   gate.style.display = "block";
@@ -313,7 +367,6 @@ function startShutdownWatcher() {
   });
 }
 
-
 // ----------------- Gallery / Votes -----------------
 async function loadGallery() {
   try {
@@ -361,21 +414,22 @@ async function loadGallery() {
         modal.classList.remove("hidden");
       });
 
-      // footer (admin-style): uploader left, actions right
+      // footer (two rows: name+likes on top, button below)
       const info = document.createElement("div");
       info.className = "info";
 
       const displayName = upload.userName || upload.userNameRaw || "Anonymous";
-      const left = document.createElement("span");
-      left.textContent = `@${displayName}`;
+      const nameEl = document.createElement("span");
+      nameEl.textContent = `@${displayName}`;
 
-      const actions = document.createElement("div");
-      actions.className = "meta-actions";
-
-      // ❤️ count (inline)
+      // ❤️ count (right side of row 1)
       const voteInfo = document.createElement("span");
       voteInfo.className = "vote-info";
       voteInfo.textContent = `${upload.votes || 0} ❤️`;
+
+      // row 2 container for the vote button
+      const voteRow = document.createElement("div");
+      voteRow.className = "vote-row";
 
       // upvote button (removed after vote)
       const voteKey = `voted_${id}`;
@@ -407,16 +461,13 @@ async function loadGallery() {
           }
         });
 
-        // order: count then button (inline, compact)
-        actions.appendChild(voteInfo);
-        actions.appendChild(upvoteBtn);
-      } else {
-        // already voted: just show count
-        actions.appendChild(voteInfo);
+        voteRow.appendChild(upvoteBtn);
       }
 
-      info.appendChild(left);
-      info.appendChild(actions);
+      // assemble footer
+      info.appendChild(nameEl); // row 1, left
+      info.appendChild(voteInfo); // row 1, right
+      info.appendChild(voteRow); // row 2, spans both
 
       wrapper.appendChild(img);
       card.appendChild(wrapper);

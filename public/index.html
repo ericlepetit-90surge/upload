@@ -20,18 +20,21 @@
       <h1 id="headline">90 SURGE TONIGHT</h1>
       <h2 class="raffle raffle-title blink">
         <strong>ENTER OUR RAFFLE FOR A CHANCE TO WIN A 90 SURGE TEE!</strong>
+             
       </h2>
+      <h2>3 EASY STEPS!</h2>
+
       <ol>
-        <li>Drop your name or FB/IG handle
+        <li>Drop your name, Fb or Insta handle
           <div class="input-group">
-            <input type="text" id="user-display-name" name="user_display_name" required placeholder="Full Name"
+            <input type="text" id="user-display-name" name="user_display_name" required placeholder=""
               autocomplete="off" inputmode="text" autocorrect="off" autocapitalize="none" spellcheck="false" />
           </div>
         </li>
-        <li>Take a pic of the band, with the band, a selfie, a jump, ... Show the energy!
+        <li>Upload a pic of the band, with the band, a selfie, a jump, ... Show the energy*!
           <input type="file" id="file" name="file" accept="image/*" required />
         </li>
-        <li>Follow us on Facebook or Insta (support us!)
+        <li>Please follow us on Facebook or Insta
           <div id="follow-gate"></div>
         </li>
       </ol>
@@ -43,7 +46,7 @@
         <div class="hint" style="margin-top:.35rem; font-size:.9rem; color:#aaa;"></div>
         <div id="cta-guard" role="button" tabindex="0" aria-label="Uploads locked. Tap for details">
           <button id="upload-btn-disabled" type="button" disabled>
-            CLICK HERE TO UPLOAD YOUR PIC<br> AND ENTER THE RAFFLE!
+            ENTER THE RAFFLE!
           </button>
         </div>
       </div>
@@ -83,7 +86,6 @@
     </div>
 
     <h2 class="gallery-title">Tonight's show gallery</h2>
-    <!-- changed class from "grid" to "gallery" -->
     <div id="gallery" class="gallery"></div>
 
     <!-- Lightbox -->
@@ -98,6 +100,6 @@
     <p id="winnerName" class="winner-name"></p>
     <button onclick="hideWinnerModal()" class="btn-modal-close">Close</button>
   </div>
-
+<div class="disclaimer"><sup>*</sup>By uploading your picture(s) you allow 90 Surge to use and share your photo(s) for promo. You keep ownership.</div>
 </body>
 </html>
