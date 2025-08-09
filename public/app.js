@@ -37,50 +37,38 @@ async function fetchEnv() {
 function isiOS() { return /iPad|iPhone|iPod/.test(navigator.userAgent); }
 function isAndroid() { return /android/i.test(navigator.userAgent); }
 
-// Block default navigation of *anchors* that point to FB/IG (we use buttons now)
-function installDeepLinkGuards() {
-  const block = (e) => {
-    const a = e.target.closest('a[href*="facebook.com"], a[href*="instagram.com"]');
-    if (!a) return;
-    e.preventDefault();
-    e.stopImmediatePropagation();
-  };
-  document.addEventListener("touchstart", block, true);
-  document.addEventListener("pointerdown", block, { capture: true });
-  document.addEventListener("click", block, true);
-}
-
+// Small, manual fallback chip (does not hijack current tab)
 function showManualFallback(webUrl, label) {
   let bar = document.getElementById("deeplink-fallback");
-  if (!bar) {
-    bar = document.createElement("div");
-    bar.id = "deeplink-fallback";
-    bar.style.cssText = `
-      position: fixed; left: 0; right: 0; bottom: 12px; z-index: 99999;
-      display:flex; justify-content:center;
-    `;
-    const inner = document.createElement("div");
-    inner.style.cssText = `
-      background: rgba(20,20,24,.95); color:#fff; border:1px solid rgba(255,255,255,.15);
-      padding: 10px 14px; border-radius: 10px; font-weight: 700;
-    `;
-    const a = document.createElement("a");
-    a.href = webUrl;
-    a.target = "_blank";
-    a.rel = "noopener";
-    a.textContent = label || "Open in browser";
-    a.style.cssText = "color:#7dd3fc; text-decoration:none;";
-    inner.appendChild(a);
-    bar.appendChild(inner);
-    document.body.appendChild(bar);
-    setTimeout(() => bar.remove(), 7000);
-  }
+  if (bar) return;
+  bar = document.createElement("div");
+  bar.id = "deeplink-fallback";
+  bar.style.cssText = `
+    position: fixed; left: 0; right: 0; bottom: 12px; z-index: 99999;
+    display:flex; justify-content:center;
+  `;
+  const inner = document.createElement("div");
+  inner.style.cssText = `
+    background: rgba(20,20,24,.95); color:#fff; border:1px solid rgba(255,255,255,.15);
+    padding: 10px 14px; border-radius: 10px; font-weight: 700;
+  `;
+  const a = document.createElement("a");
+  a.href = webUrl;
+  a.target = "_blank";
+  a.rel = "noopener";
+  a.textContent = label || "Open in browser";
+  a.style.cssText = "color:#7dd3fc; text-decoration:none;";
+  inner.appendChild(a);
+  bar.appendChild(inner);
+  document.body.appendChild(bar);
+  setTimeout(() => bar.remove(), 7000);
 }
 
 /**
- * iOS: hidden-iframe deep link (no extra tab). If app doesn't open, show a small fallback chip.
- * Android/Desktop: open web FIRST in a new tab, then (Android) try intent in that tab.
- *  - If the app isn't installed, the tab stays on the web profile (never blank).
+ * iOS: try native app via location to scheme; if we never leave page, show *manual* fallback.
+ * Android: open web FIRST in a new tab; then try intent in that tab (no blank page if not installed).
+ * Desktop: open web in a new tab.
+ * This never auto-navigates the current tab to web on iOS, so no "back" problem or double-open.
  */
 function openWithDeepLink(
   e,
@@ -90,7 +78,6 @@ function openWithDeepLink(
 
   if (isiOS()) {
     let left = false;
-    let iframe = null;
     let timerId = null;
 
     const cleanup = () => {
@@ -98,7 +85,6 @@ function openWithDeepLink(
       window.removeEventListener("pagehide", onHide, true);
       window.removeEventListener("blur", onHide, true);
       if (timerId) clearTimeout(timerId);
-      if (iframe && iframe.parentNode) iframe.parentNode.removeChild(iframe);
     };
     const onHide = () => { left = true; cleanup(); };
     const onVis  = () => { if (document.visibilityState === "hidden") onHide(); };
@@ -107,27 +93,25 @@ function openWithDeepLink(
     window.addEventListener("pagehide", onHide, { once:true, capture:true });
     window.addEventListener("blur", onHide, { once:true, capture:true });
 
-    // Try native app via hidden iframe (keeps this tab put)
-    iframe = document.createElement("iframe");
-    iframe.style.display = "none";
-    iframe.src = iosScheme;
-    document.body.appendChild(iframe);
+    // Try to open the native app
+    window.location.href = iosScheme;
 
-    // If app didn’t open, show *manual* browser link (don’t auto-nav)
+    // If app didn’t open, offer manual web link (don’t auto-nav this tab)
     timerId = setTimeout(() => {
       if (!left) showManualFallback(webUrl, webLabel);
       cleanup();
-    }, 1500);
+    }, 1400);
 
     return false;
   }
 
-  // Android / Desktop: open web in a new tab first, then try intent
+  // Android / Desktop
   let tab = null;
   try { tab = window.open(webUrl, "_blank", "noopener"); } catch {}
   if (!tab) { showManualFallback(webUrl, webLabel); return false; }
 
   if (isAndroid()) {
+    // If the app isn't installed, this simply leaves the tab on the web profile.
     setTimeout(() => { try { tab.location = androidIntent; } catch {} }, 80);
   }
   return false;
@@ -608,8 +592,6 @@ async function init() {
 
   const bannerEl = document.querySelector(".raffle-title");
   if (bannerEl && !originalRaffleText) originalRaffleText = bannerEl.innerHTML;
-
-  installDeepLinkGuards(); // prevent default anchor behavior (we use buttons)
 
   await hydrateWinnerBanner();
   await checkUploadWindow();
