@@ -6,7 +6,7 @@
   --card-bg: #1a1a1a;
   --text-color: #f0f0f0;
   --muted: #a3a7b3;
-  --accent-color: #1ed8e9;
+  --accent-color: #8ed8df;
   --font: "Helvetica Neue", sans-serif;
   --border-radius: 12px;
 }
@@ -220,6 +220,7 @@ button:disabled {
   display: flex;
   align-items: center;
   gap: 0.75rem;
+  padding-top: 0.5rem;
 }
 
 /* visually hide the native control */
