@@ -16,6 +16,9 @@ let sseInitialized = false; // ignore the first SSE replay
 let originalRaffleText = ""; // to restore banner on reset
 let initialWinnerFromRest = null; // null = none, string = winner we hydrated
 
+// Track live vote streams to close on reload
+const voteStreams = new Map();
+
 // ==== Social constants ====
 const FB_PAGE_ID = "130023783530481";
 const FB_PAGE_URL = "https://www.facebook.com/90surge";
@@ -447,34 +450,35 @@ function startShutdownWatcher() {
   });
 }
 
-// ----------------- Gallery / Votes -----------------
+// ----------------- Gallery / Votes (robust) -----------------
 async function loadGallery() {
   const gallery = document.getElementById("gallery");
   if (!gallery) return;
   gallery.innerHTML = "";
 
-  // Helper: stable key + timestamp
+  // Close any previous vote streams to avoid leaks
+  for (const s of voteStreams.values()) {
+    try { s.close(); } catch {}
+  }
+  voteStreams.clear();
+
+  // Helpers
   const keyFromUrl = (url = "") => {
-    try {
-      return new URL(url).pathname.split("/").pop() || url;
-    } catch {
-      return url || Math.random().toString(36).slice(2);
-    }
+    try { return new URL(url).pathname.split("/").pop() || url; }
+    catch { return url || Math.random().toString(36).slice(2); }
   };
   const parseEpochFromName = (name = "") => {
-    // you save as: <sanitizedName>_<epoch>_<originalName>
     const m = name.match(/_(\d{10,13})_/);
     if (!m) return 0;
     const n = m[1].length === 13 ? Number(m[1]) : Number(m[1]) * 1000;
     return Number.isFinite(n) ? n : 0;
   };
+  const bust = (u) => u + (u.includes("?") ? "&" : "?") + "v=" + Date.now();
 
   // 1) primary: uploads metadata
   let uploads = [];
   try {
-    const uploadsRes = await fetch("/api/admin?action=uploads", {
-      cache: "no-store",
-    });
+    const uploadsRes = await fetch("/api/admin?action=uploads", { cache: "no-store" });
     uploads = await uploadsRes.json();
     if (!Array.isArray(uploads)) uploads = [];
   } catch (e) {
@@ -490,22 +494,16 @@ async function loadGallery() {
     if (!byKey.has(k)) byKey.set(k, u);
   }
 
-  // 3) optional R2 fallback if list looks sparse
-  // (covers TTL resets or deploys clearing Redis)
+  // 3) optional R2 fallback if list looks sparse (e.g., after Redis clears)
   try {
-    // If we have very few items but R2 likely has more, pull in R2 keys.
-    // You can tweak the threshold (e.g., < 8)
     if (byKey.size < 8 && r2AccountId && r2BucketName) {
-      const r2Res = await fetch("/api/admin?action=list-r2-files", {
-        cache: "no-store",
-      });
+      const r2Res = await fetch("/api/admin?action=list-r2-files", { cache: "no-store" });
       if (r2Res.ok) {
         const r2 = await r2Res.json();
         const files = Array.isArray(r2.files) ? r2.files : [];
         for (const f of files) {
           const k = f.key;
           if (!k || byKey.has(k)) continue;
-          // synthesize a minimal "upload" object so it renders
           const fileUrl = `https://${r2AccountId}.r2.cloudflarestorage.com/${r2BucketName}/${k}`;
           byKey.set(k, {
             id: k,
@@ -514,7 +512,6 @@ async function loadGallery() {
             userName: "(unknown)",
             userNameRaw: "(unknown)",
             votes: 0,
-            // keep some temporal info to sort
             createdTime: f.lastModified || null,
             _r2LastMod: f.lastModified || null,
           });
@@ -525,7 +522,7 @@ async function loadGallery() {
     console.warn("R2 fallback listing failed (non-fatal)", e);
   }
 
-  // 4) sort newest first (createdTime -> filename epoch -> R2 lastModified -> 0)
+  // 4) sort newest first
   const items = Array.from(byKey.values()).sort((a, b) => {
     const ta =
       new Date(a.createdTime || 0).getTime() ||
@@ -540,109 +537,136 @@ async function loadGallery() {
     return tb - ta;
   });
 
-  // 5) render
   if (!items.length) {
     gallery.textContent = "Nothing here yet. Be the first to upload!";
     return;
   }
 
+  // 5) preload each image; append only on load success (skip deleted/404)
   for (const upload of items) {
     const id = upload.id || upload.fileName || keyFromUrl(upload.fileUrl);
+    const fileUrl = upload.fileUrl;
 
-    const card = document.createElement("div");
-    card.className = "card";
-    card.dataset.id = id;
+    const imgEl = new Image();
+    imgEl.decoding = "async";
+    imgEl.loading = "lazy";
 
-    const wrapper = document.createElement("div");
-    wrapper.style.position = "relative";
+    await new Promise((resolve) => {
+      let retried = false;
+      const addCard = () => {
+        const card = document.createElement("div");
+        card.className = "card";
+        card.dataset.id = id;
 
-    const img = document.createElement("img");
-    img.src = upload.fileUrl;
-    img.loading = "lazy";
-    img.style.cursor = "pointer";
-    img.style.height = "200px";
-    img.style.width = "100%";
-    img.style.objectFit = "cover";
-    img.style.filter = "blur(8px)";
-    img.style.transition = "filter 0.5s";
-    img.addEventListener("load", () => (img.style.filter = "none"));
-    img.addEventListener("click", () => {
-      const modal = document.getElementById("imageModal");
-      document.getElementById("fullImage").src = upload.fileUrl;
-      modal.classList.remove("hidden");
-    });
+        const wrapper = document.createElement("div");
+        wrapper.style.position = "relative";
 
-    // footer: row1 name + likes, row2 button
-    const info = document.createElement("div");
-    info.className = "info";
+        // adopt preloaded image
+        imgEl.style.cursor = "pointer";
+        imgEl.style.height = "200px";
+        imgEl.style.width = "100%";
+        imgEl.style.objectFit = "cover";
+        imgEl.style.filter = "blur(8px)";
+        imgEl.style.transition = "filter 0.5s";
+        imgEl.addEventListener("load", () => (imgEl.style.filter = "none"));
+        imgEl.addEventListener("click", () => {
+          const modal = document.getElementById("imageModal");
+          document.getElementById("fullImage").src = fileUrl;
+          modal.classList.remove("hidden");
+        });
 
-    const displayName = upload.userName || upload.userNameRaw || "Anonymous";
-    const nameEl = document.createElement("span");
-    nameEl.textContent = `@${displayName}`;
+        // footer: row1 name + likes, row2 button
+        const info = document.createElement("div");
+        info.className = "info";
 
-    const voteInfo = document.createElement("span");
-    voteInfo.className = "vote-info";
-    voteInfo.textContent = `${upload.votes || 0} ❤️`;
+        const displayName = upload.userName || upload.userNameRaw || "Anonymous";
+        const nameEl = document.createElement("span");
+        nameEl.textContent = `@${displayName}`;
 
-    const voteRow = document.createElement("div");
-    voteRow.className = "vote-row";
+        const voteInfo = document.createElement("span");
+        voteInfo.className = "vote-info";
+        voteInfo.textContent = `${upload.votes || 0} ❤️`;
 
-    const voteKey = `voted_${id}`;
-    const hasVoted = localStorage.getItem(voteKey) === "1";
+        const voteRow = document.createElement("div");
+        voteRow.className = "vote-row";
 
-    if (!hasVoted) {
-      const upvoteBtn = document.createElement("button");
-      upvoteBtn.className = "btn-compact";
-      upvoteBtn.textContent = "Love it!";
-      upvoteBtn.addEventListener("click", async () => {
-        upvoteBtn.disabled = true;
-        try {
-          const res = await fetch("/api/admin?action=upvote", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ fileId: id }),
-          });
-          const result = await res.json();
-          if (!res.ok || !result.success) throw new Error("Vote failed");
+        const voteKey = `voted_${id}`;
+        const hasVoted = localStorage.getItem(voteKey) === "1";
 
-          localStorage.setItem(voteKey, "1");
-          voteInfo.textContent = `${result.votes} ❤️`;
-          upvoteBtn.remove();
-        } catch (err) {
-          console.error(err);
-          upvoteBtn.disabled = false;
+        if (!hasVoted) {
+          const upvoteBtn = document.createElement("button");
+          upvoteBtn.className = "btn-compact";
           upvoteBtn.textContent = "Love it!";
+          upvoteBtn.addEventListener("click", async () => {
+            upvoteBtn.disabled = true;
+            try {
+              const res = await fetch("/api/admin?action=upvote", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ fileId: id }),
+              });
+              const result = await res.json();
+              if (!res.ok || !result.success) throw new Error("Vote failed");
+
+              localStorage.setItem(voteKey, "1");
+              voteInfo.textContent = `${result.votes} ❤️`;
+              upvoteBtn.remove();
+            } catch (err) {
+              console.error(err);
+              upvoteBtn.disabled = false;
+              upvoteBtn.textContent = "Love it!";
+            }
+          });
+          voteRow.appendChild(upvoteBtn);
         }
-      });
-      voteRow.appendChild(upvoteBtn);
-    }
 
-    info.appendChild(nameEl);
-    info.appendChild(voteInfo);
-    info.appendChild(voteRow);
+        info.appendChild(nameEl);
+        info.appendChild(voteInfo);
+        info.appendChild(voteRow);
 
-    wrapper.appendChild(img);
-    card.appendChild(wrapper);
-    card.appendChild(info);
-    gallery.appendChild(card);
+        wrapper.appendChild(imgEl);
+        card.appendChild(wrapper);
+        card.appendChild(info);
+        gallery.appendChild(card);
 
-    // Live vote updates
-    try {
-      const voteStream = new EventSource(
-        `https://vote-stream-server.onrender.com/votes/${encodeURIComponent(
-          id
-        )}`
-      );
-      voteStream.onmessage = (event) => {
+        // Live vote updates (one stream per id)
         try {
-          const { votes } = JSON.parse(event.data || "{}");
-          if (typeof votes === "number") voteInfo.textContent = `${votes} ❤️`;
+          const es = new EventSource(
+            `https://vote-stream-server.onrender.com/votes/${encodeURIComponent(id)}`
+          );
+          es.onmessage = (event) => {
+            try {
+              const { votes } = JSON.parse(event.data || "{}");
+              if (typeof votes === "number") voteInfo.textContent = `${votes} ❤️`;
+            } catch {}
+          };
+          es.onerror = () => {
+            try { es.close(); } catch {}
+            voteStreams.delete(id);
+          };
+          voteStreams.set(id, es);
         } catch {}
+        resolve();
       };
-      voteStream.onerror = () => {
-        voteStream.close();
+
+      imgEl.onload = addCard;
+      imgEl.onerror = () => {
+        if (!retried) {
+          retried = true;
+          imgEl.src = bust(fileUrl); // one retry with cache-bust
+        } else {
+          // skip this tile entirely (deleted/missing)
+          resolve();
+        }
       };
-    } catch {}
+      // initial load with cache-bust too (handles R2 eventual consistency)
+      imgEl.src = bust(fileUrl);
+    });
+  }
+
+  // Edge: if everything skipped but uploads existed, try a gentle refresh once
+  if (uploads.length && !gallery.children.length) {
+    setTimeout(() => loadGallery(), 1200);
   }
 }
 
@@ -710,6 +734,11 @@ async function init() {
   renderCTA();
   await loadGallery();
   await loadFollowerCounts();
+
+  // Refresh gallery instantly when admin deletes (admin sets localStorage 'galleryRefresh')
+  window.addEventListener("storage", (e) => {
+    if (e.key === "galleryRefresh") loadGallery();
+  });
 
   const form = document.getElementById("upload-form");
   const message = document.getElementById("message");
@@ -850,80 +879,72 @@ async function init() {
   fileInput.addEventListener("change", renderCTA);
 
   // ===== Winner SSE (robust first-pick handling) =====
-const extractWinner = (p = {}) => (p.winner ?? p.name ?? "").trim();
+  const extractWinner = (p = {}) => (p.winner ?? p.name ?? "").trim();
 
-const onIncomingWinner = (name) => {
-  if (!name) return;
-  if (name !== lastKnownWinner) {
-    setWinnerBanner(name);
-    lastKnownWinner = name;
-  }
-  // show modal if we haven't shown this exact name yet
-  if (!hasShownWinner && name !== localStorage.getItem(SHOWN_WINNER_KEY)) {
-    showWinnerModal(name);
-  }
-};
-
-const onResetWinner = () => {
-  clearWinnerBanner();
-  lastKnownWinner = null;
-};
-
-let winnerSSE;
-try {
-  const url =
-    location.hostname === "localhost"
-      ? "http://localhost:3001/events"
-      : "https://winner-sse-server.onrender.com/events";
-
-  winnerSSE = new EventSource(url);
-  const sseConnectAt = Date.now();
-
-  winnerSSE.addEventListener("winner", (evt) => {
-    let data = {};
-    try { data = JSON.parse(evt.data || "{}"); } catch {}
-    const name = extractWinner(data);
-
-    if (!sseInitialized) {
-      sseInitialized = true;
-
-      // If REST already had this same winner, keep banner in sync but don't modal
-      if (initialWinnerFromRest && name === initialWinnerFromRest) {
-        setWinnerBanner(name);
-        lastKnownWinner = name;
-        return;
-      }
-
-      // If REST had NO winner and the first event arrives *immediately*,
-      // treat as a replay and ignore once. Otherwise, show it (first live pick).
-      const sinceConnect = Date.now() - sseConnectAt;
-      if (!initialWinnerFromRest && name && sinceConnect < 600) {
-        // ignore likely replay
-        return;
-      }
-
-      // First meaningful winner after connect -> show modal
-      if (name) return onIncomingWinner(name);
-      return;
+  const onIncomingWinner = (name) => {
+    if (!name) return;
+    if (name !== lastKnownWinner) {
+      setWinnerBanner(name);
+      lastKnownWinner = name;
     }
-
-    if (name) onIncomingWinner(name);
-  });
-
-  const resetHandler = () => {
-    if (!sseInitialized) sseInitialized = true;
-    onResetWinner();
+    if (!hasShownWinner && name !== localStorage.getItem(SHOWN_WINNER_KEY)) {
+      showWinnerModal(name);
+    }
   };
-  winnerSSE.addEventListener("reset-winner", resetHandler);
-  winnerSSE.addEventListener("reset", resetHandler);
 
-  winnerSSE.onerror = (e) => {
-    console.warn("Winner SSE error; will fall back to polling.", e?.message || e);
+  const onResetWinner = () => {
+    clearWinnerBanner();
+    lastKnownWinner = null;
   };
-} catch (e) {
-  console.warn("Failed to start Winner SSE; will use polling.", e?.message || e);
-}
 
+  let winnerSSE;
+  try {
+    const url =
+      location.hostname === "localhost"
+        ? "http://localhost:3001/events"
+        : "https://winner-sse-server.onrender.com/events";
+
+    winnerSSE = new EventSource(url);
+    const sseConnectAt = Date.now();
+
+    winnerSSE.addEventListener("winner", (evt) => {
+      let data = {};
+      try { data = JSON.parse(evt.data || "{}"); } catch {}
+      const name = extractWinner(data);
+
+      if (!sseInitialized) {
+        sseInitialized = true;
+
+        if (initialWinnerFromRest && name === initialWinnerFromRest) {
+          setWinnerBanner(name);
+          lastKnownWinner = name;
+          return;
+        }
+        const sinceConnect = Date.now() - sseConnectAt;
+        if (!initialWinnerFromRest && name && sinceConnect < 600) {
+          // likely a replay
+          return;
+        }
+        if (name) return onIncomingWinner(name);
+        return;
+      }
+
+      if (name) onIncomingWinner(name);
+    });
+
+    const resetHandler = () => {
+      if (!sseInitialized) sseInitialized = true;
+      onResetWinner();
+    };
+    winnerSSE.addEventListener("reset-winner", resetHandler);
+    winnerSSE.addEventListener("reset", resetHandler);
+
+    winnerSSE.onerror = (e) => {
+      console.warn("Winner SSE error; will fall back to polling.", e?.message || e);
+    };
+  } catch (e) {
+    console.warn("Failed to start Winner SSE; will use polling.", e?.message || e);
+  }
 
   // Fallback polling (keeps banner in sync if SSE down)
   setInterval(async () => {
