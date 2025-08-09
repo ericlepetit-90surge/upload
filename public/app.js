@@ -29,9 +29,10 @@ const IG_WEB_URL = "https://www.instagram.com/90_surge";
 async function fetchEnv() {
   try {
     const res = await fetch("/api/env");
+    if (!res.ok) throw new Error("env fetch failed");
     const data = await res.json();
-    r2AccountId = data.r2AccountId;
-    r2BucketName = data.r2BucketName;
+    r2AccountId = data.r2AccountId || "";
+    r2BucketName = data.r2BucketName || "";
   } catch (err) {
     console.error("❌ Failed to fetch R2 env vars:", err);
   }
@@ -72,10 +73,9 @@ function showManualFallback(webUrl, label) {
 }
 
 /**
- * iOS: try native app via location to scheme; if we never leave page, show *manual* fallback.
- * Android: open web FIRST in a new tab; then try intent in that tab (no blank page if not installed).
+ * iOS: try native app; if we never leave page, show *manual* fallback.
+ * Android: open web FIRST in a new tab; then try intent in that tab (no blank page).
  * Desktop: open web in a new tab.
- * This never auto-navigates the current tab to web on iOS, so no "back" problem or double-open.
  */
 function openWithDeepLink(
   e,
@@ -111,10 +111,8 @@ function openWithDeepLink(
     window.addEventListener("pagehide", onHide, { once: true, capture: true });
     window.addEventListener("blur", onHide, { once: true, capture: true });
 
-    // Try to open the native app
     window.location.href = iosScheme;
 
-    // If app didn’t open, offer manual web link (don’t auto-nav this tab)
     timerId = setTimeout(() => {
       if (!left) showManualFallback(webUrl, webLabel);
       cleanup();
@@ -134,7 +132,6 @@ function openWithDeepLink(
   }
 
   if (isAndroid()) {
-    // If the app isn't installed, this simply leaves the tab on the web profile.
     setTimeout(() => {
       try {
         tab.location = androidIntent;
@@ -255,14 +252,15 @@ function setFollowKeyFromConfig(config) {
 
 async function loadFollowerCounts() {
   try {
-    const res = await fetch("/api/admin?action=followers");
+    const res = await fetch("/api/admin?action=followers", { cache: "no-store" });
+    if (!res.ok) throw new Error("followers fetch failed");
     const data = await res.json();
     const fbCount = parseInt(data.facebook || 0, 10);
     const igCount = parseInt(data.instagram || 0, 10);
-    document.getElementById("fb-followers").textContent =
-      fbCount > 0 ? String(fbCount) : "—";
-    document.getElementById("ig-followers").textContent =
-      igCount > 0 ? String(igCount) : "—";
+    const fbEl = document.getElementById("fb-followers");
+    const igEl = document.getElementById("ig-followers");
+    if (fbEl) fbEl.textContent = fbCount > 0 ? String(fbCount) : "—";
+    if (igEl) igEl.textContent = igCount > 0 ? String(igCount) : "—";
   } catch (err) {
     console.warn("⚠️ Failed to fetch follower counts", err);
   }
@@ -271,7 +269,7 @@ async function loadFollowerCounts() {
 // Fetch config, set window open + namespaced follow key
 async function checkUploadWindow() {
   try {
-    const res = await fetch("/api/admin?action=config");
+    const res = await fetch("/api/admin?action=config", { cache: "no-store" });
     if (!res.ok) throw new Error("Config fetch failed");
     const config = await res.json();
 
@@ -298,21 +296,6 @@ function buildFollowGate() {
   gate.style.display = "block";
 }
 
-// Fetch with timeout (longer so cold-starts don't spam errors)
-async function getWithTimeout(url, ms = 8000) {
-  const ctrl = new AbortController();
-  const timer = setTimeout(
-    () => ctrl.abort(new DOMException("Timeout", "AbortError")),
-    ms
-  );
-  try {
-    return await fetch(url, { signal: ctrl.signal });
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-// Ask server if this IP is allowed for THIS show; sync localStorage
 async function syncFollowState() {
   try {
     const res = await fetch("/api/admin?action=check-follow", {
@@ -450,7 +433,7 @@ function startShutdownWatcher() {
   });
 }
 
-// ----------------- Gallery / Votes (robust) -----------------
+// ----------------- Gallery / Votes (robust & parallel) -----------------
 async function loadGallery() {
   const gallery = document.getElementById("gallery");
   if (!gallery) return;
@@ -464,76 +447,48 @@ async function loadGallery() {
 
   // Helpers
   const keyFromUrl = (url = "") => {
-    try { return new URL(url).pathname.split("/").pop() || url; }
-    catch { return url || Math.random().toString(36).slice(2); }
+    if (!url) return null;
+    try { return new URL(url).pathname.split("/").pop() || null; }
+    catch { const parts = String(url).split("/"); return parts.pop() || null; }
   };
   const parseEpochFromName = (name = "") => {
-    const m = name.match(/_(\d{10,13})_/);
+    const m = name && name.match(/_(\d{10,13})_/);
     if (!m) return 0;
     const n = m[1].length === 13 ? Number(m[1]) : Number(m[1]) * 1000;
     return Number.isFinite(n) ? n : 0;
   };
-  const bust = (u) => u + (u.includes("?") ? "&" : "?") + "v=" + Date.now();
+  const bust = (u) => (u ? u + (u.includes("?") ? "&" : "?") + "v=" + Date.now() : u);
 
   // 1) primary: uploads metadata
   let uploads = [];
   try {
     const uploadsRes = await fetch("/api/admin?action=uploads", { cache: "no-store" });
+    if (!uploadsRes.ok) throw new Error("uploads fetch failed");
     uploads = await uploadsRes.json();
     if (!Array.isArray(uploads)) uploads = [];
   } catch (e) {
-    console.warn("uploads fetch failed", e);
-    uploads = [];
+    console.error("❌ Failed to load uploads", e);
+    gallery.textContent = "Failed to load gallery.";
+    return;
   }
 
-  // 2) dedupe by fileName (fallback fileUrl basename)
-  const byKey = new Map();
+  // 2) dedupe + sanitize list
+  const seen = new Set();
+  const items = [];
   for (const u of uploads) {
     const k = u.fileName || keyFromUrl(u.fileUrl);
-    if (!k) continue;
-    if (!byKey.has(k)) byKey.set(k, u);
+    if (!k || seen.has(k)) continue;
+    if (!u.fileUrl) continue; // must have a URL to render
+    seen.add(k);
+    items.push(u);
   }
 
-  // 3) optional R2 fallback if list looks sparse (e.g., after Redis clears)
-  try {
-    if (byKey.size < 8 && r2AccountId && r2BucketName) {
-      const r2Res = await fetch("/api/admin?action=list-r2-files", { cache: "no-store" });
-      if (r2Res.ok) {
-        const r2 = await r2Res.json();
-        const files = Array.isArray(r2.files) ? r2.files : [];
-        for (const f of files) {
-          const k = f.key;
-          if (!k || byKey.has(k)) continue;
-          const fileUrl = `https://${r2AccountId}.r2.cloudflarestorage.com/${r2BucketName}/${k}`;
-          byKey.set(k, {
-            id: k,
-            fileName: k,
-            fileUrl,
-            userName: "(unknown)",
-            userNameRaw: "(unknown)",
-            votes: 0,
-            createdTime: f.lastModified || null,
-            _r2LastMod: f.lastModified || null,
-          });
-        }
-      }
-    }
-  } catch (e) {
-    console.warn("R2 fallback listing failed (non-fatal)", e);
-  }
-
-  // 4) sort newest first
-  const items = Array.from(byKey.values()).sort((a, b) => {
+  // 3) sort newest first (createdTime -> filename epoch)
+  items.sort((a, b) => {
     const ta =
-      new Date(a.createdTime || 0).getTime() ||
-      parseEpochFromName(a.fileName || "") ||
-      new Date(a._r2LastMod || 0).getTime() ||
-      0;
+      new Date(a.createdTime || 0).getTime() || parseEpochFromName(a.fileName || "") || 0;
     const tb =
-      new Date(b.createdTime || 0).getTime() ||
-      parseEpochFromName(b.fileName || "") ||
-      new Date(b._r2LastMod || 0).getTime() ||
-      0;
+      new Date(b.createdTime || 0).getTime() || parseEpochFromName(b.fileName || "") || 0;
     return tb - ta;
   });
 
@@ -542,131 +497,126 @@ async function loadGallery() {
     return;
   }
 
-  // 5) preload each image; append only on load success (skip deleted/404)
-  for (const upload of items) {
-    const id = upload.id || upload.fileName || keyFromUrl(upload.fileUrl);
-    const fileUrl = upload.fileUrl;
-
-    const imgEl = new Image();
-    imgEl.decoding = "async";
-    imgEl.loading = "lazy";
-
-    await new Promise((resolve) => {
-      let retried = false;
-      const addCard = () => {
-        const card = document.createElement("div");
-        card.className = "card";
-        card.dataset.id = id;
-
-        const wrapper = document.createElement("div");
-        wrapper.style.position = "relative";
-
-        // adopt preloaded image
-        imgEl.style.cursor = "pointer";
-        imgEl.style.height = "200px";
-        imgEl.style.width = "100%";
-        imgEl.style.objectFit = "cover";
-        imgEl.style.filter = "blur(8px)";
-        imgEl.style.transition = "filter 0.5s";
-        imgEl.addEventListener("load", () => (imgEl.style.filter = "none"));
-        imgEl.addEventListener("click", () => {
-          const modal = document.getElementById("imageModal");
-          document.getElementById("fullImage").src = fileUrl;
-          modal.classList.remove("hidden");
-        });
-
-        // footer: row1 name + likes, row2 button
-        const info = document.createElement("div");
-        info.className = "info";
-
-        const displayName = upload.userName || upload.userNameRaw || "Anonymous";
-        const nameEl = document.createElement("span");
-        nameEl.textContent = `@${displayName}`;
-
-        const voteInfo = document.createElement("span");
-        voteInfo.className = "vote-info";
-        voteInfo.textContent = `${upload.votes || 0} ❤️`;
-
-        const voteRow = document.createElement("div");
-        voteRow.className = "vote-row";
-
-        const voteKey = `voted_${id}`;
-        const hasVoted = localStorage.getItem(voteKey) === "1";
-
-        if (!hasVoted) {
-          const upvoteBtn = document.createElement("button");
-          upvoteBtn.className = "btn-compact";
-          upvoteBtn.textContent = "Love it!";
-          upvoteBtn.addEventListener("click", async () => {
-            upvoteBtn.disabled = true;
-            try {
-              const res = await fetch("/api/admin?action=upvote", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ fileId: id }),
-              });
-              const result = await res.json();
-              if (!res.ok || !result.success) throw new Error("Vote failed");
-
-              localStorage.setItem(voteKey, "1");
-              voteInfo.textContent = `${result.votes} ❤️`;
-              upvoteBtn.remove();
-            } catch (err) {
-              console.error(err);
-              upvoteBtn.disabled = false;
-              upvoteBtn.textContent = "Love it!";
-            }
-          });
-          voteRow.appendChild(upvoteBtn);
-        }
-
-        info.appendChild(nameEl);
-        info.appendChild(voteInfo);
-        info.appendChild(voteRow);
-
-        wrapper.appendChild(imgEl);
-        card.appendChild(wrapper);
-        card.appendChild(info);
-        gallery.appendChild(card);
-
-        // Live vote updates (one stream per id)
-        try {
-          const es = new EventSource(
-            `https://vote-stream-server.onrender.com/votes/${encodeURIComponent(id)}`
-          );
-          es.onmessage = (event) => {
-            try {
-              const { votes } = JSON.parse(event.data || "{}");
-              if (typeof votes === "number") voteInfo.textContent = `${votes} ❤️`;
-            } catch {}
-          };
-          es.onerror = () => {
-            try { es.close(); } catch {}
-            voteStreams.delete(id);
-          };
-          voteStreams.set(id, es);
-        } catch {}
-        resolve();
+  // 4) Preload all images in parallel, then render only the ones that load
+  const preload = (upload) =>
+    new Promise((resolve) => {
+      const img = new Image();
+      let done = false;
+      const finish = (ok) => {
+        if (done) return;
+        done = true;
+        resolve({ ok, img, upload });
       };
-
-      imgEl.onload = addCard;
-      imgEl.onerror = () => {
-        if (!retried) {
-          retried = true;
-          imgEl.src = bust(fileUrl); // one retry with cache-bust
-        } else {
-          // skip this tile entirely (deleted/missing)
-          resolve();
-        }
-      };
-      // initial load with cache-bust too (handles R2 eventual consistency)
-      imgEl.src = bust(fileUrl);
+      img.onload = () => finish(true);
+      img.onerror = () => finish(false);
+      img.decoding = "async";
+      img.loading = "lazy";
+      img.src = bust(upload.fileUrl);
     });
+
+  const results = await Promise.all(items.map(preload));
+  const okResults = results.filter((r) => r.ok);
+
+  if (!okResults.length) {
+    // nothing could be loaded (network/cache) -> passive retry shortly
+    setTimeout(() => loadGallery(), 1200);
+    return;
   }
 
-  // Edge: if everything skipped but uploads existed, try a gentle refresh once
-  if (uploads.length && !gallery.children.length) {
-    setTimeout(() => loadGallery(), 1200);
+  for (const { img, upload } of okResults) {
+    const id = upload.id || upload.fileName || keyFromUrl(upload.fileUrl);
+
+    const card = document.createElement("div");
+    card.className = "card";
+    card.dataset.id = id;
+
+    const wrapper = document.createElement("div");
+    wrapper.style.position = "relative";
+
+    // adopt preloaded image
+    img.style.cursor = "pointer";
+    img.style.height = "200px";
+    img.style.width = "100%";
+    img.style.objectFit = "cover";
+    img.style.filter = "blur(8px)";
+    img.style.transition = "filter 0.5s";
+    img.addEventListener("load", () => (img.style.filter = "none"));
+    img.addEventListener("click", () => {
+      const modal = document.getElementById("imageModal");
+      document.getElementById("fullImage").src = upload.fileUrl;
+      modal.classList.remove("hidden");
+    });
+
+    const info = document.createElement("div");
+    info.className = "info";
+
+    const displayName = upload.userName || upload.userNameRaw || "Anonymous";
+    const nameEl = document.createElement("span");
+    nameEl.textContent = `@${displayName}`;
+
+    const voteInfo = document.createElement("span");
+    voteInfo.className = "vote-info";
+    voteInfo.textContent = `${upload.votes || 0} ❤️`;
+
+    const voteRow = document.createElement("div");
+    voteRow.className = "vote-row";
+
+    const voteKey = `voted_${id}`;
+    const hasVoted = localStorage.getItem(voteKey) === "1";
+
+    if (!hasVoted) {
+      const upvoteBtn = document.createElement("button");
+      upvoteBtn.className = "btn-compact";
+      upvoteBtn.textContent = "Love it!";
+      upvoteBtn.addEventListener("click", async () => {
+        upvoteBtn.disabled = true;
+        try {
+          const res = await fetch("/api/admin?action=upvote", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ fileId: id }),
+          });
+          const result = await res.json();
+          if (!res.ok || !result.success) throw new Error("Vote failed");
+
+          localStorage.setItem(voteKey, "1");
+          voteInfo.textContent = `${result.votes} ❤️`;
+          upvoteBtn.remove();
+        } catch (err) {
+          console.error(err);
+          upvoteBtn.disabled = false;
+          upvoteBtn.textContent = "Love it!";
+        }
+      });
+      voteRow.appendChild(upvoteBtn);
+    }
+
+    info.appendChild(nameEl);
+    info.appendChild(voteInfo);
+    info.appendChild(voteRow);
+
+    wrapper.appendChild(img);
+    card.appendChild(wrapper);
+    card.appendChild(info);
+    gallery.appendChild(card);
+
+    // Live vote updates (one stream per id)
+    try {
+      const es = new EventSource(
+        `https://vote-stream-server.onrender.com/votes/${encodeURIComponent(id)}`
+      );
+      es.onmessage = (event) => {
+        try {
+          const { votes } = JSON.parse(event.data || "{}");
+          if (typeof votes === "number") voteInfo.textContent = `${votes} ❤️`;
+        } catch {}
+      };
+      es.onerror = () => {
+        try { es.close(); } catch {}
+        voteStreams.delete(id);
+      };
+      voteStreams.set(id, es);
+    } catch {}
   }
 }
 
@@ -722,6 +672,7 @@ async function init() {
   const bannerEl = document.querySelector(".raffle-title");
   if (bannerEl && !originalRaffleText) originalRaffleText = bannerEl.innerHTML;
 
+  // Make sure env is ready before anything that might need R2 info later
   await fetchEnv();
 
   await hydrateWinnerBanner();
@@ -732,8 +683,11 @@ async function init() {
 
   await syncFollowState();
   renderCTA();
-  await loadGallery();
-  await loadFollowerCounts();
+
+  // Load followers early so a later gallery error can't block it
+  loadFollowerCounts();
+  // Render gallery (independent)
+  loadGallery();
 
   // Refresh gallery instantly when admin deletes (admin sets localStorage 'galleryRefresh')
   window.addEventListener("storage", (e) => {
@@ -860,7 +814,6 @@ async function init() {
       localStorage.setItem(uploadKey, "1");
       loadGallery();
 
-      // hide success message + progress bar after 3s
       setTimeout(() => {
         message.textContent = "";
         progress.style.display = "none";
