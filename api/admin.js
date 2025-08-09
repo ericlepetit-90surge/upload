@@ -1,3 +1,4 @@
+// /api/admin.js
 import fs from "fs";
 import path from "path";
 import { createClient } from "redis";
@@ -7,14 +8,21 @@ import {
   DeleteObjectCommand,
 } from "@aws-sdk/client-s3";
 
-// ENV constants
+// ───────────────────────────────────────────────────────────────
+// ENV + paths
+// ───────────────────────────────────────────────────────────────
 const ADMIN_PASS = process.env.ADMIN_PASS;
 const MODERATOR_PASS = process.env.MODERATOR_PASS;
 const uploadsPath = path.join(process.cwd(), "uploads.json");
 
-const isLocal = process.env.VERCEL_ENV !== "production";
+// Treat Vercel preview like prod; only true local dev is "local"
+const isLocal =
+  (!process.env.VERCEL && process.env.NODE_ENV !== "production") ||
+  process.env.VERCEL_ENV === "development";
 
-// ---------- Redis (singleton) ----------
+// ───────────────────────────────────────────────────────────────
+// Redis singleton
+// ───────────────────────────────────────────────────────────────
 let redis;
 if (!globalThis.__redis && process.env.REDIS_URL) {
   const client = createClient({
@@ -33,7 +41,6 @@ if (!globalThis.__redis && process.env.REDIS_URL) {
 }
 redis = globalThis.__redis;
 
-// Return a boolean (important!)
 export async function ensureRedisConnected() {
   if (!redis) return false;
   if (redis.isOpen) return true;
@@ -59,7 +66,9 @@ function isFollowAllowed(raw) {
   }
 }
 
-// R2 (Cloudflare S3-compatible) client
+// ───────────────────────────────────────────────────────────────
+// Cloudflare R2 (S3-compatible) client
+// ───────────────────────────────────────────────────────────────
 const s3 = new S3Client({
   region: "auto",
   endpoint: `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
@@ -69,19 +78,21 @@ const s3 = new S3Client({
   },
 });
 
-// small helper
 function timeout(ms) {
   return new Promise((_, reject) =>
     setTimeout(() => reject(new Error("Timeout after " + ms + "ms")), ms)
   );
 }
 
+// ───────────────────────────────────────────────────────────────
+// Main handler
+// ───────────────────────────────────────────────────────────────
 export default async function handler(req, res) {
   const url = new URL(req.url || "", `http://${req.headers.host}`);
   const action = url.searchParams.get("action");
   console.log("➡️ Incoming admin action:", req.method, action);
 
-  // parse JSON bodies
+  // Parse JSON bodies
   if (
     req.method === "POST" &&
     req.headers["content-type"]?.includes("application/json")
@@ -106,12 +117,31 @@ export default async function handler(req, res) {
     return res.status(401).json({ success: false, error: "Invalid password" });
   }
 
-  // ────── Redis warm/status ──────
+  // ────── REDIS STATUS / WARM ──────
   if (req.method === "GET" && action === "redis-status") {
     try {
-      if (!(await ensureRedisConnected())) return res.status(200).json({ status: "idle" });
-      const ping = await redis.ping();
-      return res.status(200).json({ status: ping === "PONG" ? "active" : "unknown" });
+      if (!(await ensureRedisConnected())) {
+        return res.status(200).json({ status: "idle" });
+      }
+      const t0 = Date.now();
+      await redis.ping();
+      const pingMs = Date.now() - t0;
+
+      const [keyCount, lastWarmAt, seeded, hitRate] = await Promise.all([
+        redis.dbSize().catch(() => null),
+        redis.get("lastWarmAt").catch(() => null),
+        redis.get("warm_seeded").catch(() => null),
+        redis.get("cache:hitRate").catch(() => null),
+      ]);
+
+      return res.status(200).json({
+        status: "active",
+        pingMs,
+        keyCount,
+        lastWarmAt,
+        seeded: seeded === "true" ? true : (seeded ?? null),
+        hitRate: hitRate ? Number(hitRate) : null,
+      });
     } catch {
       return res.status(200).json({ status: "idle" });
     }
@@ -123,11 +153,24 @@ export default async function handler(req, res) {
       authHeader.startsWith("Bearer:super:") &&
       authHeader.endsWith(process.env.ADMIN_PASS);
     if (!isAdmin) return res.status(403).json({ error: "Forbidden" });
+
     try {
       const ok = await ensureRedisConnected();
       if (!ok) throw new Error("connect failed");
-      const pong = await redis.ping();
-      return res.status(200).json({ success: true, pong });
+
+      await Promise.all([
+        redis.set("warm_probe", String(Date.now()), { EX: 300 }),
+        redis.set("warm_seeded", "true", { EX: 3600 }),
+        redis.set("lastWarmAt", new Date().toISOString(), { EX: 3600 }),
+        redis.ping(),
+      ]);
+
+      const t0 = Date.now();
+      await redis.ping();
+      const pingMs = Date.now() - t0;
+      const keyCount = await redis.dbSize().catch(() => null);
+
+      return res.status(200).json({ success: true, pong: "PONG", pingMs, keyCount });
     } catch (err) {
       console.error("❌ Redis warm-up failed:", err);
       return res.status(500).json({ error: "Warm-up failed" });
@@ -139,7 +182,6 @@ export default async function handler(req, res) {
     if (req.method === "GET") {
       await ensureRedisConnected();
       if (!redis?.isOpen) {
-        // fallback to reasonable defaults
         return res.status(200).json({
           showName: "90 Surge",
           startTime: new Date().toISOString(),
@@ -263,9 +305,15 @@ export default async function handler(req, res) {
   if (action === "uploads" && req.method === "GET") {
     await ensureRedisConnected();
     const raw = (await redis?.lRange?.("uploads", 0, -1)) || [];
-    const uploads = raw.map((e) => {
-      try { return JSON.parse(e); } catch { return null; }
-    }).filter(Boolean);
+    const uploads = raw
+      .map((str) => {
+        try {
+          return JSON.parse(str);
+        } catch {
+          return null;
+        }
+      })
+      .filter(Boolean);
 
     for (const u of uploads) {
       const voteKey = `votes:${u.fileName}`;
@@ -312,7 +360,8 @@ export default async function handler(req, res) {
       return entry;
     });
     await redis.del("uploads");
-    await redis.rPush("uploads", updated.map((e) => JSON.stringify(e)));
+    // ⬇️ push each JSON string (spread), not the array object
+    await redis.rPush("uploads", ...updated.map((e) => JSON.stringify(e)));
 
     return res.json({ success: true, votes: newVoteCount });
   }
@@ -336,7 +385,9 @@ export default async function handler(req, res) {
       await redis.set("resetVotesTimestamp", Date.now().toString());
 
       try {
-        await fetch("https://vote-stream-server.onrender.com/reset", { method: "POST" });
+        await fetch("https://vote-stream-server.onrender.com/reset", {
+          method: "POST",
+        });
       } catch (err) {
         console.warn("⚠️ Failed to notify SSE server of reset", err.message);
       }
@@ -379,11 +430,14 @@ export default async function handler(req, res) {
         }
       }
 
-      if (!entries.length) return res.status(400).json({ error: "No eligible entries" });
+      if (!entries.length) {
+        return res.status(400).json({ error: "No eligible entries" });
+      }
 
       const winner = entries[Math.floor(Math.random() * entries.length)];
       await redis.set("raffle_winner", JSON.stringify(winner));
 
+      // Try to broadcast to clients (no-op if SSE server down)
       try {
         await fetch("https://winner-sse-server.onrender.com/broadcast", {
           method: "POST",
@@ -401,35 +455,35 @@ export default async function handler(req, res) {
     }
   }
 
-  // ────── 🧹 RESET WINNER ──────
-if (action === "reset-winner" && req.method === "POST") {
-  await ensureRedisConnected();
+  // ────── RESET WINNER ──────
+  if (action === "reset-winner" && req.method === "POST") {
+    await ensureRedisConnected();
 
-  const authHeader = req.headers.authorization || "";
-  const isAdmin =
-    authHeader.startsWith("Bearer:super:") &&
-    authHeader.endsWith(process.env.ADMIN_PASS);
+    const authHeader = req.headers.authorization || "";
+    const isAdmin =
+      authHeader.startsWith("Bearer:super:") &&
+      authHeader.endsWith(process.env.ADMIN_PASS);
 
-  if (!isAdmin) {
-    return res.status(403).json({ error: "Forbidden" });
+    if (!isAdmin) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+
+    try {
+      await redis.del("raffle_winner");
+      // Best-effort broadcast reset so clients clear banner instantly
+      try {
+        await fetch("https://winner-sse-server.onrender.com/reset", {
+          method: "POST",
+        });
+      } catch (e) {
+        console.warn("⚠️ SSE reset broadcast failed:", e?.message || e);
+      }
+      return res.json({ success: true });
+    } catch (err) {
+      console.error("❌ Failed to reset winner:", err);
+      return res.status(500).json({ success: false, error: "Failed to reset winner" });
+    }
   }
-
-  try {
-    await redis.del("raffle_winner");
-    // Optionally notify SSE listeners that winner was cleared (if your SSE server supports it)
-    // await fetch("https://winner-sse-server.onrender.com/announce-winner", {
-    //   method: "POST",
-    //   headers: { "Content-Type": "application/json" },
-    //   body: JSON.stringify({ winner: "" })
-    // });
-
-    return res.json({ success: true });
-  } catch (err) {
-    console.error("❌ Failed to reset winner:", err);
-    return res.status(500).json({ success:false, error: "Failed to reset winner" });
-  }
-}
-
 
   // ────── DELETE FILE ──────
   if (action === "delete-file" && req.method === "POST") {
@@ -441,7 +495,11 @@ if (action === "reset-winner" && req.method === "POST") {
       const uploadItems = await redis.sendCommand(["LRANGE", "uploads", "0", "-1"]);
       const uploads = uploadItems
         .map((i) => {
-          try { return JSON.parse(i); } catch { return null; }
+          try {
+            return JSON.parse(i);
+          } catch {
+            return null;
+          }
         })
         .filter(Boolean);
 
@@ -508,7 +566,7 @@ if (action === "reset-winner" && req.method === "POST") {
     }
   }
 
-  // ────── SOCIAL STATS (FB/IG follower counts) ──────
+  // ────── SOCIAL COUNTS (dummy) ──────
   if (action === "social-counts" && req.method === "GET") {
     return res.json({
       facebook: { followers: 1234 },
@@ -516,6 +574,7 @@ if (action === "reset-winner" && req.method === "POST") {
     });
   }
 
+  // ────── LIVE FOLLOWER #s (FB/IG) ──────
   if (action === "followers" && req.method === "GET") {
     try {
       const token = process.env.FB_PAGE_TOKEN;
@@ -550,7 +609,7 @@ if (action === "reset-winner" && req.method === "POST") {
         await redis.del("social:ips");
         return res.status(200).json({ success: true, deleted: toDel.length });
       }
-      // Redis not ready — succeed without error so admin UI doesn't fail
+      // Redis not ready — succeed so admin UI doesn’t blow up
       return res.status(200).json({ success: true, deleted: 0, note: "redis not ready" });
     } catch (err) {
       console.error("❌ Reset social error:", err);
@@ -582,7 +641,6 @@ if (action === "reset-winner" && req.method === "POST") {
       return res.status(200).json({ isShutdown });
     } catch (e) {
       console.error("shutdown-status error:", e);
-      // Graceful fallback to keep the client running
       return res.status(200).json({ isShutdown: false, _warning: "fallback" });
     }
   }
@@ -656,7 +714,6 @@ if (action === "reset-winner" && req.method === "POST") {
   if (req.method === "GET" && action === "social-status") {
     const ok = await ensureRedisConnected();
     if (!ok) {
-      // Graceful empty response so UI doesn't error
       return res.status(200).json({
         totals: { uniqueIPsTracked: 0, unlocked: 0, facebookClicks: 0, instagramClicks: 0 },
         entries: [],
