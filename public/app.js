@@ -11,10 +11,16 @@ let FOLLOW_KEY = "followed";
 let SHOWN_WINNER_KEY = "shownWinnerName";
 
 // Winner/banner state
-let lastKnownWinner = null;
-let sseInitialized = false;
-let originalRaffleText = "";
-let initialWinnerFromRest = null;
+let lastKnownWinner = null;      // last winner name we rendered
+let sseInitialized = false;      // ignore the first SSE replay
+let originalRaffleText = "";     // to restore banner on reset
+let initialWinnerFromRest = null;// null = none, string = winner we hydrated
+
+// ==== Social constants ====
+const FB_PAGE_ID  = "130023783530481";
+const FB_PAGE_URL = "https://www.facebook.com/90surge";
+const IG_USERNAME = "90_surge";
+const IG_WEB_URL  = "https://www.instagram.com/90_surge";
 
 // ----------------- Helpers -----------------
 async function fetchEnv() {
@@ -28,32 +34,20 @@ async function fetchEnv() {
   }
 }
 
+function isiOS() { return /iPad|iPhone|iPod/.test(navigator.userAgent); }
+function isAndroid() { return /android/i.test(navigator.userAgent); }
+
+// Block default navigation of *anchors* that point to FB/IG (we use buttons now)
 function installDeepLinkGuards() {
   const block = (e) => {
-    const a = e.target.closest(
-      'a[href*="facebook.com"], a[href*="instagram.com"]'
-    );
+    const a = e.target.closest('a[href*="facebook.com"], a[href*="instagram.com"]');
     if (!a) return;
     e.preventDefault();
     e.stopImmediatePropagation();
   };
-  // Catch it early on iOS
   document.addEventListener("touchstart", block, true);
   document.addEventListener("pointerdown", block, { capture: true });
   document.addEventListener("click", block, true);
-}
-
-// ==== Deep-link helpers ====
-const FB_PAGE_ID = "130023783530481";
-const FB_PAGE_URL = "https://www.facebook.com/90surge";
-const IG_USERNAME = "90_surge";
-const IG_WEB_URL = "https://www.instagram.com/90_surge";
-
-function isiOS() {
-  return /iPad|iPhone|iPod/.test(navigator.userAgent);
-}
-function isAndroid() {
-  return /android/i.test(navigator.userAgent);
 }
 
 function showManualFallback(webUrl, label) {
@@ -84,10 +78,9 @@ function showManualFallback(webUrl, label) {
 }
 
 /**
- * iOS: hidden-iframe deep link (no extra tab). If app doesn't open, we show a small
- * fallback chip so the main page never navigates away.
+ * iOS: hidden-iframe deep link (no extra tab). If app doesn't open, show a small fallback chip.
  * Android/Desktop: open web FIRST in a new tab, then (Android) try intent in that tab.
- *   - If the app isn't installed, the tab stays on the web profile (never blank).
+ *  - If the app isn't installed, the tab stays on the web profile (never blank).
  */
 function openWithDeepLink(
   e,
@@ -98,13 +91,13 @@ function openWithDeepLink(
   if (isiOS()) {
     let left = false;
     let iframe = null;
-    let timerId = null; // <-- predeclare
+    let timerId = null;
 
     const cleanup = () => {
       document.removeEventListener("visibilitychange", onVis, true);
       window.removeEventListener("pagehide", onHide, true);
       window.removeEventListener("blur", onHide, true);
-      if (timerId) clearTimeout(timerId);        // <-- guard
+      if (timerId) clearTimeout(timerId);
       if (iframe && iframe.parentNode) iframe.parentNode.removeChild(iframe);
     };
     const onHide = () => { left = true; cleanup(); };
@@ -140,22 +133,9 @@ function openWithDeepLink(
   return false;
 }
 
-  if (isAndroid()) {
-    // After the web is open, try the intent in that tab.
-    setTimeout(() => {
-      try {
-        tab.location = androidIntent;
-      } catch {}
-    }, 80);
-  }
-  return false;
-}
-
 // Facebook
 async function openFacebook(e) {
-  try {
-    await followClick("fb");
-  } catch {}
+  try { await followClick("fb"); } catch {}
   return openWithDeepLink(e, {
     iosScheme: `fb://page/${FB_PAGE_ID}`,
     androidIntent: `intent://page/${FB_PAGE_ID}#Intent;scheme=fb;package=com.facebook.katana;end`,
@@ -167,9 +147,7 @@ window.openFacebook = openFacebook;
 
 // Instagram
 async function openInstagram(e) {
-  try {
-    await followClick("ig");
-  } catch {}
+  try { await followClick("ig"); } catch {}
   return openWithDeepLink(e, {
     iosScheme: `instagram://user?username=${IG_USERNAME}`,
     androidIntent: `intent://instagram.com/_u/${IG_USERNAME}#Intent;scheme=https;package=com.instagram.android;end`,
@@ -183,9 +161,7 @@ function escapeHtml(str = "") {
   return String(str).replace(
     /[&<>"']/g,
     (s) =>
-      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[
-        s
-      ])
+      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[s])
   );
 }
 
@@ -193,9 +169,7 @@ function setWinnerBanner(name) {
   const banner = document.querySelector(".raffle-title");
   if (!banner) return;
   banner.classList.remove("blink");
-  banner.innerHTML = `<strong>Tonight's winner is: ${escapeHtml(
-    name
-  )}</strong>`;
+  banner.innerHTML = `<strong>Tonight's winner is: ${escapeHtml(name)}</strong>`;
 }
 
 function clearWinnerBanner() {
@@ -401,7 +375,7 @@ async function followClick(platform) {
   localStorage.setItem(FOLLOW_KEY, "true");
   renderCTA();
 }
-window.followClick = followClick;
+window.followClick = followClick; // expose for inline HTML
 
 // ----- shutdown real time ----
 function getShutdownOverlay() {
@@ -543,7 +517,7 @@ async function loadGallery() {
 
             localStorage.setItem(voteKey, "1");
             voteInfo.textContent = `${result.votes} ❤️`;
-            upvoteBtn.remove();
+            upvoteBtn.remove(); // remove button after a successful vote
           } catch (err) {
             console.error(err);
             upvoteBtn.disabled = false;
@@ -555,9 +529,9 @@ async function loadGallery() {
       }
 
       // assemble footer
-      info.appendChild(nameEl);
-      info.appendChild(voteInfo);
-      info.appendChild(voteRow);
+      info.appendChild(nameEl);   // row 1, left
+      info.appendChild(voteInfo); // row 1, right
+      info.appendChild(voteRow);  // row 2, spans both
 
       wrapper.appendChild(img);
       card.appendChild(wrapper);
@@ -635,7 +609,7 @@ async function init() {
   const bannerEl = document.querySelector(".raffle-title");
   if (bannerEl && !originalRaffleText) originalRaffleText = bannerEl.innerHTML;
 
-  installDeepLinkGuards();
+  installDeepLinkGuards(); // prevent default anchor behavior (we use buttons)
 
   await hydrateWinnerBanner();
   await checkUploadWindow();
@@ -692,9 +666,7 @@ async function init() {
         .toLowerCase()
         .replace(/[^a-z0-9]+/gi, "_")
         .replace(/^_+|_+$/g, "");
-    const fileName = `${sanitize(userName)}_${Date.now()}_${sanitize(
-      file.name
-    )}`;
+    const fileName = `${sanitize(userName)}_${Date.now()}_${sanitize(file.name)}`;
     const fileUrl = `https://${r2AccountId}.r2.cloudflarestorage.com/${r2BucketName}/${fileName}`;
     const mimeType = file.type;
 
@@ -760,6 +732,7 @@ async function init() {
       progress.value = 100;
       localStorage.setItem(uploadKey, "1");
       loadGallery();
+
       // hide success message + progress bar after 3s
       setTimeout(() => {
         message.textContent = "";
@@ -801,21 +774,18 @@ async function init() {
     lastKnownWinner = null;
   };
 
-  let winnerSSE;
   try {
     const url =
       location.hostname === "localhost"
         ? "http://localhost:3001/events"
         : "https://winner-sse-server.onrender.com/events";
 
-    winnerSSE = new EventSource(url);
+    const winnerSSE = new EventSource(url);
 
     // Named winner event only
     winnerSSE.addEventListener("winner", (evt) => {
       let data = {};
-      try {
-        data = JSON.parse(evt.data || "{}");
-      } catch {}
+      try { data = JSON.parse(evt.data || "{}"); } catch {}
       const name = extractWinner(data);
 
       if (!sseInitialized) {
@@ -843,16 +813,11 @@ async function init() {
     winnerSSE.addEventListener("reset", resetHandler);
 
     winnerSSE.onerror = (e) => {
-      console.warn(
-        "Winner SSE error; will fall back to polling.",
-        e?.message || e
-      );
+      console.warn("Winner SSE error; will fall back to polling.", e?.message || e);
+      // EventSource retries automatically
     };
   } catch (e) {
-    console.warn(
-      "Failed to start Winner SSE; will use polling.",
-      e?.message || e
-    );
+    console.warn("Failed to start Winner SSE; will use polling.", e?.message || e);
   }
 
   // Fallback polling (keeps banner in sync if SSE down)
