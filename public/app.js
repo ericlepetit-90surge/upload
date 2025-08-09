@@ -434,18 +434,20 @@ function startShutdownWatcher() {
 }
 
 // ----------------- Gallery / Votes (robust & parallel) -----------------
+// ----------------- Gallery / Votes (simple, resilient) -----------------
 async function loadGallery() {
   const gallery = document.getElementById("gallery");
   if (!gallery) return;
   gallery.innerHTML = "";
 
-  // Close any previous vote streams to avoid leaks
-  for (const s of voteStreams.values()) {
-    try { s.close(); } catch {}
+  // Close any previous vote streams
+  if (voteStreams.size) {
+    for (const s of voteStreams.values()) {
+      try { s.close(); } catch {}
+    }
+    voteStreams.clear();
   }
-  voteStreams.clear();
 
-  // Helpers
   const keyFromUrl = (url = "") => {
     if (!url) return null;
     try { return new URL(url).pathname.split("/").pop() || null; }
@@ -457,74 +459,74 @@ async function loadGallery() {
     const n = m[1].length === 13 ? Number(m[1]) : Number(m[1]) * 1000;
     return Number.isFinite(n) ? n : 0;
   };
-  const bust = (u) => (u ? u + (u.includes("?") ? "&" : "?") + "v=" + Date.now() : u);
 
-  // 1) primary: uploads metadata
+  // 1) Primary: uploads from API
   let uploads = [];
   try {
-    const uploadsRes = await fetch("/api/admin?action=uploads", { cache: "no-store" });
-    if (!uploadsRes.ok) throw new Error("uploads fetch failed");
-    uploads = await uploadsRes.json();
-    if (!Array.isArray(uploads)) uploads = [];
+    const res = await fetch("/api/admin?action=uploads", { cache: "no-store" });
+    if (!res.ok) throw new Error(`uploads fetch failed (${res.status})`);
+    const j = await res.json();
+    uploads = Array.isArray(j) ? j : [];
   } catch (e) {
-    console.error("❌ Failed to load uploads", e);
+    console.error("❌ /uploads failed:", e);
     gallery.textContent = "Failed to load gallery.";
     return;
   }
 
-  // 2) dedupe + sanitize list
+  console.debug("[gallery] uploads count:", uploads.length);
+
+  // 2) Only if *completely empty*, try R2 directory as a last resort
+  if (uploads.length === 0 && r2AccountId && r2BucketName) {
+    try {
+      const r2Res = await fetch("/api/admin?action=list-r2-files", { cache: "no-store" });
+      if (r2Res.ok) {
+        const r2 = await r2Res.json();
+        const files = Array.isArray(r2.files) ? r2.files : [];
+        uploads = files.map((f) => ({
+          id: f.key,
+          fileName: f.key,
+          fileUrl: `https://${r2AccountId}.r2.cloudflarestorage.com/${r2BucketName}/${f.key}`,
+          userName: "(unknown)",
+          userNameRaw: "(unknown)",
+          votes: 0,
+          createdTime: f.lastModified || null,
+        }));
+        console.debug("[gallery] using R2 fallback, files:", uploads.length);
+      }
+    } catch (e) {
+      console.warn("R2 fallback listing failed (non-fatal):", e);
+    }
+  }
+
+  // 3) Dedupe + require valid URL
   const seen = new Set();
   const items = [];
   for (const u of uploads) {
     const k = u.fileName || keyFromUrl(u.fileUrl);
-    if (!k || seen.has(k)) continue;
-    if (!u.fileUrl) continue; // must have a URL to render
+    if (!k || !u.fileUrl) continue;
+    if (seen.has(k)) continue;
     seen.add(k);
     items.push(u);
   }
 
-  // 3) sort newest first (createdTime -> filename epoch)
+  // 4) Sort newest first
   items.sort((a, b) => {
-    const ta =
-      new Date(a.createdTime || 0).getTime() || parseEpochFromName(a.fileName || "") || 0;
-    const tb =
-      new Date(b.createdTime || 0).getTime() || parseEpochFromName(b.fileName || "") || 0;
+    const ta = new Date(a.createdTime || 0).getTime() || parseEpochFromName(a.fileName || "") || 0;
+    const tb = new Date(b.createdTime || 0).getTime() || parseEpochFromName(b.fileName || "") || 0;
     return tb - ta;
   });
 
   if (!items.length) {
     gallery.textContent = "Nothing here yet. Be the first to upload!";
+    console.debug("[gallery] nothing to show after sanitize.");
     return;
   }
 
-  // 4) Preload all images in parallel, then render only the ones that load
-  const preload = (upload) =>
-    new Promise((resolve) => {
-      const img = new Image();
-      let done = false;
-      const finish = (ok) => {
-        if (done) return;
-        done = true;
-        resolve({ ok, img, upload });
-      };
-      img.onload = () => finish(true);
-      img.onerror = () => finish(false);
-      img.decoding = "async";
-      img.loading = "lazy";
-      img.src = bust(upload.fileUrl);
-    });
+  console.debug("[gallery] rendering items:", items.length);
 
-  const results = await Promise.all(items.map(preload));
-  const okResults = results.filter((r) => r.ok);
-
-  if (!okResults.length) {
-    // nothing could be loaded (network/cache) -> passive retry shortly
-    setTimeout(() => loadGallery(), 1200);
-    return;
-  }
-
-  for (const { img, upload } of okResults) {
-    const id = upload.id || upload.fileName || keyFromUrl(upload.fileUrl);
+  // 5) Render (no pre-filter). Drop card if image actually fails.
+  for (const upload of items) {
+    const id = upload.id || upload.fileName || keyFromUrl(upload.fileUrl) || String(Math.random());
 
     const card = document.createElement("div");
     card.className = "card";
@@ -533,14 +535,17 @@ async function loadGallery() {
     const wrapper = document.createElement("div");
     wrapper.style.position = "relative";
 
-    // adopt preloaded image
-    img.style.cursor = "pointer";
-    img.style.height = "200px";
-    img.style.width = "100%";
-    img.style.objectFit = "cover";
-    img.style.filter = "blur(8px)";
-    img.style.transition = "filter 0.5s";
+    const img = document.createElement("img");
+    img.decoding = "async";
+    img.loading = "lazy";
+    img.referrerPolicy = "no-referrer"; // safer cross-origin
+    img.src = upload.fileUrl;           // <-- no cache-bust to avoid 403s
+    img.style.cssText = "cursor:pointer;height:200px;width:100%;object-fit:cover;filter:blur(8px);transition:filter .5s";
     img.addEventListener("load", () => (img.style.filter = "none"));
+    img.addEventListener("error", () => {
+      console.warn("[gallery] image failed, removing card:", upload.fileUrl);
+      card.remove();
+    });
     img.addEventListener("click", () => {
       const modal = document.getElementById("imageModal");
       document.getElementById("fullImage").src = upload.fileUrl;
@@ -578,7 +583,6 @@ async function loadGallery() {
           });
           const result = await res.json();
           if (!res.ok || !result.success) throw new Error("Vote failed");
-
           localStorage.setItem(voteKey, "1");
           voteInfo.textContent = `${result.votes} ❤️`;
           upvoteBtn.remove();
@@ -600,7 +604,7 @@ async function loadGallery() {
     card.appendChild(info);
     gallery.appendChild(card);
 
-    // Live vote updates (one stream per id)
+    // Live vote updates
     try {
       const es = new EventSource(
         `https://vote-stream-server.onrender.com/votes/${encodeURIComponent(id)}`
@@ -611,14 +615,12 @@ async function loadGallery() {
           if (typeof votes === "number") voteInfo.textContent = `${votes} ❤️`;
         } catch {}
       };
-      es.onerror = () => {
-        try { es.close(); } catch {}
-        voteStreams.delete(id);
-      };
+      es.onerror = () => { try { es.close(); } catch {}; voteStreams.delete(id); };
       voteStreams.set(id, es);
     } catch {}
   }
 }
+
 
 // ----------------- Winner modal + banner -----------------
 function showWinnerModal(name) {
