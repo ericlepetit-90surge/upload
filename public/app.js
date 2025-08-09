@@ -6,8 +6,9 @@ let r2AccountId = "";
 let r2BucketName = "";
 let hasShownWinner = false;
 
-// Namespaced follow key (per show window)
+// Namespaced follow + "already shown winner" keys (per show window)
 let FOLLOW_KEY = "followed";
+let SHOWN_WINNER_KEY = "shownWinnerName";
 
 // Winner/banner state
 let lastKnownWinner = null; // last name we rendered
@@ -41,7 +42,6 @@ function isAndroid() {
 function openFacebook(e) {
   if (e) e.preventDefault();
 
-  // fire-and-forget your existing tracking
   try {
     fetch("/api/admin?action=mark-follow&platform=fb", {
       method: "POST",
@@ -59,15 +59,12 @@ function openFacebook(e) {
   };
 
   if (isiOS()) {
-    // try app scheme; fallback quickly if it fails
     setTimeout(fallback, 700);
     window.location.href = appScheme;
   } else if (isAndroid()) {
-    // Chrome Android supports intent://
     setTimeout(fallback, 700);
     window.location.href = androidIntent;
   } else {
-    // desktop: just open the web page
     window.open(webUrl, "_blank", "noopener");
   }
 }
@@ -101,7 +98,7 @@ function clearWinnerBanner() {
     "<strong>ENTER OUR RAFFLE FOR A CHANCE TO WIN A 90 SURGE TEE!</strong>";
   hasShownWinner = false;
   lastKnownWinner = null;
-  localStorage.removeItem("shownWinnerName");
+  localStorage.removeItem(SHOWN_WINNER_KEY);
 }
 
 async function setHeadline() {
@@ -151,6 +148,7 @@ function setCtaMessage(text = "", color = "orange") {
 function setFollowKeyFromConfig(config) {
   const k = `${config.startTime || ""}|${config.endTime || ""}`;
   FOLLOW_KEY = `followed:${k}`;
+  SHOWN_WINNER_KEY = `shownWinnerName:${k}`;
 }
 
 async function loadFollowerCounts() {
@@ -193,8 +191,8 @@ function buildFollowGate() {
   gate.innerHTML = `
     <div class="follow-links" style="display:flex; justify-content:center; gap:1rem;">
       <a href="${FB_PAGE_URL}" target="_blank" rel="noopener"
-   class="follow-btn-fb"
-   onclick="openFacebook(event); followClick('fb')">Facebook</a>
+         class="follow-btn-fb"
+         onclick="openFacebook(event); followClick('fb')">Facebook</a>
       <a href="https://www.instagram.com/90_surge" target="_blank" rel="noopener" class="follow-btn-ig" onclick="followClick('ig')">Instagram</a>
     </div>`;
   gate.style.display = "block";
@@ -227,7 +225,6 @@ async function syncFollowState() {
       localStorage.removeItem(FOLLOW_KEY);
     }
   } catch {
-    // be strict if server can't be reached
     localStorage.removeItem(FOLLOW_KEY);
   }
 }
@@ -293,16 +290,13 @@ async function followClick(platform) {
         headers: { "Content-Type": "application/json" },
       }
     );
-  } catch (_) {
-    // Non-fatal; server also enforces follow.
-  }
+  } catch (_) {}
   localStorage.setItem(FOLLOW_KEY, "true");
   renderCTA();
 }
 window.followClick = followClick; // expose for inline HTML
 
 // ----- shutdown real time ----
-
 function getShutdownOverlay() {
   let ov = document.getElementById("shutdown-overlay");
   if (!ov) {
@@ -338,30 +332,20 @@ async function checkShutdownStatus() {
     if (!res.ok) throw new Error("status fetch failed");
     const { isShutdown } = await res.json();
     applyShutdownState(!!isShutdown);
-  } catch {
-    // network hiccup — do nothing
-  }
+  } catch {}
 }
 
 let shutdownWatcherStarted = false;
 let shutdownIntervalId = null;
 
 function startShutdownWatcher() {
-  if (shutdownWatcherStarted) return; // idempotent
+  if (shutdownWatcherStarted) return;
   shutdownWatcherStarted = true;
-
-  // initial check
   checkShutdownStatus();
-
-  // poll for cross-device changes
   shutdownIntervalId = setInterval(checkShutdownStatus, 10000);
-
-  // instant update for other tabs on same origin
   window.addEventListener("storage", (e) => {
     if (e.key === "shutdownToggle") checkShutdownStatus();
   });
-
-  // also refresh status when tab becomes visible again
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden) checkShutdownStatus();
   });
@@ -453,7 +437,7 @@ async function loadGallery() {
 
             localStorage.setItem(voteKey, "1");
             voteInfo.textContent = `${result.votes} ❤️`;
-            upvoteBtn.remove(); // remove button after a successful vote
+            upvoteBtn.remove();
           } catch (err) {
             console.error(err);
             upvoteBtn.disabled = false;
@@ -497,7 +481,7 @@ async function loadGallery() {
 function showWinnerModal(name) {
   if (hasShownWinner) return;
   hasShownWinner = true;
-  localStorage.setItem("shownWinnerName", name);
+  localStorage.setItem(SHOWN_WINNER_KEY, name);
   document.getElementById("winnerName").textContent = name;
   document.getElementById("winnerModal").classList.remove("hidden");
   triggerConfetti();
@@ -524,30 +508,24 @@ async function hydrateWinnerBanner() {
     const res = await fetch("/api/admin?action=winner", { cache: "no-store" });
     const data = await res.json();
     const winnerName = data?.winner?.name || "";
-    initialWinnerFromRest = winnerName || null; // <-- track what REST said
+    initialWinnerFromRest = winnerName || null;
 
     if (winnerName) {
       setWinnerBanner(winnerName);
-      lastKnownWinner = winnerName; // so first SSE replay won't modal
+      lastKnownWinner = winnerName;
     } else {
       clearWinnerBanner();
     }
   } catch {
-    // ignore
     initialWinnerFromRest = null;
   }
 }
 
 // ----------------- Main init -----------------
 async function init() {
-  // Check shutdown status (non-fatal)
-  // Always start the live shutdown watcher (idempotent)
   startShutdownWatcher();
-
-  // Normal startup
   await setHeadline();
 
-  // Remember default raffle banner so resets restore it
   const bannerEl = document.querySelector(".raffle-title");
   if (bannerEl && !originalRaffleText) originalRaffleText = bannerEl.innerHTML;
 
@@ -678,7 +656,7 @@ async function init() {
       setTimeout(() => {
         message.textContent = "";
         progress.style.display = "none";
-        progress.value = 0; // reset for next upload
+        progress.value = 0;
       }, 3000);
     } catch (err) {
       console.error("❌ Upload error:", err);
@@ -692,8 +670,9 @@ async function init() {
   nameInput.addEventListener("input", renderCTA);
   fileInput.addEventListener("change", renderCTA);
 
-  // ===== Winner SSE (safe + non-blocking) =====
+  // ===== Winner SSE (single handler; ignore stale replays) =====
   const extractWinner = (p = {}) => (p.winner ?? p.name ?? "").trim();
+
   const onIncomingWinner = (name, { isFirst = false } = {}) => {
     if (!name) return;
     if (name !== lastKnownWinner) {
@@ -703,11 +682,12 @@ async function init() {
     if (
       !isFirst &&
       !hasShownWinner &&
-      name !== localStorage.getItem("shownWinnerName")
+      name !== localStorage.getItem(SHOWN_WINNER_KEY)
     ) {
       showWinnerModal(name);
     }
   };
+
   const onResetWinner = () => {
     clearWinnerBanner();
     lastKnownWinner = null;
@@ -722,54 +702,29 @@ async function init() {
 
     winnerSSE = new EventSource(url);
 
-    winnerSSE.onmessage = (evt) => {
-      let data = {};
-      try {
-        data = JSON.parse(evt.data || "{}");
-      } catch {}
-      const name = (data?.winner ?? data?.name ?? "").trim();
-      const isReset =
-        data?.type === "reset-winner" ||
-        data?.resetWinner === true ||
-        name === "";
-
-      if (!sseInitialized) {
-        sseInitialized = true;
-
-        if (isReset) {
-          onResetWinner();
-          return;
-        }
-
-        if (name) {
-          // If REST hydrate said "no winner", this is probably a stale replay -> ignore it
-          if (initialWinnerFromRest == null) {
-            // do nothing on first stale winner
-            return;
-          }
-          // If hydrate DID have a winner, keep in sync (no modal on first)
-          return onIncomingWinner(name, { isFirst: true });
-        }
-
-        return;
-      }
-
-      // Subsequent events
-      if (isReset) return onResetWinner();
-      if (name) return onIncomingWinner(name);
-    };
-
+    // Named winner event only
     winnerSSE.addEventListener("winner", (evt) => {
       let data = {};
       try {
         data = JSON.parse(evt.data || "{}");
       } catch {}
       const name = extractWinner(data);
+
       if (!sseInitialized) {
         sseInitialized = true;
-        return onIncomingWinner(name, { isFirst: true });
+
+        // If REST said "no winner", treat the first replayed winner as stale and ignore it
+        if (!initialWinnerFromRest && name) {
+          return; // ignore stale replay
+        }
+
+        if (name) {
+          return onIncomingWinner(name, { isFirst: true });
+        }
+        return;
       }
-      onIncomingWinner(name);
+
+      if (name) onIncomingWinner(name);
     });
 
     const resetHandler = () => {
@@ -784,7 +739,7 @@ async function init() {
         "Winner SSE error; will fall back to polling.",
         e?.message || e
       );
-      // keep connection; EventSource retries automatically
+      // EventSource retries automatically
     };
   } catch (e) {
     console.warn(
