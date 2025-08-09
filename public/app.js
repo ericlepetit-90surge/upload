@@ -29,97 +29,127 @@ async function fetchEnv() {
 }
 
 // ==== Deep-link helpers (prevents double-open) ====
-const FB_PAGE_ID = "130023783530481";
-const FB_PAGE_URL = "https://www.facebook.com/90surge";
-const IG_USERNAME = "90_surge";
-const IG_WEB_URL  = "https://www.instagram.com/90_surge";
-
 function isiOS(){ return /iPad|iPhone|iPod/.test(navigator.userAgent); }
 function isAndroid(){ return /android/i.test(navigator.userAgent); }
 
+function showManualFallback(webUrl, label) {
+  let bar = document.getElementById('deeplink-fallback');
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.id = 'deeplink-fallback';
+    bar.style.cssText = `
+      position: fixed; left: 0; right: 0; bottom: 12px; z-index: 99999;
+      display:flex; justify-content:center;
+    `;
+    const inner = document.createElement('div');
+    inner.style.cssText = `
+      background: rgba(20,20,24,.95); color:#fff; border:1px solid rgba(255,255,255,.15);
+      padding: 10px 14px; border-radius: 10px; font-weight: 700;
+    `;
+    const a = document.createElement('a');
+    a.href = webUrl; a.target = '_blank'; a.rel = 'noopener';
+    a.textContent = label || 'Open in browser';
+    a.style.cssText = 'color:#7dd3fc; text-decoration:none;';
+    inner.appendChild(a);
+    bar.appendChild(inner);
+    document.body.appendChild(bar);
+    setTimeout(()=> bar.remove(), 7000);
+  }
+}
+
 /**
- * Try to open the native app. Only fall back to web if we never left the page.
- * - Uses visibility/pagehide/blur to detect app switch.
+ * iOS: try app scheme; if it fails, show *manual* fallback (no auto navigation).
+ * Android/desktop: use placeholder-tab fallback so current tab never navigates.
  */
 function openWithDeepLink(e, { iosScheme, androidIntent, webUrl }) {
   if (e) e.preventDefault();
 
-  // Open a placeholder tab *synchronously* (allowed by popup blockers)
-  // If the app opens, we close this tab; otherwise we load the web URL in it.
-  let fallbackTab = null;
-  try {
-    fallbackTab = window.open('about:blank', '_blank', 'noopener'); // may be null if blocked
-  } catch {}
+  // iOS: never navigate current tab as fallback
+  if (isiOS()) {
+    let leftPage = false;
+    const cleanup = () => {
+      document.removeEventListener('visibilitychange', onHide, true);
+      window.removeEventListener('pagehide', onHide, true);
+      window.removeEventListener('blur', onHide, true);
+      clearTimeout(t);
+    };
+    const onHide = () => { leftPage = true; cleanup(); };
 
-  let leftPage = false;
+    document.addEventListener('visibilitychange', onHide, { once:true, capture:true });
+    window.addEventListener('pagehide', onHide, { once:true, capture:true });
+    window.addEventListener('blur', onHide, { once:true, capture:true });
+
+    const t = setTimeout(() => {
+      if (!leftPage) {
+        // App didn't open: show a small CTA instead of hijacking this tab
+        showManualFallback(webUrl, 'Open in Facebook');
+      }
+      cleanup();
+    }, 1400);
+
+    // Try to open native app
+    window.location.href = iosScheme;
+    return;
+  }
+
+  // Android / Desktop: placeholder tab that we close if app opens
+  let fallbackTab = null;
+  try { fallbackTab = window.open('about:blank', '_blank', 'noopener'); } catch {}
+
+  let left = false;
   const cleanup = () => {
-    document.removeEventListener("visibilitychange", onHide, true);
-    window.removeEventListener("pagehide", onHide, true);
-    window.removeEventListener("blur", onHide, true);
+    document.removeEventListener('visibilitychange', onHide, true);
+    window.removeEventListener('pagehide', onHide, true);
+    window.removeEventListener('blur', onHide, true);
     clearTimeout(timer);
   };
-  const onHide = () => { leftPage = true; cleanup(); };
+  const onHide = () => { left = true; cleanup(); };
 
-  // Detect native-app switch
-  document.addEventListener("visibilitychange", onHide, { once: true, capture: true });
-  window.addEventListener("pagehide", onHide, { once: true, capture: true });
-  window.addEventListener("blur", onHide, { once: true, capture: true });
+  document.addEventListener('visibilitychange', onHide, { once:true, capture:true });
+  window.addEventListener('pagehide', onHide, { once:true, capture:true });
+  window.addEventListener('blur', onHide, { once:true, capture:true });
 
-  // Fallback AFTER we gave the app time to launch
   const timer = setTimeout(() => {
-    if (!leftPage) {
+    if (!left) {
       if (fallbackTab) {
-        try { fallbackTab.location = webUrl; }
-        catch { window.location.href = webUrl; } // extreme fallback
+        try { fallbackTab.location = webUrl; } catch { /* ignore */ }
       } else {
-        // If popup blocked, navigate current tab as last resort
-        window.location.href = webUrl;
+        // last resort if popup blocked: don’t touch current tab
+        showManualFallback(webUrl, 'Open in browser');
       }
     } else {
-      // App opened — close the placeholder tab if it exists
       try { fallbackTab && fallbackTab.close(); } catch {}
     }
     cleanup();
-  }, 1400); // slightly longer to avoid “double open” prompts
+  }, 1400);
 
-  // Kick the native app
-  if (isiOS()) {
-    // iOS prefers scheme URLs
-    window.location.href = iosScheme;
-  } else if (isAndroid()) {
-    // Chrome Android understands intent://
+  if (isAndroid()) {
     window.location.href = androidIntent;
   } else {
-    // Desktop: just use web
-    if (fallbackTab) {
-      try { fallbackTab.location = webUrl; } catch { window.open(webUrl, '_blank'); }
-    } else {
-      window.open(webUrl, '_blank', 'noopener');
-    }
+    // desktop: just use the web in the placeholder tab
+    if (fallbackTab) { try { fallbackTab.location = webUrl; } catch {} }
     cleanup();
   }
 }
 
-
 // Facebook
 async function openFacebook(e){
-  // mark follow & unlock locally (server still enforces on upload)
-  try { await followClick("fb"); } catch {}
+  try { await followClick('fb'); } catch {}
   openWithDeepLink(e, {
-    iosScheme: `fb://page/${FB_PAGE_ID}`,
-    androidIntent: `intent://page/${FB_PAGE_ID}#Intent;scheme=fb;package=com.facebook.katana;end`,
-    webUrl: FB_PAGE_URL
+    iosScheme: `fb://page/130023783530481`,
+    androidIntent: `intent://page/130023783530481#Intent;scheme=fb;package=com.facebook.katana;end`,
+    webUrl: `https://www.facebook.com/90surge`
   });
 }
 window.openFacebook = openFacebook;
 
 // Instagram
 async function openInstagram(e){
-  try { await followClick("ig"); } catch {}
+  try { await followClick('ig'); } catch {}
   openWithDeepLink(e, {
-    iosScheme: `instagram://user?username=${IG_USERNAME}`,
-    androidIntent: `intent://instagram.com/_u/${IG_USERNAME}#Intent;scheme=https;package=com.instagram.android;end`,
-    webUrl: IG_WEB_URL
+    iosScheme: `instagram://user?username=90_surge`,
+    androidIntent: `intent://instagram.com/_u/90_surge#Intent;scheme=https;package=com.instagram.android;end`,
+    webUrl: `https://www.instagram.com/90_surge`
   });
 }
 window.openInstagram = openInstagram;
