@@ -29,6 +29,10 @@ async function fetchEnv() {
 }
 
 // ==== Deep-link helpers (prevents double-open) ====
+
+const FB_PAGE_URL = "https://www.facebook.com/90surge";
+const IG_WEB_URL  = "https://www.instagram.com/90_surge";
+
 function isiOS(){ return /iPad|iPhone|iPod/.test(navigator.userAgent); }
 function isAndroid(){ return /android/i.test(navigator.userAgent); }
 
@@ -61,7 +65,7 @@ function showManualFallback(webUrl, label) {
  * iOS: try app scheme; if it fails, show *manual* fallback (no auto navigation).
  * Android/desktop: use placeholder-tab fallback so current tab never navigates.
  */
-function openWithDeepLink(e, { iosScheme, androidIntent, webUrl }) {
+function openWithDeepLink(e, { iosScheme, androidIntent, webUrl, label }) {
   if (e) e.preventDefault();
 
   // iOS: never navigate current tab as fallback
@@ -80,14 +84,10 @@ function openWithDeepLink(e, { iosScheme, androidIntent, webUrl }) {
     window.addEventListener('blur', onHide, { once:true, capture:true });
 
     const t = setTimeout(() => {
-      if (!leftPage) {
-        // App didn't open: show a small CTA instead of hijacking this tab
-        showManualFallback(webUrl, 'Open in Facebook');
-      }
+      if (!leftPage) showManualFallback(webUrl, label || 'Open in app');
       cleanup();
     }, 1400);
 
-    // Try to open native app
     window.location.href = iosScheme;
     return;
   }
@@ -112,10 +112,9 @@ function openWithDeepLink(e, { iosScheme, androidIntent, webUrl }) {
   const timer = setTimeout(() => {
     if (!left) {
       if (fallbackTab) {
-        try { fallbackTab.location = webUrl; } catch { /* ignore */ }
+        try { fallbackTab.location = webUrl; } catch {}
       } else {
-        // last resort if popup blocked: don’t touch current tab
-        showManualFallback(webUrl, 'Open in browser');
+        showManualFallback(webUrl, label || 'Open in browser');
       }
     } else {
       try { fallbackTab && fallbackTab.close(); } catch {}
@@ -126,11 +125,11 @@ function openWithDeepLink(e, { iosScheme, androidIntent, webUrl }) {
   if (isAndroid()) {
     window.location.href = androidIntent;
   } else {
-    // desktop: just use the web in the placeholder tab
     if (fallbackTab) { try { fallbackTab.location = webUrl; } catch {} }
     cleanup();
   }
 }
+
 
 // Facebook
 async function openFacebook(e){
@@ -138,7 +137,8 @@ async function openFacebook(e){
   openWithDeepLink(e, {
     iosScheme: `fb://page/130023783530481`,
     androidIntent: `intent://page/130023783530481#Intent;scheme=fb;package=com.facebook.katana;end`,
-    webUrl: `https://www.facebook.com/90surge`
+    webUrl: FB_PAGE_URL,
+    label: 'Open in Facebook'
   });
 }
 window.openFacebook = openFacebook;
@@ -149,7 +149,8 @@ async function openInstagram(e){
   openWithDeepLink(e, {
     iosScheme: `instagram://user?username=90_surge`,
     androidIntent: `intent://instagram.com/_u/90_surge#Intent;scheme=https;package=com.instagram.android;end`,
-    webUrl: `https://www.instagram.com/90_surge`
+    webUrl: IG_WEB_URL,
+    label: 'Open in Instagram'
   });
 }
 window.openInstagram = openInstagram;
