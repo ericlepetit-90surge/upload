@@ -249,7 +249,7 @@ function handleGuardClick() {
   if (!followed) text = "But first, follow us on Facebook or Insta :)";
   else if (!nameEntered) text = "Enter your name";
   else if (!isWindowOpen) text = "Uploads are closed right now.";
-  else text = "Almost there—try again!";
+  else text = "Forgot a step?";
 
   setCtaMessage(text, "orange");
 
