@@ -417,127 +417,189 @@ function startShutdownWatcher() {
 
 // ----------------- Gallery / Votes -----------------
 async function loadGallery() {
+  const gallery = document.getElementById("gallery");
+  if (!gallery) return;
+  gallery.innerHTML = "";
+
+  // Helper: stable key + timestamp
+  const keyFromUrl = (url="") => {
+    try { return new URL(url).pathname.split("/").pop() || url; }
+    catch { return url || Math.random().toString(36).slice(2); }
+  };
+  const parseEpochFromName = (name="") => {
+    // you save as: <sanitizedName>_<epoch>_<originalName>
+    const m = name.match(/_(\d{10,13})_/);
+    if (!m) return 0;
+    const n = m[1].length === 13 ? Number(m[1]) : Number(m[1]) * 1000;
+    return Number.isFinite(n) ? n : 0;
+  };
+
+  // 1) primary: uploads metadata
+  let uploads = [];
   try {
-    const uploadsRes = await fetch("/api/admin?action=uploads");
-    const uploads = await uploadsRes.json();
-    const gallery = document.getElementById("gallery");
-    gallery.innerHTML = "";
+    const uploadsRes = await fetch("/api/admin?action=uploads", { cache: "no-store" });
+    uploads = await uploadsRes.json();
+    if (!Array.isArray(uploads)) uploads = [];
+  } catch (e) {
+    console.warn("uploads fetch failed", e);
+    uploads = [];
+  }
 
-    // unique by id/fileName
-    const uniqueMap = new Map();
-    uploads.forEach((upload) => {
-      const id = upload.id || upload.fileName;
-      if (!uniqueMap.has(id)) uniqueMap.set(id, upload);
-    });
+  // 2) dedupe by fileName (fallback fileUrl basename)
+  const byKey = new Map();
+  for (const u of uploads) {
+    const k = u.fileName || keyFromUrl(u.fileUrl);
+    if (!k) continue;
+    if (!byKey.has(k)) byKey.set(k, u);
+  }
 
-    const uniqueUploads = Array.from(uniqueMap.values()).sort((a, b) => {
-      const aTime = new Date(a.createdTime || 0).getTime();
-      const bTime = new Date(b.createdTime || 0).getTime();
-      return bTime - aTime;
-    });
-
-    uniqueUploads.forEach((upload) => {
-      const id = upload.id || upload.fileName;
-
-      const card = document.createElement("div");
-      card.className = "card";
-      card.dataset.id = id;
-
-      const wrapper = document.createElement("div");
-      wrapper.style.position = "relative";
-
-      const img = document.createElement("img");
-      img.src = upload.fileUrl;
-      img.loading = "lazy";
-      img.style.cursor = "pointer";
-      img.style.height = "200px";
-      img.style.width = "100%";
-      img.style.objectFit = "cover";
-      img.style.filter = "blur(8px)";
-      img.style.transition = "filter 0.5s";
-      img.addEventListener("load", () => (img.style.filter = "none"));
-      img.addEventListener("click", () => {
-        const modal = document.getElementById("imageModal");
-        document.getElementById("fullImage").src = upload.fileUrl;
-        modal.classList.remove("hidden");
-      });
-
-      // footer (two rows: name+likes on top, button below)
-      const info = document.createElement("div");
-      info.className = "info";
-
-      const displayName = upload.userName || upload.userNameRaw || "Anonymous";
-      const nameEl = document.createElement("span");
-      nameEl.textContent = `@${displayName}`;
-
-      // ❤️ count (right side of row 1)
-      const voteInfo = document.createElement("span");
-      voteInfo.className = "vote-info";
-      voteInfo.textContent = `${upload.votes || 0} ❤️`;
-
-      // row 2 container for the vote button
-      const voteRow = document.createElement("div");
-      voteRow.className = "vote-row";
-
-      // upvote button (removed after vote)
-      const voteKey = `voted_${id}`;
-      const hasVoted = localStorage.getItem(voteKey) === "1";
-
-      if (!hasVoted) {
-        const upvoteBtn = document.createElement("button");
-        upvoteBtn.className = "btn-compact";
-        upvoteBtn.textContent = "Love it!";
-
-        upvoteBtn.addEventListener("click", async () => {
-          upvoteBtn.disabled = true;
-          try {
-            const res = await fetch("/api/admin?action=upvote", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ fileId: id }),
-            });
-            const result = await res.json();
-            if (!res.ok || !result.success) throw new Error("Vote failed");
-
-            localStorage.setItem(voteKey, "1");
-            voteInfo.textContent = `${result.votes} ❤️`;
-            upvoteBtn.remove(); // remove button after a successful vote
-          } catch (err) {
-            console.error(err);
-            upvoteBtn.disabled = false;
-            upvoteBtn.textContent = "Love it!";
-          }
-        });
-
-        voteRow.appendChild(upvoteBtn);
+  // 3) optional R2 fallback if list looks sparse
+  // (covers TTL resets or deploys clearing Redis)
+  try {
+    // If we have very few items but R2 likely has more, pull in R2 keys.
+    // You can tweak the threshold (e.g., < 8)
+    if (byKey.size < 8 && r2AccountId && r2BucketName) {
+      const r2Res = await fetch("/api/admin?action=list-r2-files", { cache: "no-store" });
+      if (r2Res.ok) {
+        const r2 = await r2Res.json();
+        const files = Array.isArray(r2.files) ? r2.files : [];
+        for (const f of files) {
+          const k = f.key;
+          if (!k || byKey.has(k)) continue;
+          // synthesize a minimal "upload" object so it renders
+          const fileUrl = `https://${r2AccountId}.r2.cloudflarestorage.com/${r2BucketName}/${k}`;
+          byKey.set(k, {
+            id: k,
+            fileName: k,
+            fileUrl,
+            userName: "(unknown)",
+            userNameRaw: "(unknown)",
+            votes: 0,
+            // keep some temporal info to sort
+            createdTime: f.lastModified || null,
+            _r2LastMod: f.lastModified || null,
+          });
+        }
       }
+    }
+  } catch (e) {
+    console.warn("R2 fallback listing failed (non-fatal)", e);
+  }
 
-      // assemble footer
-      info.appendChild(nameEl);   // row 1, left
-      info.appendChild(voteInfo); // row 1, right
-      info.appendChild(voteRow);  // row 2, spans both
+  // 4) sort newest first (createdTime -> filename epoch -> R2 lastModified -> 0)
+  const items = Array.from(byKey.values()).sort((a, b) => {
+    const ta = new Date(a.createdTime || 0).getTime()
+            || parseEpochFromName(a.fileName || "")
+            || new Date(a._r2LastMod || 0).getTime()
+            || 0;
+    const tb = new Date(b.createdTime || 0).getTime()
+            || parseEpochFromName(b.fileName || "")
+            || new Date(b._r2LastMod || 0).getTime()
+            || 0;
+    return tb - ta;
+  });
 
-      wrapper.appendChild(img);
-      card.appendChild(wrapper);
-      card.appendChild(info);
-      gallery.appendChild(card);
+  // 5) render
+  if (!items.length) {
+    gallery.textContent = "Nothing here yet. Be the first to upload!";
+    return;
+  }
 
-      // Live vote updates (SSE)
+  for (const upload of items) {
+    const id = upload.id || upload.fileName || keyFromUrl(upload.fileUrl);
+
+    const card = document.createElement("div");
+    card.className = "card";
+    card.dataset.id = id;
+
+    const wrapper = document.createElement("div");
+    wrapper.style.position = "relative";
+
+    const img = document.createElement("img");
+    img.src = upload.fileUrl;
+    img.loading = "lazy";
+    img.style.cursor = "pointer";
+    img.style.height = "200px";
+    img.style.width = "100%";
+    img.style.objectFit = "cover";
+    img.style.filter = "blur(8px)";
+    img.style.transition = "filter 0.5s";
+    img.addEventListener("load", () => (img.style.filter = "none"));
+    img.addEventListener("click", () => {
+      const modal = document.getElementById("imageModal");
+      document.getElementById("fullImage").src = upload.fileUrl;
+      modal.classList.remove("hidden");
+    });
+
+    // footer: row1 name + likes, row2 button
+    const info = document.createElement("div");
+    info.className = "info";
+
+    const displayName = upload.userName || upload.userNameRaw || "Anonymous";
+    const nameEl = document.createElement("span");
+    nameEl.textContent = `@${displayName}`;
+
+    const voteInfo = document.createElement("span");
+    voteInfo.className = "vote-info";
+    voteInfo.textContent = `${upload.votes || 0} ❤️`;
+
+    const voteRow = document.createElement("div");
+    voteRow.className = "vote-row";
+
+    const voteKey = `voted_${id}`;
+    const hasVoted = localStorage.getItem(voteKey) === "1";
+
+    if (!hasVoted) {
+      const upvoteBtn = document.createElement("button");
+      upvoteBtn.className = "btn-compact";
+      upvoteBtn.textContent = "Love it!";
+      upvoteBtn.addEventListener("click", async () => {
+        upvoteBtn.disabled = true;
+        try {
+          const res = await fetch("/api/admin?action=upvote", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ fileId: id }),
+          });
+          const result = await res.json();
+          if (!res.ok || !result.success) throw new Error("Vote failed");
+
+          localStorage.setItem(voteKey, "1");
+          voteInfo.textContent = `${result.votes} ❤️`;
+          upvoteBtn.remove();
+        } catch (err) {
+          console.error(err);
+          upvoteBtn.disabled = false;
+          upvoteBtn.textContent = "Love it!";
+        }
+      });
+      voteRow.appendChild(upvoteBtn);
+    }
+
+    info.appendChild(nameEl);
+    info.appendChild(voteInfo);
+    info.appendChild(voteRow);
+
+    wrapper.appendChild(img);
+    card.appendChild(wrapper);
+    card.appendChild(info);
+    gallery.appendChild(card);
+
+    // Live vote updates
+    try {
       const voteStream = new EventSource(
-        `https://vote-stream-server.onrender.com/votes/${id}`
+        `https://vote-stream-server.onrender.com/votes/${encodeURIComponent(id)}`
       );
       voteStream.onmessage = (event) => {
-        const { votes } = JSON.parse(event.data);
-        voteInfo.textContent = `${votes} ❤️`;
+        try {
+          const { votes } = JSON.parse(event.data || "{}");
+          if (typeof votes === "number") voteInfo.textContent = `${votes} ❤️`;
+        } catch {}
       };
       voteStream.onerror = () => {
-        console.warn(`❌ Vote stream error for ${id}`);
         voteStream.close();
       };
-    });
-  } catch (err) {
-    console.error("❌ Failed to load gallery", err);
-    document.getElementById("gallery").textContent = "Failed to load gallery.";
+    } catch {}
   }
 }
 
@@ -593,6 +655,8 @@ async function init() {
   const bannerEl = document.querySelector(".raffle-title");
   if (bannerEl && !originalRaffleText) originalRaffleText = bannerEl.innerHTML;
 
+  await fetchEnv();
+
   await hydrateWinnerBanner();
   await checkUploadWindow();
   buildFollowGate();
@@ -603,7 +667,7 @@ async function init() {
   renderCTA();
   await loadGallery();
   await loadFollowerCounts();
-  await fetchEnv();
+ 
 
   const form = document.getElementById("upload-form");
   const message = document.getElementById("message");
