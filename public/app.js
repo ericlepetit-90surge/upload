@@ -395,7 +395,7 @@ function getShutdownOverlay() {
         <img src="https://pub-d919971fb927454bab9481eee8a435e3.r2.dev/logo-horizontal-white.png" width="200" height="auto" alt="90 Surge">
       </div>
       <h1 style="font-size:2rem; margin:.25rem 0;">⚠️ Sorry, the raffle is closed.</h1>
-      <p style="margin:.25rem 0;">We'll be back soon.</p>
+      <p style="margin:.25rem 0;">Enjoy the show!!</p>
     `;
     document.body.appendChild(ov);
   }
@@ -433,7 +433,6 @@ function startShutdownWatcher() {
   });
 }
 
-// ----------------- Gallery / Votes (robust & parallel) -----------------
 // ----------------- Gallery / Votes (simple, resilient) -----------------
 async function loadGallery() {
   const gallery = document.getElementById("gallery");
@@ -702,13 +701,23 @@ async function init() {
   const nameInput = document.getElementById("user-display-name");
   const progress = document.getElementById("progress");
 
+  // --- filename & custom file button wiring (NEW) ---
   const filePicked = document.getElementById("file-picked");
+  const fileButton = document.querySelector(".file-btn");
+  const defaultFileBtnText =
+    (fileButton && fileButton.textContent.trim()) || null;
+
   if (filePicked && fileInput) {
     fileInput.addEventListener("change", () => {
       const f = fileInput.files[0];
       filePicked.textContent = f ? f.name : "";
+      // Restore button to its original label when picking a new file
+      if (fileButton && defaultFileBtnText) {
+        fileButton.textContent = defaultFileBtnText;
+      }
     });
   }
+  // --------------------------------------------------
 
   const savedName = localStorage.getItem("userName");
   if (savedName) nameInput.value = savedName;
@@ -736,7 +745,7 @@ async function init() {
     const uploadKey = `uploaded_${userName.toLowerCase()}_${originalName}`;
     if (localStorage.getItem(uploadKey)) {
       message.style.color = "orange";
-      message.textContent = "⚠️ You've already uploaded this file.";
+      message.textContent = "⚠️ You or someone else with the same name already uploaded this file.";
       return;
     }
 
@@ -811,7 +820,13 @@ async function init() {
 
       message.style.color = "#4caf50";
       message.textContent = "✅ Upload complete!";
+
+      // --- Clear displayed filename and flip button text (NEW) ---
       fileInput.value = "";
+      if (filePicked) filePicked.textContent = "";
+      if (fileButton) fileButton.textContent = "Another one?";
+      // -----------------------------------------------------------
+
       progress.value = 100;
       localStorage.setItem(uploadKey, "1");
       loadGallery();
