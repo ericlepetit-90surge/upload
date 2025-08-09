@@ -11,16 +11,10 @@ let FOLLOW_KEY = "followed";
 let SHOWN_WINNER_KEY = "shownWinnerName";
 
 // Winner/banner state
-let lastKnownWinner = null; // last name we rendered
-let sseInitialized = false; // ignore the first SSE replay
-let originalRaffleText = ""; // to restore banner on reset
-let initialWinnerFromRest = null; // null = none, string = winner we hydrated
-
-// ----------------- Deep-link constants -----------------
-const FB_PAGE_ID = "130023783530481";
-const FB_PAGE_URL = "https://www.facebook.com/90surge";
-const IG_USERNAME = "90_surge";
-const IG_WEB_URL = "https://www.instagram.com/90_surge";
+let lastKnownWinner = null;
+let sseInitialized = false;
+let originalRaffleText = "";
+let initialWinnerFromRest = null;
 
 // ----------------- Helpers -----------------
 async function fetchEnv() {
@@ -34,80 +28,104 @@ async function fetchEnv() {
   }
 }
 
-function isiOS() { return /iPad|iPhone|iPod/.test(navigator.userAgent); }
-function isAndroid() { return /android/i.test(navigator.userAgent); }
+// ==== Deep-link helpers ====
+const FB_PAGE_ID = "130023783530481";
+const FB_PAGE_URL = "https://www.facebook.com/90surge";
+const IG_USERNAME = "90_surge";
+const IG_WEB_URL  = "https://www.instagram.com/90_surge";
 
-// Small non-invasive fallback bar
+function isiOS(){ return /iPad|iPhone|iPod/.test(navigator.userAgent); }
+function isAndroid(){ return /android/i.test(navigator.userAgent); }
+
 function showManualFallback(webUrl, label) {
-  let bar = document.getElementById("deeplink-fallback");
+  let bar = document.getElementById('deeplink-fallback');
   if (!bar) {
-    bar = document.createElement("div");
-    bar.id = "deeplink-fallback";
+    bar = document.createElement('div');
+    bar.id = 'deeplink-fallback';
     bar.style.cssText = `
       position: fixed; left: 0; right: 0; bottom: 12px; z-index: 99999;
       display:flex; justify-content:center;
     `;
-    const inner = document.createElement("div");
+    const inner = document.createElement('div');
     inner.style.cssText = `
       background: rgba(20,20,24,.95); color:#fff; border:1px solid rgba(255,255,255,.15);
       padding: 10px 14px; border-radius: 10px; font-weight: 700;
     `;
-    const a = document.createElement("a");
-    a.href = webUrl; a.target = "_blank"; a.rel = "noopener";
-    a.textContent = label || "Open in browser";
-    a.style.cssText = "color:#7dd3fc; text-decoration:none;";
+    const a = document.createElement('a');
+    a.href = webUrl; a.target = '_blank'; a.rel = 'noopener';
+    a.textContent = label || 'Open in browser';
+    a.style.cssText = 'color:#7dd3fc; text-decoration:none;';
     inner.appendChild(a);
     bar.appendChild(inner);
     document.body.appendChild(bar);
-    setTimeout(() => bar.remove(), 7000);
+    setTimeout(()=> bar.remove(), 7000);
   }
 }
 
 /**
- * Deep-link opener with safe fallbacks:
- * - iOS: try native scheme; if it doesn't switch away, show a small fallback link (no nav in current tab).
- * - Android/desktop: open WEB page in a new tab immediately; on Android, then try to replace that new tab with intent://.
- *   If app isn't installed, the tab simply stays on the web page (no blank tab, no hijack).
+ * iOS: hidden-iframe deep link (no extra tab). If app doesn't open, we show a small
+ * fallback chip so the main page never navigates away.
+ * Android/Desktop: open web FIRST in a new tab, then (Android) try intent in that tab.
+ *   - If the app isn't installed, the tab stays on the web profile (never blank).
  */
 function openWithDeepLink(e, { iosScheme, androidIntent, webUrl, webLabel = "Open in browser" }) {
   if (e) e.preventDefault();
 
-  // iOS: open fallback in a new tab first, then try native app in THIS tab.
   if (isiOS()) {
-    let webTab = null;
-    try { webTab = window.open(webUrl, "_blank", "noopener"); } catch {}
-    if (!webTab) {
-      // If popups are blocked, at least show a tiny fallback bar.
-      showManualFallback(webUrl, webLabel);
-    }
+    let left = false;
+    let iframe = null;
 
-    // Try to jump to the native app (doesn't hijack your current tab if it fails).
-    // If the app opens, the user leaves; if not, they already have the web tab.
-    try { window.location.href = iosScheme; } catch {}
+    const cleanup = () => {
+      document.removeEventListener('visibilitychange', onVis, true);
+      window.removeEventListener('pagehide', onHide, true);
+      window.removeEventListener('blur', onHide, true);
+      clearTimeout(timer);
+      if (iframe && iframe.parentNode) iframe.parentNode.removeChild(iframe);
+    };
+    const onHide = () => { left = true; cleanup(); };
+    const onVis = () => { if (document.visibilityState === 'hidden') onHide(); };
+
+    document.addEventListener('visibilitychange', onVis, { once:true, capture:true });
+    window.addEventListener('pagehide', onHide, { once:true, capture:true });
+    window.addEventListener('blur', onHide, { once:true, capture:true });
+
+    // Try native app via hidden iframe (prevents navigating your tab)
+    iframe = document.createElement('iframe');
+    iframe.style.display = 'none';
+    iframe.src = iosScheme;
+    document.body.appendChild(iframe);
+
+    // If the app doesn't open, offer a *manual* browser link instead of auto-nav
+    const timer = setTimeout(() => {
+      if (!left) showManualFallback(webUrl, webLabel);
+      cleanup();
+    }, 1500);
+
     return;
   }
 
-  // Android / Desktop: open web first in a new tab, then try intent on Android.
+  // Android / Desktop
   let tab = null;
-  try { tab = window.open(webUrl, "_blank", "noopener"); } catch {}
+  try { tab = window.open(webUrl, '_blank', 'noopener'); } catch {}
 
   if (!tab) {
+    // popup blocked: at least show a manual link chip
     showManualFallback(webUrl, webLabel);
     return;
   }
 
   if (isAndroid()) {
+    // Give the web page a moment to load, then try the intent *in that tab*.
+    // If app not installed, tab just stays on the web profile (no blank).
     setTimeout(() => {
       try { tab.location = androidIntent; } catch {}
-      // If app not installed, the tab simply stays on the web profile.
-    }, 50);
+    }, 80);
   }
 }
 
-
 // Facebook
-async function openFacebook(e) {
-  try { await followClick("fb"); } catch {}
+async function openFacebook(e){
+  try { await followClick('fb'); } catch {}
   openWithDeepLink(e, {
     iosScheme: `fb://page/${FB_PAGE_ID}`,
     androidIntent: `intent://page/${FB_PAGE_ID}#Intent;scheme=fb;package=com.facebook.katana;end`,
@@ -118,8 +136,8 @@ async function openFacebook(e) {
 window.openFacebook = openFacebook;
 
 // Instagram
-async function openInstagram(e) {
-  try { await followClick("ig"); } catch {}
+async function openInstagram(e){
+  try { await followClick('ig'); } catch {}
   openWithDeepLink(e, {
     iosScheme: `instagram://user?username=${IG_USERNAME}`,
     androidIntent: `intent://instagram.com/_u/${IG_USERNAME}#Intent;scheme=https;package=com.instagram.android;end`,
@@ -268,9 +286,7 @@ async function getWithTimeout(url, ms = 8000) {
 // Ask server if this IP is allowed for THIS show; sync localStorage
 async function syncFollowState() {
   try {
-    const res = await fetch("/api/admin?action=check-follow", {
-      cache: "no-store",
-    });
+    const res = await fetch("/api/admin?action=check-follow", { cache: "no-store" });
     const json = await res.json();
     if (json && json.allowed) {
       localStorage.setItem(FOLLOW_KEY, "true");
@@ -347,7 +363,7 @@ async function followClick(platform) {
   localStorage.setItem(FOLLOW_KEY, "true");
   renderCTA();
 }
-window.followClick = followClick; // expose for inline HTML
+window.followClick = followClick;
 
 // ----- shutdown real time ----
 function getShutdownOverlay() {
@@ -379,9 +395,7 @@ function applyShutdownState(on) {
 
 async function checkShutdownStatus() {
   try {
-    const res = await fetch("/api/admin?action=shutdown-status", {
-      cache: "no-store",
-    });
+    const res = await fetch("/api/admin?action=shutdown-status", { cache: "no-store" });
     if (!res.ok) throw new Error("status fetch failed");
     const { isShutdown } = await res.json();
     applyShutdownState(!!isShutdown);
@@ -389,13 +403,12 @@ async function checkShutdownStatus() {
 }
 
 let shutdownWatcherStarted = false;
-let shutdownIntervalId = null;
 
 function startShutdownWatcher() {
   if (shutdownWatcherStarted) return;
   shutdownWatcherStarted = true;
   checkShutdownStatus();
-  shutdownIntervalId = setInterval(checkShutdownStatus, 10000);
+  setInterval(checkShutdownStatus, 10000);
   window.addEventListener("storage", (e) => {
     if (e.key === "shutdownToggle") checkShutdownStatus();
   });
@@ -490,7 +503,7 @@ async function loadGallery() {
 
             localStorage.setItem(voteKey, "1");
             voteInfo.textContent = `${result.votes} ❤️`;
-            upvoteBtn.remove(); // remove button after a successful vote
+            upvoteBtn.remove();
           } catch (err) {
             console.error(err);
             upvoteBtn.disabled = false;
@@ -502,9 +515,9 @@ async function loadGallery() {
       }
 
       // assemble footer
-      info.appendChild(nameEl);    // row 1, left
-      info.appendChild(voteInfo);  // row 1, right
-      info.appendChild(voteRow);   // row 2, spans both
+      info.appendChild(nameEl);   // row 1, left
+      info.appendChild(voteInfo); // row 1, right
+      info.appendChild(voteRow);  // row 2
 
       wrapper.appendChild(img);
       card.appendChild(wrapper);
@@ -579,7 +592,6 @@ async function init() {
   startShutdownWatcher();
   await setHeadline();
 
-  // Remember default raffle banner so resets restore it
   const bannerEl = document.querySelector(".raffle-title");
   if (bannerEl && !originalRaffleText) originalRaffleText = bannerEl.innerHTML;
 
@@ -708,7 +720,7 @@ async function init() {
       setTimeout(() => {
         message.textContent = "";
         progress.style.display = "none";
-        progress.value = 0; // reset for next upload
+        progress.value = 0;
       }, 3000);
     } catch (err) {
       console.error("❌ Upload error:", err);
@@ -731,7 +743,11 @@ async function init() {
       setWinnerBanner(name);
       lastKnownWinner = name;
     }
-    if (!isFirst && !hasShownWinner && name !== localStorage.getItem(SHOWN_WINNER_KEY)) {
+    if (
+      !isFirst &&
+      !hasShownWinner &&
+      name !== localStorage.getItem(SHOWN_WINNER_KEY)
+    ) {
       showWinnerModal(name);
     }
   };
