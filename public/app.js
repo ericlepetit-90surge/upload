@@ -28,47 +28,76 @@ async function fetchEnv() {
   }
 }
 
-// ==== FB deep link helpers ====
+// ==== Deep-link helpers (prevents double-open) ====
 const FB_PAGE_ID = "130023783530481";
 const FB_PAGE_URL = "https://www.facebook.com/90surge";
+const IG_USERNAME = "90_surge";
+const IG_WEB_URL  = "https://www.instagram.com/90_surge";
 
-function isiOS() {
-  return /iPad|iPhone|iPod/.test(navigator.userAgent);
-}
-function isAndroid() {
-  return /android/i.test(navigator.userAgent);
-}
+function isiOS(){ return /iPad|iPhone|iPod/.test(navigator.userAgent); }
+function isAndroid(){ return /android/i.test(navigator.userAgent); }
 
-function openFacebook(e) {
+/**
+ * Try to open the native app. Only fall back to web if we never left the page.
+ * - Uses visibility/pagehide/blur to detect app switch.
+ */
+function openWithDeepLink(e, { iosScheme, androidIntent, webUrl }) {
   if (e) e.preventDefault();
 
-  try {
-    fetch("/api/admin?action=mark-follow&platform=fb", {
-      method: "POST",
-      keepalive: true,
-      headers: { "Content-Type": "application/json" },
-    });
-  } catch {}
-
-  const webUrl = FB_PAGE_URL;
-  const appScheme = `fb://page/${FB_PAGE_ID}`;
-  const androidIntent = `intent://page/${FB_PAGE_ID}#Intent;scheme=fb;package=com.facebook.katana;end`;
-
-  const fallback = () => {
-    window.location.href = webUrl;
+  let leftPage = false;
+  const cleanup = () => {
+    document.removeEventListener("visibilitychange", onHide);
+    window.removeEventListener("pagehide", onHide);
+    window.removeEventListener("blur", onHide);
+    clearTimeout(timer);
   };
+  const onHide = () => { leftPage = true; cleanup(); };
 
+  document.addEventListener("visibilitychange", onHide, { once: true });
+  window.addEventListener("pagehide", onHide, { once: true });
+  window.addEventListener("blur", onHide, { once: true });
+
+  // Fallback ONLY if we stayed on the page
+  const timer = setTimeout(() => {
+    if (!leftPage) window.location.href = webUrl;
+    cleanup();
+  }, 1200); // 1.2s is a good balance
+
+  // Kick the native app
   if (isiOS()) {
-    setTimeout(fallback, 700);
-    window.location.href = appScheme;
+    window.location.href = iosScheme;
   } else if (isAndroid()) {
-    setTimeout(fallback, 700);
-    window.location.href = androidIntent;
+    window.location.href = androidIntent; // Chrome understands intent://
   } else {
+    // Desktop: just open web in a new tab
     window.open(webUrl, "_blank", "noopener");
+    cleanup();
   }
 }
+
+// Facebook
+async function openFacebook(e){
+  // mark follow & unlock locally (server still enforces on upload)
+  try { await followClick("fb"); } catch {}
+  openWithDeepLink(e, {
+    iosScheme: `fb://page/${FB_PAGE_ID}`,
+    androidIntent: `intent://page/${FB_PAGE_ID}#Intent;scheme=fb;package=com.facebook.katana;end`,
+    webUrl: FB_PAGE_URL
+  });
+}
 window.openFacebook = openFacebook;
+
+// Instagram
+async function openInstagram(e){
+  try { await followClick("ig"); } catch {}
+  openWithDeepLink(e, {
+    iosScheme: `instagram://user?username=${IG_USERNAME}`,
+    androidIntent: `intent://instagram.com/_u/${IG_USERNAME}#Intent;scheme=https;package=com.instagram.android;end`,
+    webUrl: IG_WEB_URL
+  });
+}
+window.openInstagram = openInstagram;
+
 
 function escapeHtml(str = "") {
   return String(str).replace(
@@ -190,13 +219,12 @@ function buildFollowGate() {
   if (!gate) return;
   gate.innerHTML = `
     <div class="follow-links" style="display:flex; justify-content:center; gap:1rem;">
-      <a href="${FB_PAGE_URL}" target="_blank" rel="noopener"
-         class="follow-btn-fb"
-         onclick="openFacebook(event); followClick('fb')">Facebook</a>
-      <a href="https://www.instagram.com/90_surge" target="_blank" rel="noopener" class="follow-btn-ig" onclick="followClick('ig')">Instagram</a>
+      <a href="${FB_PAGE_URL}" class="follow-btn-fb" onclick="openFacebook(event)">Facebook</a>
+      <a href="${IG_WEB_URL}"  class="follow-btn-ig" onclick="openInstagram(event)">Instagram</a>
     </div>`;
   gate.style.display = "block";
 }
+
 
 // Fetch with timeout (longer so cold-starts don't spam errors)
 async function getWithTimeout(url, ms = 8000) {
