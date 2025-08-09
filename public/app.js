@@ -11,16 +11,16 @@ let FOLLOW_KEY = "followed";
 let SHOWN_WINNER_KEY = "shownWinnerName";
 
 // Winner/banner state
-let lastKnownWinner = null;      // last winner name we rendered
-let sseInitialized = false;      // ignore the first SSE replay
-let originalRaffleText = "";     // to restore banner on reset
-let initialWinnerFromRest = null;// null = none, string = winner we hydrated
+let lastKnownWinner = null; // last winner name we rendered
+let sseInitialized = false; // ignore the first SSE replay
+let originalRaffleText = ""; // to restore banner on reset
+let initialWinnerFromRest = null; // null = none, string = winner we hydrated
 
 // ==== Social constants ====
-const FB_PAGE_ID  = "130023783530481";
+const FB_PAGE_ID = "130023783530481";
 const FB_PAGE_URL = "https://www.facebook.com/90surge";
 const IG_USERNAME = "90_surge";
-const IG_WEB_URL  = "https://www.instagram.com/90_surge";
+const IG_WEB_URL = "https://www.instagram.com/90_surge";
 
 // ----------------- Helpers -----------------
 async function fetchEnv() {
@@ -34,8 +34,12 @@ async function fetchEnv() {
   }
 }
 
-function isiOS() { return /iPad|iPhone|iPod/.test(navigator.userAgent); }
-function isAndroid() { return /android/i.test(navigator.userAgent); }
+function isiOS() {
+  return /iPad|iPhone|iPod/.test(navigator.userAgent);
+}
+function isAndroid() {
+  return /android/i.test(navigator.userAgent);
+}
 
 // Small, manual fallback chip (does not hijack current tab)
 function showManualFallback(webUrl, label) {
@@ -74,7 +78,10 @@ function openWithDeepLink(
   e,
   { iosScheme, androidIntent, webUrl, webLabel = "Open in browser" }
 ) {
-  if (e) { e.preventDefault(); e.stopPropagation(); }
+  if (e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
 
   if (isiOS()) {
     let left = false;
@@ -86,12 +93,20 @@ function openWithDeepLink(
       window.removeEventListener("blur", onHide, true);
       if (timerId) clearTimeout(timerId);
     };
-    const onHide = () => { left = true; cleanup(); };
-    const onVis  = () => { if (document.visibilityState === "hidden") onHide(); };
+    const onHide = () => {
+      left = true;
+      cleanup();
+    };
+    const onVis = () => {
+      if (document.visibilityState === "hidden") onHide();
+    };
 
-    document.addEventListener("visibilitychange", onVis, { once:true, capture:true });
-    window.addEventListener("pagehide", onHide, { once:true, capture:true });
-    window.addEventListener("blur", onHide, { once:true, capture:true });
+    document.addEventListener("visibilitychange", onVis, {
+      once: true,
+      capture: true,
+    });
+    window.addEventListener("pagehide", onHide, { once: true, capture: true });
+    window.addEventListener("blur", onHide, { once: true, capture: true });
 
     // Try to open the native app
     window.location.href = iosScheme;
@@ -107,19 +122,30 @@ function openWithDeepLink(
 
   // Android / Desktop
   let tab = null;
-  try { tab = window.open(webUrl, "_blank", "noopener"); } catch {}
-  if (!tab) { showManualFallback(webUrl, webLabel); return false; }
+  try {
+    tab = window.open(webUrl, "_blank", "noopener");
+  } catch {}
+  if (!tab) {
+    showManualFallback(webUrl, webLabel);
+    return false;
+  }
 
   if (isAndroid()) {
     // If the app isn't installed, this simply leaves the tab on the web profile.
-    setTimeout(() => { try { tab.location = androidIntent; } catch {} }, 80);
+    setTimeout(() => {
+      try {
+        tab.location = androidIntent;
+      } catch {}
+    }, 80);
   }
   return false;
 }
 
 // Facebook
 async function openFacebook(e) {
-  try { await followClick("fb"); } catch {}
+  try {
+    await followClick("fb");
+  } catch {}
   return openWithDeepLink(e, {
     iosScheme: `fb://page/${FB_PAGE_ID}`,
     androidIntent: `intent://page/${FB_PAGE_ID}#Intent;scheme=fb;package=com.facebook.katana;end`,
@@ -131,7 +157,9 @@ window.openFacebook = openFacebook;
 
 // Instagram
 async function openInstagram(e) {
-  try { await followClick("ig"); } catch {}
+  try {
+    await followClick("ig");
+  } catch {}
   return openWithDeepLink(e, {
     iosScheme: `instagram://user?username=${IG_USERNAME}`,
     androidIntent: `intent://instagram.com/_u/${IG_USERNAME}#Intent;scheme=https;package=com.instagram.android;end`,
@@ -145,7 +173,9 @@ function escapeHtml(str = "") {
   return String(str).replace(
     /[&<>"']/g,
     (s) =>
-      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[s])
+      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[
+        s
+      ])
   );
 }
 
@@ -153,7 +183,9 @@ function setWinnerBanner(name) {
   const banner = document.querySelector(".raffle-title");
   if (!banner) return;
   banner.classList.remove("blink");
-  banner.innerHTML = `<strong>Tonight's winner is: ${escapeHtml(name)}</strong>`;
+  banner.innerHTML = `<strong>Tonight's winner is: ${escapeHtml(
+    name
+  )}</strong>`;
 }
 
 function clearWinnerBanner() {
@@ -422,11 +454,14 @@ async function loadGallery() {
   gallery.innerHTML = "";
 
   // Helper: stable key + timestamp
-  const keyFromUrl = (url="") => {
-    try { return new URL(url).pathname.split("/").pop() || url; }
-    catch { return url || Math.random().toString(36).slice(2); }
+  const keyFromUrl = (url = "") => {
+    try {
+      return new URL(url).pathname.split("/").pop() || url;
+    } catch {
+      return url || Math.random().toString(36).slice(2);
+    }
   };
-  const parseEpochFromName = (name="") => {
+  const parseEpochFromName = (name = "") => {
     // you save as: <sanitizedName>_<epoch>_<originalName>
     const m = name.match(/_(\d{10,13})_/);
     if (!m) return 0;
@@ -437,7 +472,9 @@ async function loadGallery() {
   // 1) primary: uploads metadata
   let uploads = [];
   try {
-    const uploadsRes = await fetch("/api/admin?action=uploads", { cache: "no-store" });
+    const uploadsRes = await fetch("/api/admin?action=uploads", {
+      cache: "no-store",
+    });
     uploads = await uploadsRes.json();
     if (!Array.isArray(uploads)) uploads = [];
   } catch (e) {
@@ -459,7 +496,9 @@ async function loadGallery() {
     // If we have very few items but R2 likely has more, pull in R2 keys.
     // You can tweak the threshold (e.g., < 8)
     if (byKey.size < 8 && r2AccountId && r2BucketName) {
-      const r2Res = await fetch("/api/admin?action=list-r2-files", { cache: "no-store" });
+      const r2Res = await fetch("/api/admin?action=list-r2-files", {
+        cache: "no-store",
+      });
       if (r2Res.ok) {
         const r2 = await r2Res.json();
         const files = Array.isArray(r2.files) ? r2.files : [];
@@ -488,14 +527,16 @@ async function loadGallery() {
 
   // 4) sort newest first (createdTime -> filename epoch -> R2 lastModified -> 0)
   const items = Array.from(byKey.values()).sort((a, b) => {
-    const ta = new Date(a.createdTime || 0).getTime()
-            || parseEpochFromName(a.fileName || "")
-            || new Date(a._r2LastMod || 0).getTime()
-            || 0;
-    const tb = new Date(b.createdTime || 0).getTime()
-            || parseEpochFromName(b.fileName || "")
-            || new Date(b._r2LastMod || 0).getTime()
-            || 0;
+    const ta =
+      new Date(a.createdTime || 0).getTime() ||
+      parseEpochFromName(a.fileName || "") ||
+      new Date(a._r2LastMod || 0).getTime() ||
+      0;
+    const tb =
+      new Date(b.createdTime || 0).getTime() ||
+      parseEpochFromName(b.fileName || "") ||
+      new Date(b._r2LastMod || 0).getTime() ||
+      0;
     return tb - ta;
   });
 
@@ -588,7 +629,9 @@ async function loadGallery() {
     // Live vote updates
     try {
       const voteStream = new EventSource(
-        `https://vote-stream-server.onrender.com/votes/${encodeURIComponent(id)}`
+        `https://vote-stream-server.onrender.com/votes/${encodeURIComponent(
+          id
+        )}`
       );
       voteStream.onmessage = (event) => {
         try {
@@ -667,13 +710,20 @@ async function init() {
   renderCTA();
   await loadGallery();
   await loadFollowerCounts();
- 
 
   const form = document.getElementById("upload-form");
   const message = document.getElementById("message");
   const fileInput = document.getElementById("file");
   const nameInput = document.getElementById("user-display-name");
   const progress = document.getElementById("progress");
+
+  const filePicked = document.getElementById("file-picked");
+  if (filePicked && fileInput) {
+    fileInput.addEventListener("change", () => {
+      const f = fileInput.files[0];
+      filePicked.textContent = f ? f.name : "";
+    });
+  }
 
   const savedName = localStorage.getItem("userName");
   if (savedName) nameInput.value = savedName;
@@ -712,7 +762,9 @@ async function init() {
         .toLowerCase()
         .replace(/[^a-z0-9]+/gi, "_")
         .replace(/^_+|_+$/g, "");
-    const fileName = `${sanitize(userName)}_${Date.now()}_${sanitize(file.name)}`;
+    const fileName = `${sanitize(userName)}_${Date.now()}_${sanitize(
+      file.name
+    )}`;
     const fileUrl = `https://${r2AccountId}.r2.cloudflarestorage.com/${r2BucketName}/${fileName}`;
     const mimeType = file.type;
 
@@ -831,7 +883,9 @@ async function init() {
     // Named winner event only
     winnerSSE.addEventListener("winner", (evt) => {
       let data = {};
-      try { data = JSON.parse(evt.data || "{}"); } catch {}
+      try {
+        data = JSON.parse(evt.data || "{}");
+      } catch {}
       const name = extractWinner(data);
 
       if (!sseInitialized) {
@@ -859,11 +913,17 @@ async function init() {
     winnerSSE.addEventListener("reset", resetHandler);
 
     winnerSSE.onerror = (e) => {
-      console.warn("Winner SSE error; will fall back to polling.", e?.message || e);
+      console.warn(
+        "Winner SSE error; will fall back to polling.",
+        e?.message || e
+      );
       // EventSource retries automatically
     };
   } catch (e) {
-    console.warn("Failed to start Winner SSE; will use polling.", e?.message || e);
+    console.warn(
+      "Failed to start Winner SSE; will use polling.",
+      e?.message || e
+    );
   }
 
   // Fallback polling (keeps banner in sync if SSE down)

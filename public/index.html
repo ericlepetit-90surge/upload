@@ -35,7 +35,11 @@
           <div id="follow-gate"></div>
         </li>
         <li>Upload a pic of the band, with the band, a selfie, a jump, ... Show the energy*!
-          <input type="file" id="file" name="file" accept="image/*" required />
+          <div class="file-picker">
+            <input type="file" id="file" name="file" accept="image/*" required />
+            <label for="file" class="file-btn">Choose photo</label>
+            <span id="file-picked" class="file-picked" aria-live="polite"></span>
+          </div>
         </li>
       </ol>
     </div>
