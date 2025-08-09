@@ -69,7 +69,7 @@ function showManualFallback(webUrl, label) {
  *   - If the app isn't installed, the tab stays on the web profile (never blank).
  */
 function openWithDeepLink(e, { iosScheme, androidIntent, webUrl, webLabel = "Open in browser" }) {
-  if (e) e.preventDefault();
+  if (e) { e.preventDefault(); e.stopPropagation(); }
 
   if (isiOS()) {
     let left = false;
@@ -101,7 +101,7 @@ function openWithDeepLink(e, { iosScheme, androidIntent, webUrl, webLabel = "Ope
       cleanup();
     }, 1500);
 
-    return;
+    return false;
   }
 
   // Android / Desktop
@@ -111,22 +111,22 @@ function openWithDeepLink(e, { iosScheme, androidIntent, webUrl, webLabel = "Ope
   if (!tab) {
     // popup blocked: at least show a manual link chip
     showManualFallback(webUrl, webLabel);
-    return;
+    return false;
   }
 
   if (isAndroid()) {
-    // Give the web page a moment to load, then try the intent *in that tab*.
-    // If app not installed, tab just stays on the web profile (no blank).
+    // After the web is open, try the intent in that tab.
     setTimeout(() => {
       try { tab.location = androidIntent; } catch {}
     }, 80);
   }
+  return false;
 }
 
 // Facebook
 async function openFacebook(e){
   try { await followClick('fb'); } catch {}
-  openWithDeepLink(e, {
+  return openWithDeepLink(e, {
     iosScheme: `fb://page/${FB_PAGE_ID}`,
     androidIntent: `intent://page/${FB_PAGE_ID}#Intent;scheme=fb;package=com.facebook.katana;end`,
     webUrl: FB_PAGE_URL,
@@ -138,7 +138,7 @@ window.openFacebook = openFacebook;
 // Instagram
 async function openInstagram(e){
   try { await followClick('ig'); } catch {}
-  openWithDeepLink(e, {
+  return openWithDeepLink(e, {
     iosScheme: `instagram://user?username=${IG_USERNAME}`,
     androidIntent: `intent://instagram.com/_u/${IG_USERNAME}#Intent;scheme=https;package=com.instagram.android;end`,
     webUrl: IG_WEB_URL,
@@ -257,14 +257,14 @@ async function checkUploadWindow() {
   }
 }
 
-// Build/refresh the follow gate with clickable links
+// Build/refresh the follow gate (BUTTONS, not anchors)
 function buildFollowGate() {
   const gate = document.getElementById("follow-gate");
   if (!gate) return;
   gate.innerHTML = `
     <div class="follow-links" style="display:flex; justify-content:center; gap:1rem;">
-      <a href="${FB_PAGE_URL}" class="follow-btn-fb" onclick="openFacebook(event)">Facebook</a>
-      <a href="${IG_WEB_URL}" class="follow-btn-ig" onclick="openInstagram(event)">Instagram</a>
+      <button type="button" class="follow-btn-fb" role="link" onclick="return openFacebook(event)">Facebook</button>
+      <button type="button" class="follow-btn-ig" role="link" onclick="return openInstagram(event)">Instagram</button>
     </div>`;
   gate.style.display = "block";
 }
@@ -286,7 +286,9 @@ async function getWithTimeout(url, ms = 8000) {
 // Ask server if this IP is allowed for THIS show; sync localStorage
 async function syncFollowState() {
   try {
-    const res = await fetch("/api/admin?action=check-follow", { cache: "no-store" });
+    const res = await fetch("/api/admin?action=check-follow", {
+      cache: "no-store",
+    });
     const json = await res.json();
     if (json && json.allowed) {
       localStorage.setItem(FOLLOW_KEY, "true");
@@ -348,7 +350,7 @@ function renderCTA() {
   }
 }
 
-// Called by the follow links (inline onclick in HTML)
+// Called by the follow buttons (inline onclick in HTML)
 async function followClick(platform) {
   try {
     await fetch(
@@ -395,7 +397,9 @@ function applyShutdownState(on) {
 
 async function checkShutdownStatus() {
   try {
-    const res = await fetch("/api/admin?action=shutdown-status", { cache: "no-store" });
+    const res = await fetch("/api/admin?action=shutdown-status", {
+      cache: "no-store",
+    });
     if (!res.ok) throw new Error("status fetch failed");
     const { isShutdown } = await res.json();
     applyShutdownState(!!isShutdown);
@@ -515,16 +519,16 @@ async function loadGallery() {
       }
 
       // assemble footer
-      info.appendChild(nameEl);   // row 1, left
-      info.appendChild(voteInfo); // row 1, right
-      info.appendChild(voteRow);  // row 2
+      info.appendChild(nameEl);
+      info.appendChild(voteInfo);
+      info.appendChild(voteRow);
 
       wrapper.appendChild(img);
       card.appendChild(wrapper);
       card.appendChild(info);
       gallery.appendChild(card);
 
-      // Live vote updates (SSE) — update the hearts count inline
+      // Live vote updates (SSE)
       const voteStream = new EventSource(
         `https://vote-stream-server.onrender.com/votes/${id}`
       );
@@ -800,7 +804,6 @@ async function init() {
 
     winnerSSE.onerror = (e) => {
       console.warn("Winner SSE error; will fall back to polling.", e?.message || e);
-      // EventSource retries automatically
     };
   } catch (e) {
     console.warn("Failed to start Winner SSE; will use polling.", e?.message || e);
