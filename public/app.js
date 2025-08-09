@@ -849,82 +849,81 @@ async function init() {
   nameInput.addEventListener("input", renderCTA);
   fileInput.addEventListener("change", renderCTA);
 
-  // ===== Winner SSE (single handler; ignore stale replays) =====
-  const extractWinner = (p = {}) => (p.winner ?? p.name ?? "").trim();
+  // ===== Winner SSE (robust first-pick handling) =====
+const extractWinner = (p = {}) => (p.winner ?? p.name ?? "").trim();
 
-  const onIncomingWinner = (name, { isFirst = false } = {}) => {
-    if (!name) return;
-    if (name !== lastKnownWinner) {
-      setWinnerBanner(name);
-      lastKnownWinner = name;
-    }
-    if (
-      !isFirst &&
-      !hasShownWinner &&
-      name !== localStorage.getItem(SHOWN_WINNER_KEY)
-    ) {
-      showWinnerModal(name);
-    }
-  };
+const onIncomingWinner = (name) => {
+  if (!name) return;
+  if (name !== lastKnownWinner) {
+    setWinnerBanner(name);
+    lastKnownWinner = name;
+  }
+  // show modal if we haven't shown this exact name yet
+  if (!hasShownWinner && name !== localStorage.getItem(SHOWN_WINNER_KEY)) {
+    showWinnerModal(name);
+  }
+};
 
-  const onResetWinner = () => {
-    clearWinnerBanner();
-    lastKnownWinner = null;
-  };
+const onResetWinner = () => {
+  clearWinnerBanner();
+  lastKnownWinner = null;
+};
 
-  try {
-    const url =
-      location.hostname === "localhost"
-        ? "http://localhost:3001/events"
-        : "https://winner-sse-server.onrender.com/events";
+let winnerSSE;
+try {
+  const url =
+    location.hostname === "localhost"
+      ? "http://localhost:3001/events"
+      : "https://winner-sse-server.onrender.com/events";
 
-    const winnerSSE = new EventSource(url);
+  winnerSSE = new EventSource(url);
+  const sseConnectAt = Date.now();
 
-    // Named winner event only
-    winnerSSE.addEventListener("winner", (evt) => {
-      let data = {};
-      try {
-        data = JSON.parse(evt.data || "{}");
-      } catch {}
-      const name = extractWinner(data);
+  winnerSSE.addEventListener("winner", (evt) => {
+    let data = {};
+    try { data = JSON.parse(evt.data || "{}"); } catch {}
+    const name = extractWinner(data);
 
-      if (!sseInitialized) {
-        sseInitialized = true;
+    if (!sseInitialized) {
+      sseInitialized = true;
 
-        // If REST said "no winner", treat the first replayed winner as stale and ignore it
-        if (!initialWinnerFromRest && name) {
-          return; // ignore stale replay
-        }
-
-        if (name) {
-          return onIncomingWinner(name, { isFirst: true });
-        }
+      // If REST already had this same winner, keep banner in sync but don't modal
+      if (initialWinnerFromRest && name === initialWinnerFromRest) {
+        setWinnerBanner(name);
+        lastKnownWinner = name;
         return;
       }
 
-      if (name) onIncomingWinner(name);
-    });
+      // If REST had NO winner and the first event arrives *immediately*,
+      // treat as a replay and ignore once. Otherwise, show it (first live pick).
+      const sinceConnect = Date.now() - sseConnectAt;
+      if (!initialWinnerFromRest && name && sinceConnect < 600) {
+        // ignore likely replay
+        return;
+      }
 
-    const resetHandler = () => {
-      if (!sseInitialized) sseInitialized = true;
-      onResetWinner();
-    };
-    winnerSSE.addEventListener("reset-winner", resetHandler);
-    winnerSSE.addEventListener("reset", resetHandler);
+      // First meaningful winner after connect -> show modal
+      if (name) return onIncomingWinner(name);
+      return;
+    }
 
-    winnerSSE.onerror = (e) => {
-      console.warn(
-        "Winner SSE error; will fall back to polling.",
-        e?.message || e
-      );
-      // EventSource retries automatically
-    };
-  } catch (e) {
-    console.warn(
-      "Failed to start Winner SSE; will use polling.",
-      e?.message || e
-    );
-  }
+    if (name) onIncomingWinner(name);
+  });
+
+  const resetHandler = () => {
+    if (!sseInitialized) sseInitialized = true;
+    onResetWinner();
+  };
+  winnerSSE.addEventListener("reset-winner", resetHandler);
+  winnerSSE.addEventListener("reset", resetHandler);
+
+  winnerSSE.onerror = (e) => {
+    console.warn("Winner SSE error; will fall back to polling.", e?.message || e);
+  };
+} catch (e) {
+  console.warn("Failed to start Winner SSE; will use polling.", e?.message || e);
+}
+
 
   // Fallback polling (keeps banner in sync if SSE down)
   setInterval(async () => {
