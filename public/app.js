@@ -16,6 +16,12 @@ let sseInitialized = false; // ignore the first SSE replay
 let originalRaffleText = ""; // to restore banner on reset
 let initialWinnerFromRest = null; // null = none, string = winner we hydrated
 
+// ----------------- Deep-link constants -----------------
+const FB_PAGE_ID = "130023783530481";
+const FB_PAGE_URL = "https://www.facebook.com/90surge";
+const IG_USERNAME = "90_surge";
+const IG_WEB_URL = "https://www.instagram.com/90_surge";
+
 // ----------------- Helpers -----------------
 async function fetchEnv() {
   try {
@@ -28,132 +34,111 @@ async function fetchEnv() {
   }
 }
 
-// ==== Deep-link helpers (prevents double-open) ====
+function isiOS() { return /iPad|iPhone|iPod/.test(navigator.userAgent); }
+function isAndroid() { return /android/i.test(navigator.userAgent); }
 
-const FB_PAGE_URL = "https://www.facebook.com/90surge";
-const IG_WEB_URL  = "https://www.instagram.com/90_surge";
-
-function isiOS(){ return /iPad|iPhone|iPod/.test(navigator.userAgent); }
-function isAndroid(){ return /android/i.test(navigator.userAgent); }
-
+// Small non-invasive fallback bar
 function showManualFallback(webUrl, label) {
-  let bar = document.getElementById('deeplink-fallback');
+  let bar = document.getElementById("deeplink-fallback");
   if (!bar) {
-    bar = document.createElement('div');
-    bar.id = 'deeplink-fallback';
+    bar = document.createElement("div");
+    bar.id = "deeplink-fallback";
     bar.style.cssText = `
       position: fixed; left: 0; right: 0; bottom: 12px; z-index: 99999;
       display:flex; justify-content:center;
     `;
-    const inner = document.createElement('div');
+    const inner = document.createElement("div");
     inner.style.cssText = `
       background: rgba(20,20,24,.95); color:#fff; border:1px solid rgba(255,255,255,.15);
       padding: 10px 14px; border-radius: 10px; font-weight: 700;
     `;
-    const a = document.createElement('a');
-    a.href = webUrl; a.target = '_blank'; a.rel = 'noopener';
-    a.textContent = label || 'Open in browser';
-    a.style.cssText = 'color:#7dd3fc; text-decoration:none;';
+    const a = document.createElement("a");
+    a.href = webUrl; a.target = "_blank"; a.rel = "noopener";
+    a.textContent = label || "Open in browser";
+    a.style.cssText = "color:#7dd3fc; text-decoration:none;";
     inner.appendChild(a);
     bar.appendChild(inner);
     document.body.appendChild(bar);
-    setTimeout(()=> bar.remove(), 7000);
+    setTimeout(() => bar.remove(), 7000);
   }
 }
 
 /**
- * iOS: try app scheme; if it fails, show *manual* fallback (no auto navigation).
- * Android/desktop: use placeholder-tab fallback so current tab never navigates.
+ * Deep-link opener with safe fallbacks:
+ * - iOS: try native scheme; if it doesn't switch away, show a small fallback link (no nav in current tab).
+ * - Android/desktop: open WEB page in a new tab immediately; on Android, then try to replace that new tab with intent://.
+ *   If app isn't installed, the tab simply stays on the web page (no blank tab, no hijack).
  */
-function openWithDeepLink(e, { iosScheme, androidIntent, webUrl, label }) {
-  if (e) {
-    e.preventDefault();
-    e.stopPropagation();
-    if (e.stopImmediatePropagation) e.stopImmediatePropagation();
-  }
+function openWithDeepLink(e, { iosScheme, androidIntent, webUrl, webLabel = "Open in browser" }) {
+  if (e) e.preventDefault();
 
+  // iOS path: never navigate current tab on failure
   if (isiOS()) {
     let leftPage = false;
     const cleanup = () => {
-      document.removeEventListener('visibilitychange', onHide, true);
-      window.removeEventListener('pagehide', onHide, true);
-      window.removeEventListener('blur', onHide, true);
+      document.removeEventListener("visibilitychange", onHide, true);
+      window.removeEventListener("pagehide", onHide, true);
+      window.removeEventListener("blur", onHide, true);
       clearTimeout(t);
     };
     const onHide = () => { leftPage = true; cleanup(); };
 
-    document.addEventListener('visibilitychange', onHide, { once:true, capture:true });
-    window.addEventListener('pagehide', onHide, { once:true, capture:true });
-    window.addEventListener('blur', onHide, { once:true, capture:true });
+    document.addEventListener("visibilitychange", onHide, { once: true, capture: true });
+    window.addEventListener("pagehide", onHide, { once: true, capture: true });
+    window.addEventListener("blur", onHide, { once: true, capture: true });
 
     const t = setTimeout(() => {
-      if (!leftPage) showManualFallback(webUrl, label || 'Open in app');
+      if (!leftPage) showManualFallback(webUrl, webLabel);
       cleanup();
-    }, 1400);
+    }, 1200);
 
     window.location.href = iosScheme;
     return;
   }
 
-  // Android/Desktop ...
-  let fallbackTab = null;
-  try { fallbackTab = window.open('about:blank', '_blank', 'noopener'); } catch {}
+  // Android / Desktop path:
+  // 1) Open web profile immediately in a new tab
+  let tab = null;
+  try { tab = window.open(webUrl, "_blank", "noopener"); } catch {}
 
-  let left = false;
-  const cleanup = () => {
-    document.removeEventListener('visibilitychange', onHide, true);
-    window.removeEventListener('pagehide', onHide, true);
-    window.removeEventListener('blur', onHide, true);
-    clearTimeout(timer);
-  };
-  const onHide = () => { left = true; cleanup(); };
+  // Popup blocked? Show manual fallback bar and bail (don't touch current tab)
+  if (!tab) {
+    showManualFallback(webUrl, webLabel);
+    return;
+  }
 
-  document.addEventListener('visibilitychange', onHide, { once:true, capture:true });
-  window.addEventListener('pagehide', onHide, { once:true, capture:true });
-  window.addEventListener('blur', onHide, { once:true, capture:true });
-
-  const timer = setTimeout(() => {
-    if (!left) {
-      if (fallbackTab) {
-        try { fallbackTab.location = webUrl; } catch {}
-      } else {
-        showManualFallback(webUrl, label || 'Open in browser');
-      }
-    } else {
-      try { fallbackTab && fallbackTab.close(); } catch {}
-    }
-    cleanup();
-  }, 1400);
-
+  // 2) Android only: try to switch the new tab to the deep link
   if (isAndroid()) {
-    window.location.href = androidIntent;
+    setTimeout(() => {
+      try { tab.location = androidIntent; } catch {}
+      // If app not installed, that tab just keeps the web page we opened first.
+    }, 50);
   } else {
-    if (fallbackTab) { try { fallbackTab.location = webUrl; } catch {} }
-    cleanup();
+    // Desktop: nothing else to do; web tab is fine.
   }
 }
 
-async function openFacebook(e){
-  try { await followClick('fb'); } catch {}
+// Facebook
+async function openFacebook(e) {
+  try { await followClick("fb"); } catch {}
   openWithDeepLink(e, {
-    iosScheme: `fb://page/130023783530481`,
-    androidIntent: `intent://page/130023783530481#Intent;scheme=fb;package=com.facebook.katana;end`,
-    webUrl: `https://www.facebook.com/90surge`,
-    label: 'Open in Facebook'
+    iosScheme: `fb://page/${FB_PAGE_ID}`,
+    androidIntent: `intent://page/${FB_PAGE_ID}#Intent;scheme=fb;package=com.facebook.katana;end`,
+    webUrl: FB_PAGE_URL,
+    webLabel: "Open Facebook"
   });
-  return false; // <-- ensure anchor never navigates
 }
 window.openFacebook = openFacebook;
 
-async function openInstagram(e){
-  try { await followClick('ig'); } catch {}
+// Instagram
+async function openInstagram(e) {
+  try { await followClick("ig"); } catch {}
   openWithDeepLink(e, {
-    iosScheme: `instagram://user?username=90_surge`,
-    androidIntent: `intent://instagram.com/_u/90_surge#Intent;scheme=https;package=com.instagram.android;end`,
-    webUrl: `https://www.instagram.com/90_surge`,
-    label: 'Open in Instagram'
+    iosScheme: `instagram://user?username=${IG_USERNAME}`,
+    androidIntent: `intent://instagram.com/_u/${IG_USERNAME}#Intent;scheme=https;package=com.instagram.android;end`,
+    webUrl: IG_WEB_URL,
+    webLabel: "Open Instagram"
   });
-  return false; // <-- ensure anchor never navigates
 }
 window.openInstagram = openInstagram;
 
@@ -161,9 +146,7 @@ function escapeHtml(str = "") {
   return String(str).replace(
     /[&<>"']/g,
     (s) =>
-      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[
-        s
-      ])
+      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[s])
   );
 }
 
@@ -171,9 +154,7 @@ function setWinnerBanner(name) {
   const banner = document.querySelector(".raffle-title");
   if (!banner) return;
   banner.classList.remove("blink");
-  banner.innerHTML = `<strong>Tonight's winner is: ${escapeHtml(
-    name
-  )}</strong>`;
+  banner.innerHTML = `<strong>Tonight's winner is: ${escapeHtml(name)}</strong>`;
 }
 
 function clearWinnerBanner() {
@@ -277,17 +258,11 @@ function buildFollowGate() {
   if (!gate) return;
   gate.innerHTML = `
     <div class="follow-links" style="display:flex; justify-content:center; gap:1rem;">
-      <a href="#"
-         class="follow-btn-fb"
-         onclick="return openFacebook(event)">Facebook</a>
-      <a href="#"
-         class="follow-btn-ig"
-         onclick="return openInstagram(event)">Instagram</a>
+      <a href="${FB_PAGE_URL}" class="follow-btn-fb" onclick="openFacebook(event)">Facebook</a>
+      <a href="${IG_WEB_URL}" class="follow-btn-ig" onclick="openInstagram(event)">Instagram</a>
     </div>`;
   gate.style.display = "block";
 }
-
-
 
 // Fetch with timeout (longer so cold-starts don't spam errors)
 async function getWithTimeout(url, ms = 8000) {
@@ -528,7 +503,7 @@ async function loadGallery() {
 
             localStorage.setItem(voteKey, "1");
             voteInfo.textContent = `${result.votes} ❤️`;
-            upvoteBtn.remove();
+            upvoteBtn.remove(); // remove button after a successful vote
           } catch (err) {
             console.error(err);
             upvoteBtn.disabled = false;
@@ -540,9 +515,9 @@ async function loadGallery() {
       }
 
       // assemble footer
-      info.appendChild(nameEl); // row 1, left
-      info.appendChild(voteInfo); // row 1, right
-      info.appendChild(voteRow); // row 2, spans both
+      info.appendChild(nameEl);    // row 1, left
+      info.appendChild(voteInfo);  // row 1, right
+      info.appendChild(voteRow);   // row 2, spans both
 
       wrapper.appendChild(img);
       card.appendChild(wrapper);
@@ -617,6 +592,7 @@ async function init() {
   startShutdownWatcher();
   await setHeadline();
 
+  // Remember default raffle banner so resets restore it
   const bannerEl = document.querySelector(".raffle-title");
   if (bannerEl && !originalRaffleText) originalRaffleText = bannerEl.innerHTML;
 
@@ -675,9 +651,7 @@ async function init() {
         .toLowerCase()
         .replace(/[^a-z0-9]+/gi, "_")
         .replace(/^_+|_+$/g, "");
-    const fileName = `${sanitize(userName)}_${Date.now()}_${sanitize(
-      file.name
-    )}`;
+    const fileName = `${sanitize(userName)}_${Date.now()}_${sanitize(file.name)}`;
     const fileUrl = `https://${r2AccountId}.r2.cloudflarestorage.com/${r2BucketName}/${fileName}`;
     const mimeType = file.type;
 
@@ -747,7 +721,7 @@ async function init() {
       setTimeout(() => {
         message.textContent = "";
         progress.style.display = "none";
-        progress.value = 0;
+        progress.value = 0; // reset for next upload
       }, 3000);
     } catch (err) {
       console.error("❌ Upload error:", err);
@@ -770,11 +744,7 @@ async function init() {
       setWinnerBanner(name);
       lastKnownWinner = name;
     }
-    if (
-      !isFirst &&
-      !hasShownWinner &&
-      name !== localStorage.getItem(SHOWN_WINNER_KEY)
-    ) {
+    if (!isFirst && !hasShownWinner && name !== localStorage.getItem(SHOWN_WINNER_KEY)) {
       showWinnerModal(name);
     }
   };
@@ -826,17 +796,11 @@ async function init() {
     winnerSSE.addEventListener("reset", resetHandler);
 
     winnerSSE.onerror = (e) => {
-      console.warn(
-        "Winner SSE error; will fall back to polling.",
-        e?.message || e
-      );
+      console.warn("Winner SSE error; will fall back to polling.", e?.message || e);
       // EventSource retries automatically
     };
   } catch (e) {
-    console.warn(
-      "Failed to start Winner SSE; will use polling.",
-      e?.message || e
-    );
+    console.warn("Failed to start Winner SSE; will use polling.", e?.message || e);
   }
 
   // Fallback polling (keeps banner in sync if SSE down)
