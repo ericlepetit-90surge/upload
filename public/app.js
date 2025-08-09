@@ -72,51 +72,38 @@ function showManualFallback(webUrl, label) {
 function openWithDeepLink(e, { iosScheme, androidIntent, webUrl, webLabel = "Open in browser" }) {
   if (e) e.preventDefault();
 
-  // iOS path: never navigate current tab on failure
+  // iOS: open fallback in a new tab first, then try native app in THIS tab.
   if (isiOS()) {
-    let leftPage = false;
-    const cleanup = () => {
-      document.removeEventListener("visibilitychange", onHide, true);
-      window.removeEventListener("pagehide", onHide, true);
-      window.removeEventListener("blur", onHide, true);
-      clearTimeout(t);
-    };
-    const onHide = () => { leftPage = true; cleanup(); };
+    let webTab = null;
+    try { webTab = window.open(webUrl, "_blank", "noopener"); } catch {}
+    if (!webTab) {
+      // If popups are blocked, at least show a tiny fallback bar.
+      showManualFallback(webUrl, webLabel);
+    }
 
-    document.addEventListener("visibilitychange", onHide, { once: true, capture: true });
-    window.addEventListener("pagehide", onHide, { once: true, capture: true });
-    window.addEventListener("blur", onHide, { once: true, capture: true });
-
-    const t = setTimeout(() => {
-      if (!leftPage) showManualFallback(webUrl, webLabel);
-      cleanup();
-    }, 1200);
-
-    window.location.href = iosScheme;
+    // Try to jump to the native app (doesn't hijack your current tab if it fails).
+    // If the app opens, the user leaves; if not, they already have the web tab.
+    try { window.location.href = iosScheme; } catch {}
     return;
   }
 
-  // Android / Desktop path:
-  // 1) Open web profile immediately in a new tab
+  // Android / Desktop: open web first in a new tab, then try intent on Android.
   let tab = null;
   try { tab = window.open(webUrl, "_blank", "noopener"); } catch {}
 
-  // Popup blocked? Show manual fallback bar and bail (don't touch current tab)
   if (!tab) {
     showManualFallback(webUrl, webLabel);
     return;
   }
 
-  // 2) Android only: try to switch the new tab to the deep link
   if (isAndroid()) {
     setTimeout(() => {
       try { tab.location = androidIntent; } catch {}
-      // If app not installed, that tab just keeps the web page we opened first.
+      // If app not installed, the tab simply stays on the web profile.
     }, 50);
-  } else {
-    // Desktop: nothing else to do; web tab is fine.
   }
 }
+
 
 // Facebook
 async function openFacebook(e) {
