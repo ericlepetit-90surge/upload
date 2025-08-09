@@ -66,9 +66,12 @@ function showManualFallback(webUrl, label) {
  * Android/desktop: use placeholder-tab fallback so current tab never navigates.
  */
 function openWithDeepLink(e, { iosScheme, androidIntent, webUrl, label }) {
-  if (e) e.preventDefault();
+  if (e) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+  }
 
-  // iOS: never navigate current tab as fallback
   if (isiOS()) {
     let leftPage = false;
     const cleanup = () => {
@@ -92,7 +95,7 @@ function openWithDeepLink(e, { iosScheme, androidIntent, webUrl, label }) {
     return;
   }
 
-  // Android / Desktop: placeholder tab that we close if app opens
+  // Android/Desktop ...
   let fallbackTab = null;
   try { fallbackTab = window.open('about:blank', '_blank', 'noopener'); } catch {}
 
@@ -130,31 +133,29 @@ function openWithDeepLink(e, { iosScheme, androidIntent, webUrl, label }) {
   }
 }
 
-
-// Facebook
 async function openFacebook(e){
   try { await followClick('fb'); } catch {}
   openWithDeepLink(e, {
     iosScheme: `fb://page/130023783530481`,
     androidIntent: `intent://page/130023783530481#Intent;scheme=fb;package=com.facebook.katana;end`,
-    webUrl: FB_PAGE_URL,
+    webUrl: `https://www.facebook.com/90surge`,
     label: 'Open in Facebook'
   });
+  return false; // <-- ensure anchor never navigates
 }
 window.openFacebook = openFacebook;
 
-// Instagram
 async function openInstagram(e){
   try { await followClick('ig'); } catch {}
   openWithDeepLink(e, {
     iosScheme: `instagram://user?username=90_surge`,
     androidIntent: `intent://instagram.com/_u/90_surge#Intent;scheme=https;package=com.instagram.android;end`,
-    webUrl: IG_WEB_URL,
+    webUrl: `https://www.instagram.com/90_surge`,
     label: 'Open in Instagram'
   });
+  return false; // <-- ensure anchor never navigates
 }
 window.openInstagram = openInstagram;
-
 
 function escapeHtml(str = "") {
   return String(str).replace(
@@ -276,11 +277,16 @@ function buildFollowGate() {
   if (!gate) return;
   gate.innerHTML = `
     <div class="follow-links" style="display:flex; justify-content:center; gap:1rem;">
-      <a href="${FB_PAGE_URL}" class="follow-btn-fb" onclick="openFacebook(event)">Facebook</a>
-      <a href="${IG_WEB_URL}" class="follow-btn-ig" onclick="openInstagram(event)">Instagram</a>
+      <a href="#"
+         class="follow-btn-fb"
+         onclick="return openFacebook(event)">Facebook</a>
+      <a href="#"
+         class="follow-btn-ig"
+         onclick="return openInstagram(event)">Instagram</a>
     </div>`;
   gate.style.display = "block";
 }
+
 
 
 // Fetch with timeout (longer so cold-starts don't spam errors)
