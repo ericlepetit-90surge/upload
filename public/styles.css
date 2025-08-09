@@ -6,7 +6,8 @@
   --card-bg: #1a1a1a;
   --text-color: #f0f0f0;
   --muted: #a3a7b3;
-  --accent-color: #8ed8df;
+  --accent-color: #d81b60;
+  --file-picker: #b45353;
   --font: "Helvetica Neue", sans-serif;
   --border-radius: 12px;
 }
@@ -180,7 +181,7 @@ input[type="text"]::placeholder {
 }
 
 input[type="file"]::file-selector-button {
-  background: var(--accent-color);
+  background: var(--file-picker);
   color: #fff;
   border: none;
   padding: 0.4rem 0.75rem;
@@ -234,7 +235,7 @@ button:disabled {
 
 /* your custom button */
 .file-btn {
-  background: var(--accent-color); /* change color here */
+  background: var(--file-picker); /* change color here */
   color: #fff;
   padding: 0.6rem 1rem;
   border-radius: 8px;
