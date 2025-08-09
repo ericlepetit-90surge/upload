@@ -162,8 +162,9 @@ input[type="file"]::file-selector-button {
   font-weight: 700;
   cursor: pointer;
   display: inline-block;
+  font-size: 0.75rem;
 }
-.file-picked { font-size: .9rem; color: #aaa; }
+.file-picked { font-size: .5rem; color: #aaa; }
 .file-picked:empty { display: none; } /* hide “no file chosen” entirely */
 
 .form-note { padding: 0 1rem; }
