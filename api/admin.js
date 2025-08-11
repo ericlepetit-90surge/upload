@@ -2,18 +2,12 @@
 import fs from "fs";
 import path from "path";
 import { createClient } from "redis";
-import {
-  S3Client,
-  ListObjectsV2Command,
-  DeleteObjectCommand,
-} from "@aws-sdk/client-s3";
 
 // ───────────────────────────────────────────────────────────────
 // ENV + paths
 // ───────────────────────────────────────────────────────────────
 const ADMIN_PASS = process.env.ADMIN_PASS;
 const MODERATOR_PASS = process.env.MODERATOR_PASS;
-const uploadsPath = path.join(process.cwd(), "uploads.json");
 
 // Treat Vercel preview like prod; only true local dev is "local"
 const isLocal =
@@ -66,17 +60,41 @@ function isFollowAllowed(raw) {
   }
 }
 
-// ───────────────────────────────────────────────────────────────
-// Cloudflare R2 (S3-compatible) client
-// ───────────────────────────────────────────────────────────────
-const s3 = new S3Client({
-  region: "auto",
-  endpoint: `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
-  credentials: {
-    accessKeyId: process.env.R2_ACCESS_KEY_ID,
-    secretAccessKey: process.env.R2_SECRET_ACCESS_KEY,
-  },
-});
+// Utility: current show window key + TTL
+async function getWindowInfo() {
+  let showName = "90 Surge";
+  let startTime = new Date().toISOString();
+  let endTime = new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString();
+
+  try {
+    const ok = await ensureRedisConnected();
+    if (ok && redis?.isOpen) {
+      const [sn, st, et] = await Promise.all([
+        redis.get("showName").catch(() => ""),
+        redis.get("startTime").catch(() => ""),
+        redis.get("endTime").catch(() => ""),
+      ]);
+      if (sn) showName = sn;
+      if (st) startTime = st;
+      if (et) endTime = et;
+    } else if (isLocal) {
+      // Local dev: allow config.json
+      const cfgPath = path.join(process.cwd(), "config.json");
+      if (fs.existsSync(cfgPath)) {
+        const cfg = JSON.parse(fs.readFileSync(cfgPath, "utf8"));
+        showName = cfg.showName || showName;
+        startTime = cfg.startTime || startTime;
+        endTime = cfg.endTime || endTime;
+      }
+    }
+  } catch {}
+
+  const windowKey = `${startTime || ""}|${endTime || ""}`;
+  let ttlSeconds = Math.floor((new Date(endTime) - Date.now()) / 1000);
+  if (!Number.isFinite(ttlSeconds) || ttlSeconds <= 0) ttlSeconds = 8 * 60 * 60; // 8h fallback
+
+  return { showName, startTime, endTime, windowKey, ttlSeconds };
+}
 
 function timeout(ms) {
   return new Promise((_, reject) =>
@@ -235,170 +253,94 @@ export default async function handler(req, res) {
     }
   }
 
-  // ────── SAVE UPLOAD ──────
-  if (action === "save-upload" && req.method === "POST") {
+  // ───────────────────────────────────────────────────────────────
+  // RAFFLE-ONLY FLOW
+  //   POST action=enter           -> add a single entry (requires "follow")
+  //   GET  action=entries         -> list entries for current show (admin)
+  //   POST action=clear-raffle    -> clear entries + winner for current show
+  //   GET  action=winner          -> get current winner
+  //   POST action=pick-winner     -> pick from entries
+  //   POST action=reset-winner    -> clear winner + broadcast reset
+  // ───────────────────────────────────────────────────────────────
+
+  if (action === "enter" && req.method === "POST") {
     const ok = await ensureRedisConnected();
     if (!ok) return res.status(503).json({ error: "Redis not ready" });
 
-    // Server-side follow enforcement
+    const nameRaw = (req.body?.name || "").trim();
+    if (!nameRaw) return res.status(400).json({ error: "Missing name" });
+    const name = nameRaw.slice(0, 80); // simple sanity limit
+
     const ip =
-      req.headers["x-forwarded-for"]?.split(",")[0] ||
+      req.headers["x-forwarded-for"]?.split(",")[0]?.trim() ||
       req.socket.remoteAddress ||
       "unknown";
+
+    // Must have clicked a follow button on this device (server-enforced)
     const rawFollow = await redis.get(`social:${ip}`).catch(() => null);
     if (!isFollowAllowed(rawFollow)) {
-      return res.status(403).json({ error: "Follow us first to upload." });
+      return res.status(403).json({ error: "Follow us on FB/IG to enter." });
     }
 
-    const { fileName, mimeType, userName, originalFileName } = req.body || {};
-    if (!fileName || !mimeType || !userName) {
-      return res.status(400).json({ error: "Missing required fields" });
+    const { windowKey, ttlSeconds } = await getWindowInfo();
+    const setKey = `raffle:entered:${windowKey}`;   // de-dupe by IP
+    const listKey = `raffle:entries:${windowKey}`;  // actual entries
+
+    // One entry per IP per show
+    const already = await redis.sIsMember(setKey, ip);
+    if (already) {
+      return res.status(200).json({ success: true, already: true });
     }
 
-    const fileUrl = `https://${process.env.R2_PUBLIC_DOMAIN}/${fileName}`;
-    const upload = {
-      id: fileName,
-      fileName,
-      mimeType,
-      userName,
-      fileUrl,
-      originalFileName: originalFileName || fileName,
+    const entry = {
+      id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
+      name,
+      ip,
       createdTime: new Date().toISOString(),
-      votes: 0,
-      count: 1,
     };
 
-    try {
-      const existing = await redis.lRange("uploads", 0, -1);
-      const already = existing.some((x) => {
-        try {
-          return JSON.parse(x).fileName === fileName;
-        } catch {
-          return false;
-        }
-      });
-      if (!already) await redis.rPush("uploads", JSON.stringify(upload));
+    await redis.multi()
+      .sAdd(setKey, ip)
+      .rPush(listKey, JSON.stringify(entry))
+      .expire(setKey, ttlSeconds)
+      .expire(listKey, ttlSeconds)
+      .exec();
 
-      // local mirror for dev
-      if (isLocal) {
-        const arr = fs.existsSync(uploadsPath)
-          ? JSON.parse(fs.readFileSync(uploadsPath, "utf8"))
-          : [];
-        if (!arr.some((x) => x.fileName === fileName)) {
-          arr.push(upload);
-          fs.writeFileSync(uploadsPath, JSON.stringify(arr, null, 2));
-        }
-      }
-
-      // ensure vote key exists
-      const voteKey = `votes:${fileName}`;
-      if (!(await redis.get(voteKey))) await redis.set(voteKey, "0");
-
-      return res.json({ success: true });
-    } catch (err) {
-      console.error("❌ Failed to save upload:", err);
-      return res.status(500).json({ error: "Failed to save upload" });
-    }
+    return res.status(200).json({ success: true, entry });
   }
 
-  // ────── LIST UPLOADS / R2 FILES ──────
-  if (action === "uploads" && req.method === "GET") {
-    await ensureRedisConnected();
-    const raw = (await redis?.lRange?.("uploads", 0, -1)) || [];
-    const uploads = raw
-      .map((str) => {
-        try {
-          return JSON.parse(str);
-        } catch {
-          return null;
-        }
-      })
-      .filter(Boolean);
+  if (action === "entries" && req.method === "GET") {
+    const ok = await ensureRedisConnected();
+    if (!ok) return res.status(200).json({ entries: [], count: 0 });
 
-    for (const u of uploads) {
-      const voteKey = `votes:${u.fileName}`;
-      const count = parseInt((await redis.get(voteKey)) || "0", 10);
-      u.votes = count;
-    }
-    return res.json(uploads);
+    const { windowKey } = await getWindowInfo();
+    const listKey = `raffle:entries:${windowKey}`;
+    const raw = await redis.lRange(listKey, 0, -1);
+    const entries = raw.map((s) => {
+      try { return JSON.parse(s); } catch { return null; }
+    }).filter(Boolean);
+
+    return res.status(200).json({ entries, count: entries.length });
   }
 
-  if (action === "list-r2-files" && req.method === "GET") {
-    try {
-      const list = await s3.send(
-        new ListObjectsV2Command({ Bucket: process.env.R2_BUCKET_NAME })
-      );
-      const files = (list.Contents || []).map((item) => ({
-        key: item.Key,
-        url: `https://${process.env.R2_PUBLIC_DOMAIN}/${item.Key}`,
-        lastModified: item.LastModified,
-        size: item.Size,
-      }));
-      return res.json({ files });
-    } catch (err) {
-      console.error("❌ Failed to list R2 files:", err.message);
-      return res.status(500).json({ error: "Failed to list R2 files" });
-    }
+  if (action === "clear-raffle" && req.method === "POST") {
+    const authHeader = req.headers.authorization || "";
+    const isAdmin =
+      authHeader.startsWith("Bearer:super:") &&
+      authHeader.endsWith(process.env.ADMIN_PASS);
+    if (!isAdmin) return res.status(403).json({ error: "Forbidden" });
+
+    const ok = await ensureRedisConnected();
+    if (!ok) return res.status(503).json({ error: "Redis not ready" });
+
+    const { windowKey } = await getWindowInfo();
+    const setKey = `raffle:entered:${windowKey}`;
+    const listKey = `raffle:entries:${windowKey}`;
+
+    await redis.del(setKey, listKey, "raffle_winner");
+    return res.status(200).json({ success: true });
   }
 
-  // ────── VOTES ──────
-  if (action === "upvote" && req.method === "POST") {
-    await ensureRedisConnected();
-    const { fileId } = req.body || {};
-    if (!fileId) return res.status(400).json({ error: "Missing fileId" });
-
-    const voteKey = `votes:${fileId}`;
-    const newVoteCount = await redis.incr(voteKey);
-    await redis.publish(`vote:${fileId}`, String(newVoteCount));
-
-    const raw = await redis.lRange("uploads", 0, -1);
-    const updated = raw.map((str) => {
-      const entry = JSON.parse(str);
-      if (entry.fileName === fileId || entry.id === fileId) {
-        entry.votes = newVoteCount;
-      }
-      return entry;
-    });
-    await redis.del("uploads");
-    // ⬇️ push each JSON string (spread), not the array object
-    await redis.rPush("uploads", ...updated.map((e) => JSON.stringify(e)));
-
-    return res.json({ success: true, votes: newVoteCount });
-  }
-
-  if (req.method === "GET" && url.searchParams.get("action") === "get-votes") {
-    const fileId = url.searchParams.get("fileId");
-    if (!fileId) return res.status(400).json({ error: "Missing fileId" });
-    const count = await redis.get(`votes:${fileId}`);
-    return res.status(200).json({ votes: parseInt(count || "0", 10) });
-  }
-
-  // ────── RESET VOTES ──────
-  if (action === "reset-votes" && req.method === "POST") {
-    await ensureRedisConnected();
-    const { role } = req.body || {};
-    if (role !== "admin") return res.status(400).json({ error: "Unauthorized" });
-
-    try {
-      const voteKeys = await redis.keys("votes:*");
-      if (voteKeys.length > 0) await redis.del(voteKeys);
-      await redis.set("resetVotesTimestamp", Date.now().toString());
-
-      try {
-        await fetch("https://vote-stream-server.onrender.com/reset", {
-          method: "POST",
-        });
-      } catch (err) {
-        console.warn("⚠️ Failed to notify SSE server of reset", err.message);
-      }
-      return res.json({ success: true });
-    } catch (err) {
-      console.error("❌ Error resetting votes:", err);
-      return res.status(500).json({ error: "Internal server error" });
-    }
-  }
-
-  // ────── WINNER ──────
   if (action === "winner" && req.method === "GET") {
     await ensureRedisConnected();
     try {
@@ -410,52 +352,46 @@ export default async function handler(req, res) {
     }
   }
 
-  // ────── PICK WINNER ──────
   if (action === "pick-winner" && req.method === "POST") {
     await ensureRedisConnected();
     const { role } = req.body || {};
     if (role !== "admin") return res.status(401).json({ error: "Unauthorized" });
 
     try {
-      const raw = await redis.lRange("uploads", 0, -1);
-      const uploads = raw.map((e) => JSON.parse(e));
-
-      const entries = [];
-      for (const u of uploads) {
-        const voteKey = `votes:${u.fileName}`;
-        const voteCount = parseInt((await redis.get(voteKey)) || "0", 10);
-        const totalEntries = 1 + voteCount;
-        for (let i = 0; i < totalEntries; i++) {
-          entries.push({ name: u.userName, fileId: u.fileName });
-        }
-      }
+      const { windowKey } = await getWindowInfo();
+      const listKey = `raffle:entries:${windowKey}`;
+      const raw = await redis.lRange(listKey, 0, -1);
+      const entries = raw.map((s) => {
+        try { return JSON.parse(s); } catch { return null; }
+      }).filter(Boolean);
 
       if (!entries.length) {
         return res.status(400).json({ error: "No eligible entries" });
       }
 
       const winner = entries[Math.floor(Math.random() * entries.length)];
-      await redis.set("raffle_winner", JSON.stringify(winner));
+      const payload = { name: winner.name, id: winner.id };
+
+      await redis.set("raffle_winner", JSON.stringify(payload));
 
       // Try to broadcast to clients (no-op if SSE server down)
       try {
         await fetch("https://winner-sse-server.onrender.com/broadcast", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ winner: winner.name }),
+          body: JSON.stringify({ winner: payload.name }),
         });
       } catch (broadcastErr) {
         console.warn("⚠️ Broadcast winner failed:", broadcastErr.message);
       }
 
-      return res.json({ success: true, winner });
+      return res.json({ success: true, winner: payload });
     } catch (err) {
       console.error("❌ Error picking winner:", err);
       return res.status(500).json({ error: "Failed to pick winner" });
     }
   }
 
-  // ────── RESET WINNER ──────
   if (action === "reset-winner" && req.method === "POST") {
     await ensureRedisConnected();
 
@@ -485,95 +421,6 @@ export default async function handler(req, res) {
     }
   }
 
-  // ────── DELETE FILE ──────
-  if (action === "delete-file" && req.method === "POST") {
-    await ensureRedisConnected();
-    const { fileId } = req.body || {};
-    if (!fileId) return res.status(400).json({ error: "Missing fileId" });
-
-    try {
-      const uploadItems = await redis.sendCommand(["LRANGE", "uploads", "0", "-1"]);
-      const uploads = uploadItems
-        .map((i) => {
-          try {
-            return JSON.parse(i);
-          } catch {
-            return null;
-          }
-        })
-        .filter(Boolean);
-
-      const remaining = uploads.filter((u) => u.fileName !== fileId);
-      await redis.del("uploads");
-      for (const u of remaining) {
-        await redis.rPush("uploads", JSON.stringify(u));
-      }
-
-      await redis.del(`votes:${fileId}`);
-
-      await s3.send(
-        new DeleteObjectCommand({
-          Bucket: process.env.R2_BUCKET_NAME,
-          Key: fileId,
-        })
-      );
-
-      return res.json({ success: true });
-    } catch (err) {
-      console.error("❌ Failed to delete file:", err);
-      return res.status(500).json({ error: "Delete failed" });
-    }
-  }
-
-  // ────── CLEAR ALL ──────
-  if (action === "clear-all" && req.method === "POST") {
-    await ensureRedisConnected();
-    const auth = req.headers.authorization || "";
-    const isSuperAdmin =
-      auth.startsWith("Bearer:super:") &&
-      auth.split("Bearer:super:")[1] === ADMIN_PASS;
-    if (!isSuperAdmin) return res.status(401).json({ error: "Unauthorized" });
-
-    try {
-      await redis.del("uploads", "raffle_winner", "resetVotesTimestamp");
-      const voteKeys = await redis.keys("votes:*");
-      if (voteKeys.length > 0) await redis.del(...voteKeys);
-
-      const list = await s3.send(
-        new ListObjectsV2Command({ Bucket: process.env.R2_BUCKET_NAME })
-      );
-      for (const item of list.Contents || []) {
-        try {
-          await s3.send(
-            new DeleteObjectCommand({
-              Bucket: process.env.R2_BUCKET_NAME,
-              Key: item.Key,
-            })
-          );
-        } catch (err) {
-          console.warn("⚠️ Failed to delete R2 object:", item.Key, err.message);
-        }
-      }
-
-      if (isLocal && fs.existsSync(uploadsPath)) {
-        fs.writeFileSync(uploadsPath, "[]");
-      }
-
-      return res.json({ success: true });
-    } catch (err) {
-      console.error("🔥 clear-all error:", err);
-      return res.status(500).json({ error: "Server error" });
-    }
-  }
-
-  // ────── SOCIAL COUNTS (dummy) ──────
-  if (action === "social-counts" && req.method === "GET") {
-    return res.json({
-      facebook: { followers: 1234 },
-      instagram: { followers: 5678 },
-    });
-  }
-
   // ────── LIVE FOLLOWER #s (FB/IG) ──────
   if (action === "followers" && req.method === "GET") {
     try {
@@ -594,6 +441,17 @@ export default async function handler(req, res) {
       console.error("❌ Follower fetch failed:", err.message);
       return res.status(500).json({ error: "Failed to fetch follower counts" });
     }
+  }
+
+  // ────── CHECK FOLLOW STATUS ──────
+  if (req.method === "GET" && action === "check-follow") {
+    await ensureRedisConnected();
+    const ip =
+      req.headers["x-forwarded-for"]?.split(",")[0] ||
+      req.socket.remoteAddress ||
+      "unknown";
+    const raw = await redis.get(`social:${ip}`).catch(() => null);
+    return res.status(200).json({ allowed: isFollowAllowed(raw) });
   }
 
   // ────── RESET SOCIAL (safe even if Redis is cold) ──────
@@ -621,15 +479,58 @@ export default async function handler(req, res) {
     }
   }
 
-  // ────── CHECK FOLLOW STATUS ──────
-  if (req.method === "GET" && action === "check-follow") {
-    await ensureRedisConnected();
-    const ip =
-      req.headers["x-forwarded-for"]?.split(",")[0] ||
-      req.socket.remoteAddress ||
-      "unknown";
-    const raw = await redis.get(`social:${ip}`).catch(() => null);
-    return res.status(200).json({ allowed: isFollowAllowed(raw) });
+  // ────── SOCIAL STATUS (admin view) ──────
+  if (req.method === "GET" && action === "social-status") {
+    const ok = await ensureRedisConnected();
+    if (!ok) {
+      return res.status(200).json({
+        totals: { uniqueIPsTracked: 0, unlocked: 0, facebookClicks: 0, instagramClicks: 0 },
+        entries: [],
+      });
+    }
+
+    const ips = await redis.sMembers("social:ips");
+    const entries = [];
+    let totalUnlocked = 0;
+    let fbClicks = 0;
+    let igClicks = 0;
+
+    for (const ip of ips) {
+      const key = `social:${ip}`;
+      const raw = await redis.get(key);
+      if (!raw) continue; // TTL expired
+      let s;
+      try {
+        s = JSON.parse(raw);
+      } catch {
+        s = { followed: raw === "true", platforms: {} };
+      }
+      const ttlSeconds = await redis.ttl(key);
+
+      if (s.followed) totalUnlocked += 1;
+      if (s.platforms?.fb) fbClicks += 1;
+      if (s.platforms?.ig) igClicks += 1;
+
+      entries.push({
+        ip,
+        firstSeen: s.firstSeen || null,
+        lastSeen: s.lastSeen || null,
+        followed: !!s.followed,
+        platforms: s.platforms || {},
+        count: s.count || 1,
+        ttlSeconds,
+      });
+    }
+
+    return res.status(200).json({
+      totals: {
+        uniqueIPsTracked: entries.length,
+        unlocked: totalUnlocked,
+        facebookClicks: fbClicks,
+        instagramClicks: igClicks,
+      },
+      entries,
+    });
   }
 
   // ────── SHUTDOWN STATUS / TOGGLE ──────
@@ -710,59 +611,59 @@ export default async function handler(req, res) {
     return res.status(200).json({ success: true });
   }
 
-  // ────── SOCIAL STATUS (admin view) ──────
-  if (req.method === "GET" && action === "social-status") {
-    const ok = await ensureRedisConnected();
-    if (!ok) {
-      return res.status(200).json({
-        totals: { uniqueIPsTracked: 0, unlocked: 0, facebookClicks: 0, instagramClicks: 0 },
-        entries: [],
-      });
+// ────── FB VERIFY LIKE ──────
+if (req.method === "POST" && action === "fb-verify-like") {
+  const { accessToken } = req.body || {};
+  if (!accessToken) return res.status(400).json({ success:false, error:"Missing access token" });
+
+  try {
+    const pageId = process.env.FB_PAGE_ID || "130023783530481";
+    // Check if the logged-in user likes the page
+    const resp = await fetch(`https://graph.facebook.com/v19.0/me/likes?target_id=${pageId}&access_token=${encodeURIComponent(accessToken)}`);
+    const data = await resp.json();
+
+    if (!resp.ok) {
+      console.error("FB verify error:", data);
+      return res.status(400).json({ success:false, error: data?.error?.message || "FB error" });
     }
 
-    const ips = await redis.sMembers("social:ips");
-    const entries = [];
-    let totalUnlocked = 0;
-    let fbClicks = 0;
-    let igClicks = 0;
+    const liked = Array.isArray(data.data) && data.data.length > 0;
 
-    for (const ip of ips) {
-      const key = `social:${ip}`;
-      const raw = await redis.get(key);
-      if (!raw) continue; // TTL expired
-      let s;
-      try {
-        s = JSON.parse(raw);
-      } catch {
-        s = { followed: raw === "true", platforms: {} };
+    // If liked, mark this IP as followed (same logic as mark-follow)
+    if (liked) {
+      const ok = await ensureRedisConnected();
+      if (ok) {
+        const ip = req.headers["x-forwarded-for"]?.split(",")[0] || req.socket.remoteAddress || "unknown";
+        const key = `social:${ip}`;
+        const now = new Date().toISOString();
+        const EX_SECONDS = 60*60*8;
+        let state = { firstSeen: now, lastSeen: now, followed: true, count: 1, platforms: { fb:true } };
+
+        const prev = await redis.get(key).catch(()=>null);
+        if (prev) {
+          try {
+            const p = JSON.parse(prev);
+            state = {
+              ...p,
+              lastSeen: now,
+              followed: true,
+              platforms: { ...(p.platforms||{}), fb:true },
+              count: (p.count||0) + 1
+            };
+          } catch {}
+        }
+        await redis.set(key, JSON.stringify(state), { EX: EX_SECONDS });
+        await redis.sAdd("social:ips", ip);
       }
-      const ttlSeconds = await redis.ttl(key);
-
-      if (s.followed) totalUnlocked += 1;
-      if (s.platforms?.fb) fbClicks += 1;
-      if (s.platforms?.ig) igClicks += 1;
-
-      entries.push({
-        ip,
-        firstSeen: s.firstSeen || null,
-        lastSeen: s.lastSeen || null,
-        followed: !!s.followed,
-        platforms: s.platforms || {},
-        count: s.count || 1,
-        ttlSeconds,
-      });
     }
 
-    return res.status(200).json({
-      totals: {
-        uniqueIPsTracked: entries.length,
-        unlocked: totalUnlocked,
-        facebookClicks: fbClicks,
-        instagramClicks: igClicks,
-      },
-      entries,
-    });
+    return res.json({ success:true, liked });
+  } catch (err) {
+    console.error("fb-verify-like failed:", err);
+    return res.status(500).json({ success:false, error:"Server error" });
   }
+}
+
 
   // ────── UNKNOWN ──────
   return res.status(400).json({ error: "Invalid action or method" });

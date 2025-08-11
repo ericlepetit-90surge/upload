@@ -91,11 +91,6 @@
     tbody td{padding:10px;}
     .table-scroll{max-height:280px;overflow:auto;border:1px solid rgba(255,255,255,.06);border-radius:12px;}
 
-    .gallery{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;}
-    .tile{background:#121318;border:1px solid rgba(255,255,255,.06);border-radius:12px;overflow:hidden;}
-    .tile .media{width:100%;height:200px;object-fit:cover;display:block;}
-    .tile .meta{padding:10px;color:var(--muted);font-size:12px;display:flex;align-items:center;justify-content:space-between;gap:8px;}
-
     #login-section{
       max-width:420px;margin:32px auto;background:var(--card);
       border:1px solid rgba(255,255,255,.06);border-radius:var(--radius);padding:22px;
@@ -158,12 +153,11 @@
               <span id="redis-status" class="status">Status: —</span>
             </div>
             <div class="inline-actions mt-12">
-              <button class="btn warning admin-only" id="reset-votes-btn">Reset All Votes</button>
               <button class="btn ghost admin-only" id="reset-social-clicks">Reset Social Links</button>
               <button class="btn ghost admin-only" id="reset-winner-btn">Reset Winner</button>
             </div>
             <div class="inline-actions mt-12">
-              <button class="btn danger admin-only" id="clearAllBtn">🧨 Clear All</button>
+              <button class="btn warning admin-only" id="clear-raffle-btn">Clear Raffle</button>
               <button class="btn danger" id="shutdown-toggle-btn">Shut Down App</button>
             </div>
           </div>
@@ -177,7 +171,22 @@
               <button class="btn primary admin-only" id="pick-winner-btn">Pick Random Winner</button>
               <div id="winnerDisplay" class="status">No winner yet</div>
             </div>
-            <div id="entries-by-user" class="mt-16"></div>
+
+            <!-- Live entries -->
+            <div class="mt-16">
+              <div id="entries-totals" class="mb-8 muted">Loading entries…</div>
+              <div class="table-scroll">
+                <table id="entries-table">
+                  <thead>
+                    <tr>
+                      <th>Name</th><th>IP</th><th>Entered At</th>
+                    </tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+            </div>
+
           </div>
         </div>
 
@@ -227,16 +236,7 @@
           </div>
         </div>
 
-        <!-- Gallery (Admins + Moderators) -->
-        <div class="card col-12">
-          <div class="card-header">
-            <div class="card-title">Uploads</div>
-            <span class="card-subtle">Latest first</span>
-          </div>
-          <div class="card-body">
-            <div id="admin-gallery" class="gallery">Loading uploads…</div>
-          </div>
-        </div>
+        <!-- (Gallery removed in raffle-only mode) -->
       </div>
     </section>
   </div>
@@ -416,21 +416,64 @@
     }
 
     // ---------- raffle ----------
-    function renderEntriesPerUser(uploads){
-      const entryMap={};
-      uploads.forEach(u=>{
-        const name = u.userName || u.userNameRaw || 'Unknown';
-        const base = 1; const votes = Math.max(parseInt(u.votes||0),0);
-        entryMap[name] = (entryMap[name]||0) + base + votes;
-      });
-      const container = $('#entries-by-user');
-      const items = Object.entries(entryMap).sort((a,b)=>b[1]-a[1]);
-      container.innerHTML = `<h3 class="mb-8">🎟️ Raffle Entries by User</h3>` +
-        items.map(([n,v])=>`<div class="chip" style="margin:4px 6px 0 0;display:inline-flex;">${n}: <strong style="margin-left:6px;color:#fff;">${v}</strong></div>`).join('');
+    function maskIp(ip){
+      if(!ip) return '—';
+      const parts = ip.split('.');
+      if(parts.length===4){ return parts[0]+'.'+parts[1]+'.*.**'; }
+      return ip;
+    }
+
+    async function loadCurrentWinner(){
+      try{
+        const res = await fetch('/api/admin?action=winner');
+        const data = await res.json();
+        const w = data?.winner?.name;
+        $('#winnerDisplay').textContent = w ? `🎉 Winner: ${w}` : 'No winner yet';
+      }catch{}
+    }
+
+    async function loadEntries(){
+      try{
+        const res = await fetch('/api/admin?action=entries');
+        const data = await res.json();
+        const entries = Array.isArray(data.entries) ? data.entries : [];
+        $('#entries-totals').textContent = `Entries this show: ${entries.length}`;
+
+        const tbody = $('#entries-table tbody');
+        tbody.innerHTML = '';
+        entries
+          .sort((a,b)=> new Date(b.createdTime) - new Date(a.createdTime))
+          .forEach(e=>{
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+              <td>${e.name || 'Unknown'}</td>
+              <td>${maskIp(e.ip)}</td>
+              <td>${e.createdTime ? new Date(e.createdTime).toLocaleTimeString() : '—'}</td>`;
+            tbody.appendChild(tr);
+          });
+      }catch(e){
+        console.error(e);
+        $('#entries-totals').textContent = 'Failed to load entries';
+      }
+    }
+
+    async function clearRaffle(){
+      if(!confirm('Clear all raffle entries and the current winner for THIS show window?')) return;
+      try{
+        const res = await fetch('/api/admin?action=clear-raffle', {
+          method:'POST',
+          headers:{ Authorization:'Bearer:super:'+(localStorage.getItem('adminKey')||'') }
+        });
+        const json = await res.json();
+        if(!res.ok || !json.success) throw new Error(json.error || 'Failed');
+        toast('Raffle cleared','success');
+        $('#winnerDisplay').textContent = 'No winner yet';
+        loadEntries();
+      }catch(e){ toast('Failed to clear raffle','error'); }
     }
 
     async function pickWinner(){
-      if(!confirm('Pick a random winner from all uploads?')) return;
+      if(!confirm('Pick a random winner from all entries?')) return;
       try{
         const res = await fetch('/api/admin?action=pick-winner', {
           method:'POST',
@@ -445,6 +488,7 @@
           const winnerName = result.winner.name;
           $('#winnerDisplay').textContent = `🎉 Winner: ${winnerName}`;
 
+          // Try to broadcast to clients
           await fetch(
             location.hostname==='localhost'
               ? 'http://localhost:3001/broadcast'
@@ -454,6 +498,8 @@
 
           localStorage.setItem('shownWinnerName', winnerName);
           toast('Winner announced','success');
+        }else{
+          toast(result?.error || 'No eligible entries','error');
         }
       }catch(e){ toast('Failed to pick winner','error'); }
     }
@@ -480,97 +526,6 @@
       }catch(e){
         console.error(e);
         toast('Failed to reset winner','error');
-      }
-    }
-
-    // ---------- gallery ----------
-    let lastGalleryLoadTime = 0;
-    function throttledLoadAdminGallery(){
-      const now = Date.now();
-      if(now - lastGalleryLoadTime > 1000){ lastGalleryLoadTime = now; loadAdminGallery(); }
-      else console.log('🛑 Skipped gallery reload – throttled');
-    }
-
-    async function loadAdminGallery(){
-      try{
-        const uploadsRes = await fetch('/api/admin?action=uploads');
-        const uploads = await uploadsRes.json();
-
-        const listRes = await fetch('/api/admin?action=list-r2-files');
-        const fileList = await listRes.json();
-        const valid = new Set((fileList.files||[]).map(f=>f.key));
-
-        const galleryData = uploads
-          .filter(u=>valid.has(u.fileName))
-          .sort((a,b)=> new Date(b.createdTime) - new Date(a.createdTime));
-
-        renderEntriesPerUser(galleryData);
-
-        const wrap = $('#admin-gallery'); wrap.innerHTML='';
-        galleryData.forEach(file=>{
-          const card = document.createElement('div'); card.className='tile';
-          const isVideo = file.type==='video';
-          let media;
-          if(isVideo){ media=document.createElement('video'); media.src=file.fileUrl; media.controls=true; media.muted=true; media.className='media'; }
-          else{ media=document.createElement('img'); media.src=file.fileUrl; media.loading='lazy'; media.className='media'; }
-          const meta = document.createElement('div'); meta.className='meta';
-          const displayName = file.userName || file.userNameRaw || 'Anonymous';
-          meta.innerHTML = `<span>@${displayName}</span>`;
-          const del = document.createElement('button'); del.className='btn danger small'; del.textContent='🗑 Delete';
-          del.onclick = ()=> deleteFile(file.fileName, displayName);
-          meta.appendChild(del);
-          card.appendChild(media); card.appendChild(meta); wrap.appendChild(card);
-        });
-      }catch(e){
-        console.error('gallery load error', e);
-        $('#admin-gallery').innerHTML = "<p style='color:#ef4444'>Failed to load gallery</p>";
-      }
-    }
-
-    async function deleteFile(fileId, name){
-      if(!fileId) return toast('Invalid file ID','error');
-      if(!confirm(`Delete upload by ${name}?`)) return;
-      const res = await fetch('/api/admin?action=delete-file', {
-        method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ fileId })
-      });
-      const json = await res.json();
-      if(res.ok){ toast('File deleted','success'); throttledLoadAdminGallery(); localStorage.setItem('galleryRefresh', Date.now()); }
-      else toast(json.error || 'Delete failed','error');
-    }
-
-    // ---------- votes ----------
-    async function resetVotes(){
-      if(!confirm('Reset all votes and re-enable voting?')) return;
-      const res = await fetch('/api/admin?action=reset-votes', {
-        method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ role:localStorage.getItem('role') })
-      });
-      const data = await res.json();
-      if(res.ok && data.success){
-        Object.keys(localStorage).forEach(k=>{ if(k.startsWith('voted_')) localStorage.removeItem(k); });
-        toast('Votes reset','success'); throttledLoadAdminGallery();
-      }else toast('Failed to reset votes','error');
-    }
-
-    // ---------- clear all ----------
-    async function clearAll(){
-      if(!confirm('This removes all files from R2 and Redis. Continue?')) return;
-      try{
-        const res = await fetch('/api/admin?action=clear-all', {
-          method:'POST',
-          headers:{
-            'Content-Type':'application/json',
-            'Authorization':'Bearer:super:' + (localStorage.getItem('adminKey') || '')
-          },
-          body: JSON.stringify({})
-        });
-        const text = await res.text();
-        let result;
-        try{ result = JSON.parse(text); }catch{ throw new Error('Server error: ' + text); }
-        if(!res.ok || !result.success) throw new Error(result?.error || 'Unknown server error');
-        toast('All uploads cleared','success');
-        location.reload();
-      }catch(e){
-        toast('Failed to clear all','error');
       }
     }
 
@@ -601,7 +556,7 @@
         // Also hide any admin-only buttons that might remain
         $$('.admin-only').forEach(el => el.style.display = 'none');
 
-        // Don’t register admin-only handlers
+        // No admin handlers for moderators
       }else{
         banner.textContent='Admin'; banner.classList.add('badge','admin');
 
@@ -611,22 +566,22 @@
         $('#save-config-btn')?.addEventListener('click', saveConfig);
         $('#pick-winner-btn')?.addEventListener('click', pickWinner);
         $('#reset-social-clicks')?.addEventListener('click', resetSocialClicks);
-        $('#reset-votes-btn')?.addEventListener('click', resetVotes);
-        $('#clearAllBtn')?.addEventListener('click', clearAll);
         $('#reset-winner-btn')?.addEventListener('click', resetWinner);
+        $('#clear-raffle-btn')?.addEventListener('click', clearRaffle);
       }
 
-      // Always: gallery (mods can delete)
-      await loadAdminGallery();
+      // Always load these for admins
+      await loadConfig();
+      await loadSocialStatus();
+      await checkRedisStatus();
+      await checkShutdownStatusAndLabel();
+      await loadEntries();
+      await loadCurrentWinner();
 
-      if(role !== 'moderator'){
-        // Admin-only data fetch / timers
-        await loadConfig();
-        await loadSocialStatus();
-        await checkRedisStatus();
-        await checkShutdownStatusAndLabel();
-        setInterval(loadSocialStatus, 15000);
-      }
+      // Refresh social + entries periodically
+      setInterval(loadSocialStatus, 15000);
+      setInterval(loadEntries, 10000);
+      setInterval(loadCurrentWinner, 15000);
     });
   </script>
 </body>

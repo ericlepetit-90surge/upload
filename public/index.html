@@ -1,54 +1,82 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>90 Surge - Free T-shirt!</title>
 
-  <link rel="stylesheet" href="/public/styles.css" />
-  <script type="module" src="/public/app.js"></script>
+<link rel="stylesheet" href="/public/styles.css" />
+
+<!-- 1) Set App ID (your Facebook *App* ID, not Page ID) -->
+<script>window.FB_APP_ID = "778642511227804";</script>
+
+<!-- 2) Load the SDK -->
+<script async defer crossorigin="anonymous" src="https://connect.facebook.net/en_US/sdk.js"></script>
+
+<!-- 3) Finally your app -->
+<script type="module" src="/public/app.js"></script>
 </head>
 
 <body>
-  <form id="upload-form" enctype="multipart/form-data" method="POST">
+  <!-- Raffle-only form (no uploads, no gallery) -->
+  <form id="raffle-form" method="POST" novalidate>
     <div class="rules">
       <div class="logo-wrap">
-        <img src="https://pub-d919971fb927454bab9481eee8a435e3.r2.dev/logo-horizontal-white.png" width="200"
-          height="auto" alt="90 Surge logo">
+        <img
+          src="https://pub-d919971fb927454bab9481eee8a435e3.r2.dev/logo-horizontal-white.png"
+          width="200"
+          height="auto"
+          alt="90 Surge logo"
+        />
       </div>
+
       <h1 id="headline">90 SURGE TONIGHT</h1>
+
       <h2 class="raffle raffle-title blink">
         <strong>ENTER OUR RAFFLE FOR A CHANCE TO WIN A 90 SURGE TEE!</strong>
-
       </h2>
-      <h2>3 EASY STEPS!</h2>
+
+      <h2>2 EASY STEPS!</h2>
 
       <ol>
-        <li>Drop your name / nickname
+        <li>
+          Drop your name / nickname
           <div class="input-group">
-            <input type="text" id="user-display-name" name="user_display_name" required placeholder=""
-              autocomplete="off" inputmode="text" autocorrect="off" autocapitalize="none" spellcheck="false" />
+            <input
+              type="text"
+              id="user-display-name"
+              name="user_display_name"
+              required
+              placeholder=""
+              autocomplete="off"
+              inputmode="text"
+              autocorrect="off"
+              autocapitalize="none"
+              spellcheck="false"
+            />
           </div>
         </li>
-        <li>Click and follow us on Facebook or Insta
-          <div id="follow-gate"></div>
-        </li>
-        <li>Upload a pic of the band, with the band, a selfie, a jump, ... Show the energy*!
-          <div class="file-picker">
-            <input type="file" id="file" name="file" accept="image/*" required />
-            <label for="file" class="file-btn">Choose photo</label>
-            <span id="file-picked" class="file-picked" aria-live="polite"></span>
-          </div>
+
+        <li>
+          Tap to follow us on Facebook or Insta
+          <div id="follow-gate">
+  <div class="follow-links" style="display:flex; justify-content:center; gap:.5rem; flex-wrap:wrap;">
+    <button type="button" class="follow-btn-fb" role="link" onclick="return openFacebook(event)">Facebook</button>
+    <button type="button" class="follow-btn-ig" role="link" onclick="return openInstagram(event)">Instagram</button>
+<button type="button" id="verify-fb-btn" class="verify-btn-fb">
+  Verify FB follow
+</button>
+  </div>
+</div>
         </li>
       </ol>
     </div>
 
-    <!-- CTA: locked vs unlocked states -->
+    <!-- CTA: locked vs unlocked (unlocks only after verified follow + name) -->
     <div id="upload-cta">
       <div id="cta-locked">
         <div class="hint" style="margin-top:.35rem; font-size:.9rem; color:#aaa;"></div>
-        <div id="cta-guard" role="button" tabindex="0" aria-label="Uploads locked. Tap for details">
+        <div id="cta-guard" role="button" tabindex="0" aria-label="Raffle locked. Tap for details">
           <button id="upload-btn-disabled" type="button" disabled>
             ENTER THE RAFFLE!
           </button>
@@ -60,54 +88,34 @@
       </div>
     </div>
 
-    <progress id="progress" value="0" max="100" style="display: none"></progress>
     <div class="message" id="message"></div>
 
-    <div class="form-note">
-      <div style="fomt-size:1.2rem;text-align: center; margin: 0 auto"><strong>RULES</strong></div>
-      <p style="font-size: 1rem; color: #dddddd;">
-        🎤 [important] The winner will be announced during the last set and must be present to win.<br />
-        🔥 1 upload = 1 raffle entry<br />
-        👍 1 like = 1 additional entry<br />
-        ❌ Off-topic uploads may be removed<br />
-        ❤️ Love us and wanna be a legend? Tag @90Surge and @CJ's Backstage on IG/FB for eternal glory
-      </p>
-    </div>
-    <div class="blink scroll-cta">
-      <strong>SCROLL DOWN AND CHECK OUT THE UPLOADS GALLERY!</strong>
-    </div>
-
-
-
+    <!-- Social follower counts -->
     <div class="followers-wrapper">
       <div class="follower-block">
-        <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/c/c3/FB_Logo_PNG.png/640px-FB_Logo_PNG.png"
-          width="16" alt="Facebook">
+        <img
+          src="https://upload.wikimedia.org/wikipedia/commons/thumb/c/c3/FB_Logo_PNG.png/640px-FB_Logo_PNG.png"
+          width="16"
+          alt="Facebook"
+        />
         <span id="fb-followers">—</span><span> followers</span>
       </div>
       <div class="follower-block">
-        <img src="https://upload.wikimedia.org/wikipedia/commons/a/a5/Instagram_icon.png" width="16" alt="Instagram">
+        <img
+          src="https://upload.wikimedia.org/wikipedia/commons/a/a5/Instagram_icon.png"
+          width="16"
+          alt="Instagram"
+        />
         <span id="ig-followers">—</span><span> followers</span>
       </div>
     </div>
-
-    <h2 class="gallery-title">Tonight's show gallery</h2>
-    <div id="gallery" class="gallery"></div>
-
-    <!-- Lightbox -->
-    <div id="imageModal" class="hidden" onclick="this.classList.add('hidden')">
-      <img id="fullImage" src="" alt="Full image" />
-    </div>
   </form>
 
-  <!-- Winner modal -->
+  <!-- Winner modal (unchanged) -->
   <div id="winnerModal" class="winner-modal hidden">
     <h1 class="winner-title">🎉 Raffle Winner 🎉</h1>
     <p id="winnerName" class="winner-name"></p>
     <button onclick="hideWinnerModal()" class="btn-modal-close">Close</button>
   </div>
-  <div class="disclaimer"><sup>*</sup>By uploading your picture(s) you allow 90 Surge to use and share your photo(s) for
-    promo. You keep ownership.</div>
 </body>
-
 </html>
