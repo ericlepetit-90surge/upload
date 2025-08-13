@@ -1,116 +1,383 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>90 Surge • Admin Panel</title>
   <style>
-    :root{
-      --bg:#0f0f12; --card:#17181c; --muted:#a3a7b3; --text:#eef2ff;
-      --accent:#e91e63; --accent-2:#7c4dff; --danger:#ef4444; --success:#10b981; --reset:#f3bf64;
-      --radius:14px; --gap:16px;
-    }
-    *{box-sizing:border-box}
-    html,body{height:100%}
-    body{
-      margin:0; padding:0; background:var(--bg); color:var(--text);
-      font:14px/1.35 system-ui,-apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
-    }
-
-    .container{max-width:1200px;margin:0 auto;padding:24px;}
-    .topbar{
-      position:sticky;top:0;z-index:20;backdrop-filter:saturate(140%) blur(6px);
-      background:linear-gradient(180deg,rgba(15,15,18,.85),rgba(15,15,18,.6));
-      border-bottom:1px solid rgba(255,255,255,.06);
-    }
-    .topbar-inner{display:flex;align-items:center;gap:12px;padding:14px 24px;}
-    .brand{display:flex;align-items:center;gap:10px;font-weight:700;letter-spacing:.3px;}
-    .brand img{height:24px;width:auto;filter:drop-shadow(0 0 8px rgba(233,30,99,.35));}
-    .spacer{flex:1}
-
-    .badge{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:999px;font-weight:600;font-size:12px;}
-    .badge.admin{background:rgba(233,30,99,.12);color:#ffd6e6;border:1px solid rgba(233,30,99,.35);}
-    .badge.moderator{background:rgba(124,77,255,.12);color:#e5dbff;border:1px solid rgba(124,77,255,.35);}
-
-    .btn{
-      display:inline-flex;align-items:center;justify-content:center;gap:8px;
-      padding:10px 14px;border-radius:10px;border:1px solid transparent;
-      cursor:pointer;font-weight:600;color:var(--text);background:#24262c;
-      transition:transform .04s ease,border-color .15s ease,background .15s ease;
-    }
-    .btn:hover{transform:translateY(-1px)}
-    .btn:active{transform:translateY(0)}
-    .btn.primary{background:var(--accent)}
-    .btn.success{background:var(--success)}
-    .btn.warning{background:var(--reset);color:#111}
-    .btn.danger{background:var(--danger)}
-    .btn.ghost{background:#30333a;border-color:rgba(255,255,255,.12)}
-    .btn.small{padding:7px 10px;font-size:12px}
-
-    .grid{display:grid;grid-template-columns:repeat(12,1fr);gap:var(--gap);margin-top:var(--gap);}
-    .col-4{grid-column:span 4}
-    .col-6{grid-column:span 6}
-    .col-8{grid-column:span 8}
-    .col-12{grid-column:span 12}
-
-    .card{background:var(--card);border:1px solid rgba(255,255,255,.06);border-radius:var(--radius);overflow:hidden;}
-    .card-header{
-      display:flex;align-items:center;justify-content:space-between;gap:10px;
-      padding:16px 18px;border-bottom:1px solid rgba(255,255,255,.06);
-    }
-    .card-title{font-weight:700;letter-spacing:.2px;}
-    .card-subtle{color:var(--muted);font-size:12px;}
-    .card-body{padding:16px 18px;}
-
-    .field{display:flex;flex-direction:column;gap:8px;margin-bottom:12px;}
-    .field label{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.08em;}
-    .input{background:#101216;color:var(--text);border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:10px 12px;outline:none;}
-    .input:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(233,30,99,.15);}
-
-    .inline-actions{display:flex;flex-wrap:wrap;gap:10px;}
-    @media (max-width: 720px){
-      .inline-actions{flex-direction:column}
-      .inline-actions > *{width:100%}
-      .inline-actions .btn{width:100%}
-      .inline-actions .status{justify-content:center}
+    :root {
+      --bg: #0f0f12;
+      --card: #17181c;
+      --muted: #a3a7b3;
+      --text: #eef2ff;
+      --accent: #e91e63;
+      --accent-2: #7c4dff;
+      --danger: #ef4444;
+      --success: #10b981;
+      --reset: #f3bf64;
+      --radius: 14px;
+      --gap: 16px;
     }
 
-    .status{
-      display:inline-flex;align-items:center;gap:8px;padding:10px 12px;border-radius:10px;
-      background:#0f1319;color:var(--muted);border:1px solid rgba(255,255,255,.08);font-weight:600;
+    * {
+      box-sizing: border-box
     }
 
-    .chip{
-      display:inline-flex;align-items:center;gap:6px;padding:4px 8px;border-radius:999px;
-      background:#0f1319;border:1px solid rgba(255,255,255,.1);font-size:12px;color:var(--muted);
+    html,
+    body {
+      height: 100%
     }
 
-    table{width:100%;border-collapse:separate;border-spacing:0 6px;}
-    thead th{text-align:left;font-size:12px;color:var(--muted);padding:6px 10px;}
-    tbody tr{background:#121318;border:1px solid rgba(255,255,255,.06);}
-    tbody td{padding:10px;}
-    .table-scroll{max-height:280px;overflow:auto;border:1px solid rgba(255,255,255,.06);border-radius:12px;}
-
-    #login-section{
-      max-width:420px;margin:32px auto;background:var(--card);
-      border:1px solid rgba(255,255,255,.06);border-radius:var(--radius);padding:22px;
-    }
-    #login-section h2{margin:0 0 10px 0}
-
-    @media (max-width: 920px){
-      .col-4,.col-6,.col-8{grid-column:span 12}
-    }
-    @media (max-width: 560px){
-      .container{padding:16px}
-      .topbar-inner{padding:12px 16px}
-      .card-header,.card-body{padding:14px 16px}
+    body {
+      margin: 0;
+      padding: 0;
+      background: var(--bg);
+      color: var(--text);
+      font: 14px/1.35 system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
     }
 
-    .muted{color:var(--muted)}
-    .mt-8{margin-top:8px} .mt-12{margin-top:12px} .mt-16{margin-top:16px} .mt-20{margin-top:20px}
-    .mb-0{margin-bottom:0} .mb-8{margin-bottom:8px} .mb-16{margin-bottom:16px}
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 24px;
+    }
+
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      backdrop-filter: saturate(140%) blur(6px);
+      background: linear-gradient(180deg, rgba(15, 15, 18, .85), rgba(15, 15, 18, .6));
+      border-bottom: 1px solid rgba(255, 255, 255, .06);
+    }
+
+    .topbar-inner {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 14px 24px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 700;
+      letter-spacing: .3px;
+    }
+
+    .brand img {
+      height: 24px;
+      width: auto;
+      filter: drop-shadow(0 0 8px rgba(233, 30, 99, .35));
+    }
+
+    .spacer {
+      flex: 1
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 10px;
+      border-radius: 999px;
+      font-weight: 600;
+      font-size: 12px;
+    }
+
+    .badge.admin {
+      background: rgba(233, 30, 99, .12);
+      color: #ffd6e6;
+      border: 1px solid rgba(233, 30, 99, .35);
+    }
+
+    .badge.moderator {
+      background: rgba(124, 77, 255, .12);
+      color: #e5dbff;
+      border: 1px solid rgba(124, 77, 255, .35);
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 10px 14px;
+      border-radius: 10px;
+      border: 1px solid transparent;
+      cursor: pointer;
+      font-weight: 600;
+      color: var(--text);
+      background: #24262c;
+      transition: transform .04s ease, border-color .15s ease, background .15s ease;
+    }
+
+    .btn:hover {
+      transform: translateY(-1px)
+    }
+
+    .btn:active {
+      transform: translateY(0)
+    }
+
+    .btn.primary {
+      background: var(--accent)
+    }
+
+    .btn.success {
+      background: var(--success)
+    }
+
+    .btn.warning {
+      background: var(--reset);
+      color: #111
+    }
+
+    .btn.danger {
+      background: var(--danger)
+    }
+
+    .btn.ghost {
+      background: #30333a;
+      border-color: rgba(255, 255, 255, .12)
+    }
+
+    .btn.small {
+      padding: 7px 10px;
+      font-size: 12px
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(12, 1fr);
+      gap: var(--gap);
+      margin-top: var(--gap);
+    }
+
+    .col-4 {
+      grid-column: span 4
+    }
+
+    .col-6 {
+      grid-column: span 6
+    }
+
+    .col-8 {
+      grid-column: span 8
+    }
+
+    .col-12 {
+      grid-column: span 12
+    }
+
+    .card {
+      background: var(--card);
+      border: 1px solid rgba(255, 255, 255, .06);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+
+    .card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 16px 18px;
+      border-bottom: 1px solid rgba(255, 255, 255, .06);
+    }
+
+    .card-title {
+      font-weight: 700;
+      letter-spacing: .2px;
+    }
+
+    .card-subtle {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .card-body {
+      padding: 16px 18px;
+    }
+
+    .field {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+
+    .field label {
+      color: var(--muted);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+    }
+
+    .input {
+      background: #101216;
+      color: var(--text);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 10px;
+      padding: 10px 12px;
+      outline: none;
+    }
+
+    .input:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(233, 30, 99, .15);
+    }
+
+    .inline-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    @media (max-width: 720px) {
+      .inline-actions {
+        flex-direction: column
+      }
+
+      .inline-actions>* {
+        width: 100%
+      }
+
+      .inline-actions .btn {
+        width: 100%
+      }
+
+      .inline-actions .status {
+        justify-content: center
+      }
+    }
+
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 12px;
+      border-radius: 10px;
+      background: #0f1319;
+      color: var(--muted);
+      border: 1px solid rgba(255, 255, 255, .08);
+      font-weight: 600;
+    }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: #0f1319;
+      border: 1px solid rgba(255, 255, 255, .1);
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 0 6px;
+    }
+
+    thead th {
+      text-align: left;
+      font-size: 12px;
+      color: var(--muted);
+      padding: 6px 10px;
+    }
+
+    tbody tr {
+      background: #121318;
+      border: 1px solid rgba(255, 255, 255, .06);
+    }
+
+    tbody td {
+      padding: 10px;
+    }
+
+    .table-scroll {
+      max-height: 280px;
+      overflow: auto;
+      border: 1px solid rgba(255, 255, 255, .06);
+      border-radius: 12px;
+    }
+
+    #login-section {
+      max-width: 420px;
+      margin: 32px auto;
+      background: var(--card);
+      border: 1px solid rgba(255, 255, 255, .06);
+      border-radius: var(--radius);
+      padding: 22px;
+    }
+
+    #login-section h2 {
+      margin: 0 0 10px 0
+    }
+
+    @media (max-width: 920px) {
+
+      .col-4,
+      .col-6,
+      .col-8 {
+        grid-column: span 12
+      }
+    }
+
+    @media (max-width: 560px) {
+      .container {
+        padding: 16px
+      }
+
+      .topbar-inner {
+        padding: 12px 16px
+      }
+
+      .card-header,
+      .card-body {
+        padding: 14px 16px
+      }
+    }
+
+    .muted {
+      color: var(--muted)
+    }
+
+    .mt-8 {
+      margin-top: 8px
+    }
+
+    .mt-12 {
+      margin-top: 12px
+    }
+
+    .mt-16 {
+      margin-top: 16px
+    }
+
+    .mt-20 {
+      margin-top: 20px
+    }
+
+    .mb-0 {
+      margin-bottom: 0
+    }
+
+    .mb-8 {
+      margin-bottom: 8px
+    }
+
+    .mb-16 {
+      margin-bottom: 16px
+    }
   </style>
 </head>
+
 <body>
   <!-- topbar -->
   <div class="topbar">
@@ -165,7 +432,9 @@
 
         <!-- 🎉 Raffle (ADMIN ONLY) -->
         <div class="card col-12 admin-only-block">
-          <div class="card-header"><div class="card-title">🎉 Raffle</div></div>
+          <div class="card-header">
+            <div class="card-title">🎉 Raffle</div>
+          </div>
           <div class="card-body">
             <div class="inline-actions">
               <button class="btn primary admin-only" id="pick-winner-btn">Pick Random Winner</button>
@@ -176,13 +445,14 @@
             <div class="mt-16">
               <div id="entries-totals" class="mb-8 muted">Loading entries…</div>
               <div class="table-scroll">
-                <table id="entries-table">
+                <table id="raffle-table" class="list">
                   <thead>
                     <tr>
-                      <th>Name</th><th>IP</th><th>Entered At</th>
+                      <th style="text-align:left;">Name</th>
+                      <th style="width:120px; text-align:right;">Entries</th>
                     </tr>
                   </thead>
-                  <tbody></tbody>
+                  <tbody id="raffle-rows"></tbody>
                 </table>
               </div>
             </div>
@@ -192,7 +462,9 @@
 
         <!-- Config (ADMIN ONLY) -->
         <div class="card col-6 admin-only-block">
-          <div class="card-header"><div class="card-title">Show Config</div></div>
+          <div class="card-header">
+            <div class="card-title">Show Config</div>
+          </div>
           <div class="card-body">
             <div class="field">
               <label for="showName">Show Name</label>
@@ -226,8 +498,14 @@
               <table id="social-table">
                 <thead>
                   <tr>
-                    <th>IP</th><th>Followed</th><th>Facebook</th><th>Instagram</th>
-                    <th>First Seen</th><th>Last Seen</th><th>Clicks</th><th>TTL (s)</th>
+                    <th>IP</th>
+                    <th>Followed</th>
+                    <th>Facebook</th>
+                    <th>Instagram</th>
+                    <th>First Seen</th>
+                    <th>Last Seen</th>
+                    <th>Clicks</th>
+                    <th>TTL (s)</th>
                   </tr>
                 </thead>
                 <tbody></tbody>
@@ -243,113 +521,113 @@
 
   <script type="module">
     // ---------- helpers ----------
-    const $ = (sel, root=document) => root.querySelector(sel);
-    const $$ = (sel, root=document) => Array.from(root.querySelectorAll(sel));
+    const $ = (sel, root = document) => root.querySelector(sel);
+    const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
-    function toast(msg, type="info"){
-      const el=document.createElement('div');
-      el.textContent=msg;
-      el.style.position='fixed'; el.style.bottom='20px'; el.style.left='50%';
-      el.style.transform='translateX(-50%)'; el.style.padding='10px 14px';
-      el.style.borderRadius='10px'; el.style.zIndex='9999'; el.style.fontWeight='700';
-      el.style.background = type==='error' ? 'var(--danger)' : (type==='success' ? 'var(--success)' : '#2b2f36');
-      el.style.color='#fff'; document.body.appendChild(el); setTimeout(()=>el.remove(),1800);
+    function toast(msg, type = "info") {
+      const el = document.createElement('div');
+      el.textContent = msg;
+      el.style.position = 'fixed'; el.style.bottom = '20px'; el.style.left = '50%';
+      el.style.transform = 'translateX(-50%)'; el.style.padding = '10px 14px';
+      el.style.borderRadius = '10px'; el.style.zIndex = '9999'; el.style.fontWeight = '700';
+      el.style.background = type === 'error' ? 'var(--danger)' : (type === 'success' ? 'var(--success)' : '#2b2f36');
+      el.style.color = '#fff'; document.body.appendChild(el); setTimeout(() => el.remove(), 1800);
     }
 
     // ---------- login/logout ----------
-    async function handleLogin(){
+    async function handleLogin() {
       const password = $('#admin-password').value;
-      const res = await fetch('/api/admin?action=login',{
-        method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({password})
+      const res = await fetch('/api/admin?action=login', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password })
       });
       const data = await res.json();
-      if(data.success){
+      if (data.success) {
         localStorage.setItem('role', data.role);
         localStorage.setItem('authToken', password);
-        if(data.role==='admin') localStorage.setItem('adminKey', password);
+        if (data.role === 'admin') localStorage.setItem('adminKey', password);
         location.reload();
-      }else{
-        $('#login-error').textContent='❌ Incorrect password';
+      } else {
+        $('#login-error').textContent = '❌ Incorrect password';
       }
     }
-    function logout(){ localStorage.clear(); location.href='/admin?ts='+Date.now(); }
+    function logout() { localStorage.clear(); location.href = '/admin?ts=' + Date.now(); }
 
     // ---------- redis ----------
-    async function checkRedisStatus(){
-      const el = $('#redis-status'); if(!el) return;
-      try{
+    async function checkRedisStatus() {
+      const el = $('#redis-status'); if (!el) return;
+      try {
         const res = await fetch('/api/admin?action=redis-status');
         const d = await res.json();
         const status = d.status || 'unknown';
         const ping = d.pingMs ?? d.latencyMs ?? null;
         const keys = d.keyCount ?? d.keys ?? null;
         const when = d.lastWarmAt ? new Date(d.lastWarmAt).toLocaleString() : '—';
-        const rate = (d.hitRate!=null) ? `${d.hitRate}%` : '—';
-        const seeded = (d.seeded!=null) ? d.seeded : '—';
+        const rate = (d.hitRate != null) ? `${d.hitRate}%` : '—';
+        const seeded = (d.seeded != null) ? d.seeded : '—';
         el.textContent =
-          `Status: ${status==='active' ? '✅ Active' : '❓ Unknown'}  |  ` +
+          `Status: ${status === 'active' ? '✅ Active' : '❓ Unknown'}  |  ` +
           `Ping: ${ping ?? '—'}ms  |  Keys: ${keys ?? '—'}  |  ` +
           `Seeded: ${seeded}  |  Last warm: ${when}  |  Hit rate: ${rate}`;
-        el.style.color = status==='active' ? 'var(--success)' : 'var(--muted)';
-      }catch(e){
+        el.style.color = status === 'active' ? 'var(--success)' : 'var(--muted)';
+      } catch (e) {
         el.textContent = 'Status: ❌ Error';
         el.style.color = 'var(--danger)';
       }
     }
 
-    async function warmRedis(){
+    async function warmRedis() {
       const adminKey = localStorage.getItem('adminKey') || '';
-      if(!adminKey){ toast('Login as admin to warm Redis','error'); return; }
-      try{
+      if (!adminKey) { toast('Login as admin to warm Redis', 'error'); return; }
+      try {
         const res = await fetch('/api/admin?action=warm-redis', {
-          method:'POST', headers:{ Authorization:'Bearer:super:'+adminKey }
+          method: 'POST', headers: { Authorization: 'Bearer:super:' + adminKey }
         });
-        if(!res.ok) throw new Error();
-        const json = await res.json().catch(()=>({}));
+        if (!res.ok) throw new Error();
+        const json = await res.json().catch(() => ({}));
         toast('Redis warmed' + (json.pong ? ` (${json.pong})` : ''), 'success');
-      }catch{
-        toast('Failed to warm Redis','error');
+      } catch {
+        toast('Failed to warm Redis', 'error');
       }
       checkRedisStatus();
     }
 
     // ---------- shutdown ----------
-    async function checkShutdownStatusAndLabel(){
-      try{
+    async function checkShutdownStatusAndLabel() {
+      try {
         const res = await fetch('/api/admin?action=shutdown-status');
         const { isShutdown } = await res.json();
         const btn = $('#shutdown-toggle-btn');
-        if(btn){
+        if (btn) {
           btn.textContent = isShutdown ? 'Re-enable App' : 'Shut Down App';
           btn.classList.toggle('danger', !isShutdown);
           btn.classList.toggle('success', isShutdown);
         }
-      }catch(e){ console.error('shutdown status error', e); }
+      } catch (e) { console.error('shutdown status error', e); }
     }
-    async function toggleShutdown(){
-      try{
+    async function toggleShutdown() {
+      try {
         const res = await fetch('/api/admin?action=toggle-shutdown', {
-          method:'POST',
-          headers:{ Authorization:'Bearer:super:'+(localStorage.getItem('adminKey')||'') }
+          method: 'POST',
+          headers: { Authorization: 'Bearer:super:' + (localStorage.getItem('adminKey') || '') }
         });
-        if(!res.ok) throw new Error('toggle failed');
+        if (!res.ok) throw new Error('toggle failed');
         await checkShutdownStatusAndLabel();
-        toast('App shutdown status updated','success');
+        toast('App shutdown status updated', 'success');
         localStorage.setItem('shutdownToggle', Date.now());
-      }catch(e){ toast('Failed to update shutdown','error'); }
+      } catch (e) { toast('Failed to update shutdown', 'error'); }
     }
 
     // ---------- social status ----------
-    async function loadSocialStatus(){
-      try{
+    async function loadSocialStatus() {
+      try {
         const res = await fetch('/api/admin?action=social-status');
         const data = await res.json();
         const totals = data.totals || {};
         $('#social-totals').textContent =
-          `Unique: ${totals.uniqueIPsTracked||0}  |  Unlocked: ${totals.unlocked||0}  |  `+
-          `FB clicks: ${totals.facebookClicks||0}  |  IG clicks: ${totals.instagramClicks||0}`;
+          `Unique: ${totals.uniqueIPsTracked || 0}  |  Unlocked: ${totals.unlocked || 0}  |  ` +
+          `FB clicks: ${totals.facebookClicks || 0}  |  IG clicks: ${totals.instagramClicks || 0}`;
         const tbody = $('#social-table tbody'); tbody.innerHTML = '';
-        (data.entries||[]).forEach(row=>{
+        (data.entries || []).forEach(row => {
           const tr = document.createElement('tr');
           tr.innerHTML = `
             <td>${row.ip}</td>
@@ -362,175 +640,234 @@
             <td>${typeof row.ttlSeconds === 'number' ? row.ttlSeconds : '—'}</td>`;
           tbody.appendChild(tr);
         });
-      }catch(e){
-        $('#social-totals').textContent='Failed to load.';
+      } catch (e) {
+        $('#social-totals').textContent = 'Failed to load.';
         console.error(e);
       }
     }
-    async function resetSocialClicks(){
-      if(!confirm('Reset all social follow tracking?')) return;
-      try{
-        const res = await fetch('/api/admin?action=reset-social', { method:'POST' });
+    async function resetSocialClicks() {
+      if (!confirm('Reset all social follow tracking?')) return;
+      try {
+        const res = await fetch('/api/admin?action=reset-social', { method: 'POST' });
         const json = await res.json();
-        if(res.ok && json.success){ toast('Social clicks reset','success'); loadSocialStatus(); }
+        if (res.ok && json.success) { toast('Social clicks reset', 'success'); loadSocialStatus(); }
         else throw new Error(json.error || 'failed');
-      }catch(e){ toast('Error resetting social clicks','error'); }
+      } catch (e) { toast('Error resetting social clicks', 'error'); }
     }
 
     // ---------- config (date-only) ----------
-    function toDateInputValue(iso){
-      if(!iso) return "";
-      const d=new Date(iso);
-      const yyyy=d.getFullYear();
-      const mm=String(d.getMonth()+1).padStart(2,"0");
-      const dd=String(d.getDate()).padStart(2,"0");
+    function toDateInputValue(iso) {
+      if (!iso) return "";
+      const d = new Date(iso);
+      const yyyy = d.getFullYear();
+      const mm = String(d.getMonth() + 1).padStart(2, "0");
+      const dd = String(d.getDate()).padStart(2, "0");
       return `${yyyy}-${mm}-${dd}`;
     }
-    function applyConfig(c){
+    function applyConfig(c) {
       $('#showName').value = c.showName || '';
       $('#startDate').value = toDateInputValue(c.startTime);
-      $('#endDate').value   = toDateInputValue(c.endTime);
+      $('#endDate').value = toDateInputValue(c.endTime);
     }
-    async function loadConfig(){
+    async function loadConfig() {
       const res = await fetch('/api/admin?action=config');
       const config = await res.json();
       applyConfig(config);
     }
-    async function saveConfig(){
-      const role = localStorage.getItem('role'); if(role!=='admin') return;
-      const showName  = $('#showName').value.trim();
+    async function saveConfig() {
+      const role = localStorage.getItem('role'); if (role !== 'admin') return;
+      const showName = $('#showName').value.trim();
       const startDate = $('#startDate').value;
-      const endDate   = $('#endDate').value;
-      if(!showName || !startDate || !endDate){ toast('Fill all fields','error'); return; }
+      const endDate = $('#endDate').value;
+      if (!showName || !startDate || !endDate) { toast('Fill all fields', 'error'); return; }
       const start = new Date(`${startDate}T00:00:00`);
-      const end   = new Date(`${endDate}T23:59:59.999`);
-      if(end < start){ toast('End date must be on or after start date','error'); return; }
-      const body = { showName, startTime:start.toISOString(), endTime:end.toISOString() };
-      try{
+      const end = new Date(`${endDate}T23:59:59.999`);
+      if (end < start) { toast('End date must be on or after start date', 'error'); return; }
+      const body = { showName, startTime: start.toISOString(), endTime: end.toISOString() };
+      try {
         const res = await fetch('/api/admin?action=config', {
-          method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
         });
         const json = await res.json();
-        if(res.ok){ toast('Config saved','success'); } else { throw new Error(json.error || 'Save failed'); }
-      }catch(e){ toast('Save failed','error'); }
+        if (res.ok) { toast('Config saved', 'success'); } else { throw new Error(json.error || 'Save failed'); }
+      } catch (e) { toast('Save failed', 'error'); }
     }
 
     // ---------- raffle ----------
-    function maskIp(ip){
-      if(!ip) return '—';
+    function maskIp(ip) {
+      if (!ip) return '—';
       const parts = ip.split('.');
-      if(parts.length===4){ return parts[0]+'.'+parts[1]+'.*.**'; }
+      if (parts.length === 4) { return parts[0] + '.' + parts[1] + '.*.**'; }
       return ip;
     }
 
-    async function loadCurrentWinner(){
-      try{
+    async function loadCurrentWinner() {
+      try {
         const res = await fetch('/api/admin?action=winner');
         const data = await res.json();
         const w = data?.winner?.name;
         $('#winnerDisplay').textContent = w ? `🎉 Winner: ${w}` : 'No winner yet';
-      }catch{}
+      } catch { }
     }
 
-    async function loadEntries(){
-      try{
-        const res = await fetch('/api/admin?action=entries');
-        const data = await res.json();
-        const entries = Array.isArray(data.entries) ? data.entries : [];
-        $('#entries-totals').textContent = `Entries this show: ${entries.length}`;
+    // --- Admin UI: Name + Entries (no IP / time) ---
 
-        const tbody = $('#entries-table tbody');
-        tbody.innerHTML = '';
-        entries
-          .sort((a,b)=> new Date(b.createdTime) - new Date(a.createdTime))
-          .forEach(e=>{
-            const tr = document.createElement('tr');
-            tr.innerHTML = `
-              <td>${e.name || 'Unknown'}</td>
-              <td>${maskIp(e.ip)}</td>
-              <td>${e.createdTime ? new Date(e.createdTime).toLocaleTimeString() : '—'}</td>`;
-            tbody.appendChild(tr);
-          });
-      }catch(e){
-        console.error(e);
-        $('#entries-totals').textContent = 'Failed to load entries';
-      }
+async function loadEntries() {
+  const TABLE_ID = "raffle-table";
+  const TBODY_ID = "raffle-rows";
+
+  // Ensure the table exists; create it if not
+  let tbody = document.getElementById(TBODY_ID);
+  if (!tbody) {
+    const container =
+      document.getElementById("raffle-box") ||
+      document.querySelector("#raffle .box") ||
+      document.getElementById("main") ||
+      document.body;
+
+    let table = document.getElementById(TABLE_ID);
+    if (!table) {
+      table = document.createElement("table");
+      table.id = TABLE_ID;
+      table.className = "list";
+      table.innerHTML = `
+        <thead>
+          <tr>
+            <th style="text-align:left;">Name</th>
+            <th style="width:120px; text-align:right;">Entries</th>
+          </tr>
+        </thead>
+        <tbody id="${TBODY_ID}"></tbody>
+      `;
+      container.appendChild(table);
     }
+    tbody = document.getElementById(TBODY_ID);
+  }
 
-    async function clearRaffle(){
-      if(!confirm('Clear all raffle entries and the current winner for THIS show window?')) return;
-      try{
+  // Loading state
+  tbody.innerHTML = `<tr><td colspan="2" style="opacity:.7;">Loading…</td></tr>`;
+
+  // Fetch summary rows
+  let rows = [];
+  try {
+    const res = await fetch("/api/admin?action=entries-summary", { cache: "no-store" });
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    rows = Array.isArray(data.rows) ? data.rows : [];
+  } catch (err) {
+    console.warn("entries-summary failed:", err);
+    tbody.innerHTML = `<tr><td colspan="2" style="opacity:.7;">(error loading)</td></tr>`;
+    return;
+  }
+
+  // Render
+  if (!rows.length) {
+    tbody.innerHTML = `<tr><td colspan="2" style="opacity:.7;">(no entries yet)</td></tr>`;
+    return;
+  }
+
+  const frag = document.createDocumentFragment();
+  for (const r of rows) {
+    const tr = document.createElement("tr");
+
+    const tdName = document.createElement("td");
+    tdName.textContent = r.name || "";
+    tdName.style.textAlign = "left";
+
+    const tdEntries = document.createElement("td");
+    tdEntries.textContent = String(r.entries ?? 0);
+    tdEntries.style.textAlign = "right";
+    tdEntries.style.fontWeight = "700";
+
+    tr.append(tdName, tdEntries);
+    frag.appendChild(tr);
+  }
+
+  tbody.innerHTML = "";
+  tbody.appendChild(frag);
+}
+
+// Boot once DOM is ready + auto-refresh
+document.addEventListener("DOMContentLoaded", () => {
+  loadEntries();
+  setInterval(loadEntries, 5000);
+});
+
+
+    async function clearRaffle() {
+      if (!confirm('Clear all raffle entries and the current winner for THIS show window?')) return;
+      try {
         const res = await fetch('/api/admin?action=clear-raffle', {
-          method:'POST',
-          headers:{ Authorization:'Bearer:super:'+(localStorage.getItem('adminKey')||'') }
+          method: 'POST',
+          headers: { Authorization: 'Bearer:super:' + (localStorage.getItem('adminKey') || '') }
         });
         const json = await res.json();
-        if(!res.ok || !json.success) throw new Error(json.error || 'Failed');
-        toast('Raffle cleared','success');
+        if (!res.ok || !json.success) throw new Error(json.error || 'Failed');
+        toast('Raffle cleared', 'success');
         $('#winnerDisplay').textContent = 'No winner yet';
         loadEntries();
-      }catch(e){ toast('Failed to clear raffle','error'); }
+      } catch (e) { toast('Failed to clear raffle', 'error'); }
     }
 
-    async function pickWinner(){
-      if(!confirm('Pick a random winner from all entries?')) return;
-      try{
+    async function pickWinner() {
+      if (!confirm('Pick a random winner from all entries?')) return;
+      try {
         const res = await fetch('/api/admin?action=pick-winner', {
-          method:'POST',
-          headers:{
-            'Content-Type':'application/json',
-            'Authorization':'Bearer:super:'+(localStorage.getItem('adminKey')||'')
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer:super:' + (localStorage.getItem('adminKey') || '')
           },
-          body: JSON.stringify({ role:'admin' })
+          body: JSON.stringify({ role: 'admin' })
         });
         const result = await res.json();
-        if(result?.winner?.name){
+        if (result?.winner?.name) {
           const winnerName = result.winner.name;
           $('#winnerDisplay').textContent = `🎉 Winner: ${winnerName}`;
 
           // Try to broadcast to clients
           await fetch(
-            location.hostname==='localhost'
+            location.hostname === 'localhost'
               ? 'http://localhost:3001/broadcast'
               : 'https://winner-sse-server.onrender.com/broadcast',
-            { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ winner:winnerName }) }
+            { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ winner: winnerName }) }
           );
 
           localStorage.setItem('shownWinnerName', winnerName);
-          toast('Winner announced','success');
-        }else{
-          toast(result?.error || 'No eligible entries','error');
+          toast('Winner announced', 'success');
+        } else {
+          toast(result?.error || 'No eligible entries', 'error');
         }
-      }catch(e){ toast('Failed to pick winner','error'); }
+      } catch (e) { toast('Failed to pick winner', 'error'); }
     }
 
-    async function resetWinner(){
-      if(!confirm('Clear the current winner?')) return;
-      try{
+    async function resetWinner() {
+      if (!confirm('Clear the current winner?')) return;
+      try {
         const apiRes = await fetch('/api/admin?action=reset-winner', {
-          method:'POST',
-          headers:{ Authorization:'Bearer:super:'+(localStorage.getItem('adminKey')||'') }
+          method: 'POST',
+          headers: { Authorization: 'Bearer:super:' + (localStorage.getItem('adminKey') || '') }
         });
-        const apiJson = await apiRes.json().catch(()=>({}));
-        if(!apiRes.ok || !apiJson.success) throw new Error(apiJson.error || 'Reset failed');
+        const apiJson = await apiRes.json().catch(() => ({}));
+        if (!apiRes.ok || !apiJson.success) throw new Error(apiJson.error || 'Reset failed');
 
         await fetch(
-          location.hostname==='localhost'
+          location.hostname === 'localhost'
             ? 'http://localhost:3001/reset'
             : 'https://winner-sse-server.onrender.com/reset',
-          { method:'POST' }
+          { method: 'POST' }
         );
 
         $('#winnerDisplay').textContent = 'No winner yet';
-        toast('Winner reset','success');
-      }catch(e){
+        toast('Winner reset', 'success');
+      } catch (e) {
         console.error(e);
-        toast('Failed to reset winner','error');
+        toast('Failed to reset winner', 'error');
       }
     }
 
     // ---------- bootstrap ----------
-    document.addEventListener('DOMContentLoaded', async ()=>{
+    document.addEventListener('DOMContentLoaded', async () => {
       $('#login-btn').addEventListener('click', handleLogin);
       $('#logout-btn').addEventListener('click', logout);
 
@@ -539,17 +876,17 @@
       const login = $('#login-section');
       const app = $('#admin-content');
 
-      if(!role){
-        login.style.display='block'; app.style.display='none';
-        $('#role-banner').textContent='Logged out'; $('#logout-btn').style.display='none';
+      if (!role) {
+        login.style.display = 'block'; app.style.display = 'none';
+        $('#role-banner').textContent = 'Logged out'; $('#logout-btn').style.display = 'none';
         return;
       }
-      login.style.display='none'; app.style.display='block'; $('#logout-btn').style.display='inline-flex';
+      login.style.display = 'none'; app.style.display = 'block'; $('#logout-btn').style.display = 'inline-flex';
 
       const banner = $('#role-banner');
 
-      if(role==='moderator'){
-        banner.textContent='Moderator'; banner.classList.add('badge','moderator');
+      if (role === 'moderator') {
+        banner.textContent = 'Moderator'; banner.classList.add('badge', 'moderator');
 
         // Hide all admin-only blocks entirely
         $$('.admin-only-block').forEach(el => el.style.display = 'none');
@@ -557,8 +894,8 @@
         $$('.admin-only').forEach(el => el.style.display = 'none');
 
         // No admin handlers for moderators
-      }else{
-        banner.textContent='Admin'; banner.classList.add('badge','admin');
+      } else {
+        banner.textContent = 'Admin'; banner.classList.add('badge', 'admin');
 
         // Admin-only button handlers
         $('#warm-redis-btn')?.addEventListener('click', warmRedis);
@@ -585,4 +922,5 @@
     });
   </script>
 </body>
+
 </html>

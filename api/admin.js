@@ -78,7 +78,6 @@ async function getWindowInfo() {
       if (st) startTime = st;
       if (et) endTime = et;
     } else if (isLocal) {
-      // Local dev: allow config.json
       const cfgPath = path.join(process.cwd(), "config.json");
       if (fs.existsSync(cfgPath)) {
         const cfg = JSON.parse(fs.readFileSync(cfgPath, "utf8"));
@@ -255,11 +254,12 @@ export default async function handler(req, res) {
 
   // ───────────────────────────────────────────────────────────────
   // RAFFLE-ONLY FLOW
-  //   POST action=enter           -> add a single entry (requires "follow")
+  //   POST action=enter           -> add a single entry (requires click follow)
   //   GET  action=entries         -> list entries for current show (admin)
+  //   GET  action=entries-summary -> {rows:[{name, entries}]} for admin table
   //   POST action=clear-raffle    -> clear entries + winner for current show
   //   GET  action=winner          -> get current winner
-  //   POST action=pick-winner     -> pick from entries
+  //   POST action=pick-winner     -> weighted by FB/IG clicks (1 per platform)
   //   POST action=reset-winner    -> clear winner + broadcast reset
   // ───────────────────────────────────────────────────────────────
 
@@ -269,22 +269,29 @@ export default async function handler(req, res) {
 
     const nameRaw = (req.body?.name || "").trim();
     if (!nameRaw) return res.status(400).json({ error: "Missing name" });
-    const name = nameRaw.slice(0, 80); // simple sanity limit
+    const name = nameRaw.slice(0, 80);
+
+    // Optional: client may send followBonus (0..2). We store it but
+    // the admin summary below derives entries from social state anyway.
+    let followBonus = Number(req.body?.followBonus ?? 0);
+    if (!Number.isFinite(followBonus)) followBonus = 0;
+    if (followBonus < 0) followBonus = 0;
+    if (followBonus > 2) followBonus = 2;
 
     const ip =
       req.headers["x-forwarded-for"]?.split(",")[0]?.trim() ||
       req.socket.remoteAddress ||
       "unknown";
 
-    // Must have clicked a follow button on this device (server-enforced)
+    // Must have clicked at least one platform on this device (server-enforced)
     const rawFollow = await redis.get(`social:${ip}`).catch(() => null);
     if (!isFollowAllowed(rawFollow)) {
-      return res.status(403).json({ error: "Follow us on FB/IG to enter." });
+      return res.status(403).json({ error: "Follow us on FB or IG to enter." });
     }
 
     const { windowKey, ttlSeconds } = await getWindowInfo();
-    const setKey = `raffle:entered:${windowKey}`;   // de-dupe by IP
-    const listKey = `raffle:entries:${windowKey}`;  // actual entries
+    const setKey = `raffle:entered:${windowKey}`; // de-dupe by IP
+    const listKey = `raffle:entries:${windowKey}`;
 
     // One entry per IP per show
     const already = await redis.sIsMember(setKey, ip);
@@ -296,10 +303,12 @@ export default async function handler(req, res) {
       id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
       name,
       ip,
+      followBonus, // stored (not required for summary)
       createdTime: new Date().toISOString(),
     };
 
-    await redis.multi()
+    await redis
+      .multi()
       .sAdd(setKey, ip)
       .rPush(listKey, JSON.stringify(entry))
       .expire(setKey, ttlSeconds)
@@ -316,11 +325,80 @@ export default async function handler(req, res) {
     const { windowKey } = await getWindowInfo();
     const listKey = `raffle:entries:${windowKey}`;
     const raw = await redis.lRange(listKey, 0, -1);
-    const entries = raw.map((s) => {
-      try { return JSON.parse(s); } catch { return null; }
-    }).filter(Boolean);
+    const entries = raw
+      .map((s) => {
+        try {
+          return JSON.parse(s);
+        } catch {
+          return null;
+        }
+      })
+      .filter(Boolean);
 
     return res.status(200).json({ entries, count: entries.length });
+  }
+
+  // NEW: summarized view for Admin table: Name + total Entries
+  // Entries are computed from social state per IP:
+  //   1 if followed one platform, 2 if followed both. (Never 0)
+  if (action === "entries-summary" && req.method === "GET") {
+    const ok = await ensureRedisConnected();
+    if (!ok) return res.status(200).json({ rows: [] });
+
+    const { windowKey } = await getWindowInfo();
+    const listKey = `raffle:entries:${windowKey}`;
+    const raw = await redis.lRange(listKey, 0, -1);
+
+    const rowsMap = new Map(); // name -> entries count
+
+    // Preload all social states by IP
+    const parsed = [];
+    const ips = new Set();
+    for (const s of raw) {
+      try {
+        const e = JSON.parse(s);
+        if (e && e.ip && e.name) {
+          parsed.push(e);
+          ips.add(e.ip);
+        }
+      } catch {}
+    }
+
+    const ipArr = Array.from(ips);
+    const socialStates = await Promise.all(
+      ipArr.map((ip) => redis.get(`social:${ip}`).catch(() => null))
+    );
+    const socialByIp = new Map();
+    for (let i = 0; i < ipArr.length; i++) {
+      const raw = socialStates[i];
+      let clicks = 0;
+      if (raw === "true") {
+        clicks = 1; // legacy "followed"
+      } else if (raw) {
+        try {
+          const s = JSON.parse(raw);
+          clicks = (s?.platforms?.fb ? 1 : 0) + (s?.platforms?.ig ? 1 : 0);
+        } catch {
+          clicks = 1;
+        }
+      }
+      if (clicks < 1) clicks = 1;
+      if (clicks > 2) clicks = 2;
+      socialByIp.set(ipArr[i], clicks);
+    }
+
+    for (const e of parsed) {
+      const name = String(e.name || "").trim();
+      if (!name) continue;
+      const clicks = socialByIp.get(e.ip) ?? 1;
+      const prev = rowsMap.get(name) || 0;
+      rowsMap.set(name, prev + clicks);
+    }
+
+    const rows = Array.from(rowsMap, ([name, entries]) => ({ name, entries }))
+      .sort((a, b) => b.entries - a.entries || a.name.localeCompare(b.name));
+
+    return res.status(200).json({ rows });
   }
 
   if (action === "clear-raffle" && req.method === "POST") {
@@ -352,6 +430,7 @@ export default async function handler(req, res) {
     }
   }
 
+  // Weighted by platform clicks (FB/IG) for the same IP: 1 per platform (FB=1, IG=1, both=2)
   if (action === "pick-winner" && req.method === "POST") {
     await ensureRedisConnected();
     const { role } = req.body || {};
@@ -361,20 +440,75 @@ export default async function handler(req, res) {
       const { windowKey } = await getWindowInfo();
       const listKey = `raffle:entries:${windowKey}`;
       const raw = await redis.lRange(listKey, 0, -1);
-      const entries = raw.map((s) => {
-        try { return JSON.parse(s); } catch { return null; }
-      }).filter(Boolean);
+      const entries = raw
+        .map((s) => {
+          try {
+            return JSON.parse(s);
+          } catch {
+            return null;
+          }
+        })
+        .filter(Boolean);
 
       if (!entries.length) {
         return res.status(400).json({ error: "No eligible entries" });
       }
 
-      const winner = entries[Math.floor(Math.random() * entries.length)];
-      const payload = { name: winner.name, id: winner.id };
+      // Fetch social states for all IPs in parallel and compute weights
+      const socialKeys = entries.map((e) => `social:${e.ip}`);
+      const socialRaw = await Promise.all(
+        socialKeys.map((k) => redis.get(k).catch(() => null))
+      );
+
+      const weights = socialRaw.map((raw) => {
+        if (!raw) return 1; // fallback
+        if (raw === "true") return 1; // legacy "followed"
+        try {
+          const s = JSON.parse(raw);
+          const fb = s?.platforms?.fb ? 1 : 0;
+          const ig = s?.platforms?.ig ? 1 : 0;
+          const clicks = fb + ig;
+          return clicks > 0 ? clicks : 1;
+        } catch {
+          return 1;
+        }
+      });
+
+      // Weighted random pick
+      const total = weights.reduce((a, b) => a + b, 0);
+      let r = Math.random() * total;
+      let idx = 0;
+      for (let i = 0; i < entries.length; i++) {
+        r -= weights[i];
+        if (r <= 0) {
+          idx = i;
+          break;
+        }
+      }
+      const winner = entries[idx];
+      const social = (() => {
+        try {
+          return socialRaw[idx] && socialRaw[idx] !== "true"
+            ? JSON.parse(socialRaw[idx])
+            : null;
+        } catch {
+          return null;
+        }
+      })();
+
+      const payload = {
+        id: winner.id,
+        name: winner.name,
+        weight: weights[idx], // 1 or 2
+        platforms: {
+          fb: !!(social && social.platforms && social.platforms.fb),
+          ig: !!(social && social.platforms && social.platforms.ig),
+        },
+      };
 
       await redis.set("raffle_winner", JSON.stringify(payload));
 
-      // Try to broadcast to clients (no-op if SSE server down)
+      // Best-effort broadcast to clients
       try {
         await fetch("https://winner-sse-server.onrender.com/broadcast", {
           method: "POST",
@@ -406,7 +540,6 @@ export default async function handler(req, res) {
 
     try {
       await redis.del("raffle_winner");
-      // Best-effort broadcast reset so clients clear banner instantly
       try {
         await fetch("https://winner-sse-server.onrender.com/reset", {
           method: "POST",
@@ -467,7 +600,6 @@ export default async function handler(req, res) {
         await redis.del("social:ips");
         return res.status(200).json({ success: true, deleted: toDel.length });
       }
-      // Redis not ready — succeed so admin UI doesn’t blow up
       return res.status(200).json({ success: true, deleted: 0, note: "redis not ready" });
     } catch (err) {
       console.error("❌ Reset social error:", err);
@@ -583,7 +715,7 @@ export default async function handler(req, res) {
     let state = {
       firstSeen: now,
       lastSeen: now,
-      followed: true,
+      followed: true,  // gate opens after first click
       count: 0,
       platforms: {},
     };
@@ -593,7 +725,6 @@ export default async function handler(req, res) {
       try {
         state = JSON.parse(prev);
       } catch {
-        // legacy "true"
         state = { ...state, firstSeen: now, lastSeen: now, followed: true };
       }
     }
@@ -611,59 +742,64 @@ export default async function handler(req, res) {
     return res.status(200).json({ success: true });
   }
 
-// ────── FB VERIFY LIKE ──────
-if (req.method === "POST" && action === "fb-verify-like") {
-  const { accessToken } = req.body || {};
-  if (!accessToken) return res.status(400).json({ success:false, error:"Missing access token" });
-
-  try {
-    const pageId = process.env.FB_PAGE_ID || "130023783530481";
-    // Check if the logged-in user likes the page
-    const resp = await fetch(`https://graph.facebook.com/v19.0/me/likes?target_id=${pageId}&access_token=${encodeURIComponent(accessToken)}`);
-    const data = await resp.json();
-
-    if (!resp.ok) {
-      console.error("FB verify error:", data);
-      return res.status(400).json({ success:false, error: data?.error?.message || "FB error" });
-    }
-
-    const liked = Array.isArray(data.data) && data.data.length > 0;
-
-    // If liked, mark this IP as followed (same logic as mark-follow)
-    if (liked) {
-      const ok = await ensureRedisConnected();
-      if (ok) {
-        const ip = req.headers["x-forwarded-for"]?.split(",")[0] || req.socket.remoteAddress || "unknown";
-        const key = `social:${ip}`;
-        const now = new Date().toISOString();
-        const EX_SECONDS = 60*60*8;
-        let state = { firstSeen: now, lastSeen: now, followed: true, count: 1, platforms: { fb:true } };
-
-        const prev = await redis.get(key).catch(()=>null);
-        if (prev) {
-          try {
-            const p = JSON.parse(prev);
-            state = {
-              ...p,
-              lastSeen: now,
-              followed: true,
-              platforms: { ...(p.platforms||{}), fb:true },
-              count: (p.count||0) + 1
-            };
-          } catch {}
-        }
-        await redis.set(key, JSON.stringify(state), { EX: EX_SECONDS });
-        await redis.sAdd("social:ips", ip);
+  // (Optional; safe to keep even if unused now)
+  if (req.method === "POST" && action === "fb-verify-like") {
+    const { accessToken } = req.body || {};
+    if (!accessToken) return res.status(400).json({ success: false, error: "Missing access token" });
+    try {
+      const pageId = process.env.FB_PAGE_ID || "130023783530481";
+      const resp = await fetch(
+        `https://graph.facebook.com/v19.0/me/likes?target_id=${pageId}&access_token=${encodeURIComponent(
+          accessToken
+        )}`
+      );
+      const data = await resp.json();
+      if (!resp.ok) {
+        console.error("FB verify error:", data);
+        return res.status(400).json({ success: false, error: data?.error?.message || "FB error" });
       }
+      const liked = Array.isArray(data.data) && data.data.length > 0;
+
+      if (liked) {
+        const ok = await ensureRedisConnected();
+        if (ok) {
+          const ip =
+            req.headers["x-forwarded-for"]?.split(",")[0] ||
+            req.socket.remoteAddress ||
+            "unknown";
+          const key = `social:${ip}`;
+          const now = new Date().toISOString();
+          const EX_SECONDS = 60 * 60 * 8;
+          let state = {
+            firstSeen: now,
+            lastSeen: now,
+            followed: true,
+            count: 1,
+            platforms: { fb: true },
+          };
+          const prev = await redis.get(key).catch(() => null);
+          if (prev) {
+            try {
+              const p = JSON.parse(prev);
+              state = {
+                ...p,
+                lastSeen: now,
+                followed: true,
+                platforms: { ...(p.platforms || {}), fb: true },
+                count: (p.count || 0) + 1,
+              };
+            } catch {}
+          }
+          await redis.set(key, JSON.stringify(state), { EX: EX_SECONDS });
+          await redis.sAdd("social:ips", ip);
+        }
+      }
+      return res.json({ success: true, liked });
+    } catch (err) {
+      console.error("fb-verify-like failed:", err);
+      return res.status(500).json({ success: false, error: "Server error" });
     }
-
-    return res.json({ success:true, liked });
-  } catch (err) {
-    console.error("fb-verify-like failed:", err);
-    return res.status(500).json({ success:false, error:"Server error" });
   }
-}
-
 
   // ────── UNKNOWN ──────
   return res.status(400).json({ error: "Invalid action or method" });

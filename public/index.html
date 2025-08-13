@@ -5,16 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>90 Surge - Free T-shirt!</title>
 
-<link rel="stylesheet" href="/public/styles.css" />
-
-<!-- 1) Set App ID (your Facebook *App* ID, not Page ID) -->
-<script>window.FB_APP_ID = "778642511227804";</script>
-
-<!-- 2) Load the SDK -->
-<script async defer crossorigin="anonymous" src="https://connect.facebook.net/en_US/sdk.js"></script>
-
-<!-- 3) Finally your app -->
-<script type="module" src="/public/app.js"></script>
+  <link rel="stylesheet" href="/public/styles.css" />
+  <!-- Only your app (no FB SDK needed) -->
+  <script type="module" src="/public/app.js"></script>
 </head>
 
 <body>
@@ -32,6 +25,7 @@
 
       <h1 id="headline">90 SURGE TONIGHT</h1>
 
+      <!-- Winner banner target (used by app.js setWinnerBanner/clearWinnerBanner) -->
       <h2 class="raffle raffle-title blink">
         <strong>ENTER OUR RAFFLE FOR A CHANCE TO WIN A 90 SURGE TEE!</strong>
       </h2>
@@ -60,19 +54,22 @@
         <li>
           Tap to follow us on Facebook or Insta
           <div id="follow-gate">
-  <div class="follow-links" style="display:flex; justify-content:center; gap:.5rem; flex-wrap:wrap;">
-    <button type="button" class="follow-btn-fb" role="link" onclick="return openFacebook(event)">Facebook</button>
-    <button type="button" class="follow-btn-ig" role="link" onclick="return openInstagram(event)">Instagram</button>
-<button type="button" id="verify-fb-btn" class="verify-btn-fb">
-  Verify FB follow
-</button>
-  </div>
-</div>
+            <div class="follow-links" style="display:flex; justify-content:center; gap:.5rem; flex-wrap:wrap;">
+              <button type="button" class="follow-btn-fb" onclick="return openFacebook(event)">Facebook</button>
+              <button type="button" class="follow-btn-ig" onclick="return openInstagram(event)">Instagram</button>
+            </div>
+            <div style="margin-top:.35rem; text-align:center; font-size:.9rem; opacity:.8;">
+              Tip: tap both for an extra chance at the draw ✌️
+            </div>
+          </div>
         </li>
       </ol>
     </div>
 
-    <!-- CTA: locked vs unlocked (unlocks only after verified follow + name) -->
+    <!-- Live guidance slot (app.js writes here) -->
+    <div id="cta-message" class="message cta-message" aria-live="polite"></div>
+
+    <!-- CTA: locked vs unlocked (app.js toggles visibility) -->
     <div id="upload-cta">
       <div id="cta-locked">
         <div class="hint" style="margin-top:.35rem; font-size:.9rem; color:#aaa;"></div>
@@ -111,8 +108,8 @@
     </div>
   </form>
 
-  <!-- Winner modal (unchanged) -->
-  <div id="winnerModal" class="winner-modal hidden">
+  <!-- Winner modal -->
+  <div id="winnerModal" class="winner-modal hidden" role="dialog" aria-modal="true" aria-labelledby="winnerName">
     <h1 class="winner-title">🎉 Raffle Winner 🎉</h1>
     <p id="winnerName" class="winner-name"></p>
     <button onclick="hideWinnerModal()" class="btn-modal-close">Close</button>
