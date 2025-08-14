@@ -34,13 +34,13 @@
       padding: 0;
       background: var(--bg);
       color: var(--text);
-      font: 14px/1.35 system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+      font: 14px/1.35 system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji"
     }
 
     .container {
       max-width: 1200px;
       margin: 0 auto;
-      padding: 24px;
+      padding: 24px
     }
 
     .topbar {
@@ -49,14 +49,14 @@
       z-index: 20;
       backdrop-filter: saturate(140%) blur(6px);
       background: linear-gradient(180deg, rgba(15, 15, 18, .85), rgba(15, 15, 18, .6));
-      border-bottom: 1px solid rgba(255, 255, 255, .06);
+      border-bottom: 1px solid rgba(255, 255, 255, .06)
     }
 
     .topbar-inner {
       display: flex;
       align-items: center;
       gap: 12px;
-      padding: 14px 24px;
+      padding: 14px 24px
     }
 
     .brand {
@@ -64,13 +64,13 @@
       align-items: center;
       gap: 10px;
       font-weight: 700;
-      letter-spacing: .3px;
+      letter-spacing: .3px
     }
 
     .brand img {
       height: 24px;
       width: auto;
-      filter: drop-shadow(0 0 8px rgba(233, 30, 99, .35));
+      filter: drop-shadow(0 0 8px rgba(233, 30, 99, .35))
     }
 
     .spacer {
@@ -84,19 +84,19 @@
       padding: 6px 10px;
       border-radius: 999px;
       font-weight: 600;
-      font-size: 12px;
+      font-size: 12px
     }
 
     .badge.admin {
       background: rgba(233, 30, 99, .12);
       color: #ffd6e6;
-      border: 1px solid rgba(233, 30, 99, .35);
+      border: 1px solid rgba(233, 30, 99, .35)
     }
 
     .badge.moderator {
       background: rgba(124, 77, 255, .12);
       color: #e5dbff;
-      border: 1px solid rgba(124, 77, 255, .35);
+      border: 1px solid rgba(124, 77, 255, .35)
     }
 
     .btn {
@@ -111,7 +111,7 @@
       font-weight: 600;
       color: var(--text);
       background: #24262c;
-      transition: transform .04s ease, border-color .15s ease, background .15s ease;
+      transition: transform .04s ease, border-color .15s ease, background .15s ease
     }
 
     .btn:hover {
@@ -153,7 +153,7 @@
       display: grid;
       grid-template-columns: repeat(12, 1fr);
       gap: var(--gap);
-      margin-top: var(--gap);
+      margin-top: var(--gap)
     }
 
     .col-4 {
@@ -176,7 +176,7 @@
       background: var(--card);
       border: 1px solid rgba(255, 255, 255, .06);
       border-radius: var(--radius);
-      overflow: hidden;
+      overflow: hidden
     }
 
     .card-header {
@@ -185,35 +185,35 @@
       justify-content: space-between;
       gap: 10px;
       padding: 16px 18px;
-      border-bottom: 1px solid rgba(255, 255, 255, .06);
+      border-bottom: 1px solid rgba(255, 255, 255, .06)
     }
 
     .card-title {
       font-weight: 700;
-      letter-spacing: .2px;
+      letter-spacing: .2px
     }
 
     .card-subtle {
       color: var(--muted);
-      font-size: 12px;
+      font-size: 12px
     }
 
     .card-body {
-      padding: 16px 18px;
+      padding: 16px 18px
     }
 
     .field {
       display: flex;
       flex-direction: column;
       gap: 8px;
-      margin-bottom: 12px;
+      margin-bottom: 12px
     }
 
     .field label {
       color: var(--muted);
       font-size: 12px;
       text-transform: uppercase;
-      letter-spacing: .08em;
+      letter-spacing: .08em
     }
 
     .input {
@@ -222,21 +222,21 @@
       border: 1px solid rgba(255, 255, 255, .08);
       border-radius: 10px;
       padding: 10px 12px;
-      outline: none;
+      outline: none
     }
 
     .input:focus {
       border-color: var(--accent);
-      box-shadow: 0 0 0 3px rgba(233, 30, 99, .15);
+      box-shadow: 0 0 0 3px rgba(233, 30, 99, .15)
     }
 
     .inline-actions {
       display: flex;
       flex-wrap: wrap;
-      gap: 10px;
+      gap: 10px
     }
 
-    @media (max-width: 720px) {
+    @media (max-width:720px) {
       .inline-actions {
         flex-direction: column
       }
@@ -263,7 +263,7 @@
       background: #0f1319;
       color: var(--muted);
       border: 1px solid rgba(255, 255, 255, .08);
-      font-weight: 600;
+      font-weight: 600
     }
 
     .chip {
@@ -275,36 +275,36 @@
       background: #0f1319;
       border: 1px solid rgba(255, 255, 255, .1);
       font-size: 12px;
-      color: var(--muted);
+      color: var(--muted)
     }
 
     table {
       width: 100%;
       border-collapse: separate;
-      border-spacing: 0 6px;
+      border-spacing: 0 6px
     }
 
     thead th {
       text-align: left;
       font-size: 12px;
       color: var(--muted);
-      padding: 6px 10px;
+      padding: 6px 10px
     }
 
     tbody tr {
       background: #121318;
-      border: 1px solid rgba(255, 255, 255, .06);
+      border: 1px solid rgba(255, 255, 255, .06)
     }
 
     tbody td {
-      padding: 10px;
+      padding: 10px
     }
 
     .table-scroll {
       max-height: 280px;
       overflow: auto;
       border: 1px solid rgba(255, 255, 255, .06);
-      border-radius: 12px;
+      border-radius: 12px
     }
 
     #login-section {
@@ -313,14 +313,14 @@
       background: var(--card);
       border: 1px solid rgba(255, 255, 255, .06);
       border-radius: var(--radius);
-      padding: 22px;
+      padding: 22px
     }
 
     #login-section h2 {
       margin: 0 0 10px 0
     }
 
-    @media (max-width: 920px) {
+    @media (max-width:920px) {
 
       .col-4,
       .col-6,
@@ -329,7 +329,7 @@
       }
     }
 
-    @media (max-width: 560px) {
+    @media (max-width:560px) {
       .container {
         padding: 16px
       }
@@ -420,11 +420,11 @@
               <span id="redis-status" class="status">Status: —</span>
             </div>
             <div class="inline-actions mt-12">
-              <button class="btn ghost admin-only" id="reset-social-clicks">Reset Social Links</button>
+              <!-- removed: check/reset social links button -->
               <button class="btn ghost admin-only" id="reset-winner-btn">Reset Winner</button>
             </div>
             <div class="inline-actions mt-12">
-              <button class="btn warning admin-only" id="clear-raffle-btn">Clear Raffle</button>
+              <button class="btn warning admin-only" id="reset-entries-btn">Reset Entries</button>
               <button class="btn danger" id="shutdown-toggle-btn">Shut Down App</button>
             </div>
           </div>
@@ -514,7 +514,6 @@
           </div>
         </div>
 
-        <!-- (Gallery removed in raffle-only mode) -->
       </div>
     </section>
   </div>
@@ -645,15 +644,6 @@
         console.error(e);
       }
     }
-    async function resetSocialClicks() {
-      if (!confirm('Reset all social follow tracking?')) return;
-      try {
-        const res = await fetch('/api/admin?action=reset-social', { method: 'POST' });
-        const json = await res.json();
-        if (res.ok && json.success) { toast('Social clicks reset', 'success'); loadSocialStatus(); }
-        else throw new Error(json.error || 'failed');
-      } catch (e) { toast('Error resetting social clicks', 'error'); }
-    }
 
     // ---------- config (date-only) ----------
     function toDateInputValue(iso) {
@@ -694,13 +684,6 @@
     }
 
     // ---------- raffle ----------
-    function maskIp(ip) {
-      if (!ip) return '—';
-      const parts = ip.split('.');
-      if (parts.length === 4) { return parts[0] + '.' + parts[1] + '.*.**'; }
-      return ip;
-    }
-
     async function loadCurrentWinner() {
       try {
         const res = await fetch('/api/admin?action=winner');
@@ -710,104 +693,72 @@
       } catch { }
     }
 
-    // --- Admin UI: Name + Entries (no IP / time) ---
+    async function loadEntries() {
+      const tbody = document.getElementById("raffle-rows");
+      const totals = document.getElementById("entries-totals");
+      if (!tbody) return;
 
-async function loadEntries() {
-  const TABLE_ID = "raffle-table";
-  const TBODY_ID = "raffle-rows";
+      tbody.innerHTML = `<tr><td colspan="2" style="opacity:.7;">Loading…</td></tr>`;
+      totals.textContent = "Loading entries…";
 
-  // Ensure the table exists; create it if not
-  let tbody = document.getElementById(TBODY_ID);
-  if (!tbody) {
-    const container =
-      document.getElementById("raffle-box") ||
-      document.querySelector("#raffle .box") ||
-      document.getElementById("main") ||
-      document.body;
-
-    let table = document.getElementById(TABLE_ID);
-    if (!table) {
-      table = document.createElement("table");
-      table.id = TABLE_ID;
-      table.className = "list";
-      table.innerHTML = `
-        <thead>
-          <tr>
-            <th style="text-align:left;">Name</th>
-            <th style="width:120px; text-align:right;">Entries</th>
-          </tr>
-        </thead>
-        <tbody id="${TBODY_ID}"></tbody>
-      `;
-      container.appendChild(table);
-    }
-    tbody = document.getElementById(TBODY_ID);
-  }
-
-  // Loading state
-  tbody.innerHTML = `<tr><td colspan="2" style="opacity:.7;">Loading…</td></tr>`;
-
-  // Fetch summary rows
-  let rows = [];
-  try {
-    const res = await fetch("/api/admin?action=entries-summary", { cache: "no-store" });
-    if (!res.ok) throw new Error(await res.text());
-    const data = await res.json();
-    rows = Array.isArray(data.rows) ? data.rows : [];
-  } catch (err) {
-    console.warn("entries-summary failed:", err);
-    tbody.innerHTML = `<tr><td colspan="2" style="opacity:.7;">(error loading)</td></tr>`;
-    return;
-  }
-
-  // Render
-  if (!rows.length) {
-    tbody.innerHTML = `<tr><td colspan="2" style="opacity:.7;">(no entries yet)</td></tr>`;
-    return;
-  }
-
-  const frag = document.createDocumentFragment();
-  for (const r of rows) {
-    const tr = document.createElement("tr");
-
-    const tdName = document.createElement("td");
-    tdName.textContent = r.name || "";
-    tdName.style.textAlign = "left";
-
-    const tdEntries = document.createElement("td");
-    tdEntries.textContent = String(r.entries ?? 0);
-    tdEntries.style.textAlign = "right";
-    tdEntries.style.fontWeight = "700";
-
-    tr.append(tdName, tdEntries);
-    frag.appendChild(tr);
-  }
-
-  tbody.innerHTML = "";
-  tbody.appendChild(frag);
-}
-
-// Boot once DOM is ready + auto-refresh
-document.addEventListener("DOMContentLoaded", () => {
-  loadEntries();
-  setInterval(loadEntries, 5000);
-});
-
-
-    async function clearRaffle() {
-      if (!confirm('Clear all raffle entries and the current winner for THIS show window?')) return;
+      let rows = [];
       try {
-        const res = await fetch('/api/admin?action=clear-raffle', {
-          method: 'POST',
-          headers: { Authorization: 'Bearer:super:' + (localStorage.getItem('adminKey') || '') }
-        });
-        const json = await res.json();
-        if (!res.ok || !json.success) throw new Error(json.error || 'Failed');
-        toast('Raffle cleared', 'success');
-        $('#winnerDisplay').textContent = 'No winner yet';
-        loadEntries();
-      } catch (e) { toast('Failed to clear raffle', 'error'); }
+        const res = await fetch("/api/admin?action=entries-summary", { cache: "no-store" });
+        const data = await res.json();
+        rows = Array.isArray(data.rows) ? data.rows : [];
+      } catch (err) {
+        tbody.innerHTML = `<tr><td colspan="2" style="opacity:.7;">(error loading)</td></tr>`;
+        totals.textContent = "Failed to load entries.";
+        return;
+      }
+
+      if (!rows.length) {
+        tbody.innerHTML = `<tr><td colspan="2" style="opacity:.7;">(no entries yet)</td></tr>`;
+        totals.textContent = "No entries yet.";
+        return;
+      }
+
+      // totals
+      const totalNames = rows.length;
+      const totalEntries = rows.reduce((sum, r) => sum + (Number(r.entries) || 0), 0);
+      totals.textContent = `Unique names: ${totalNames} • Total entries: ${totalEntries}`;
+
+      const frag = document.createDocumentFragment();
+      for (const r of rows) {
+        const tr = document.createElement("tr");
+        const tdName = document.createElement("td");
+        tdName.textContent = r.name || "";
+        tdName.style.textAlign = "left";
+
+        const tdEntries = document.createElement("td");
+        tdEntries.textContent = String(r.entries ?? 0);
+        tdEntries.style.textAlign = "right";
+        tdEntries.style.fontWeight = "700";
+
+        tr.append(tdName, tdEntries);
+        frag.appendChild(tr);
+      }
+
+      tbody.innerHTML = "";
+      tbody.appendChild(frag);
     }
+
+    async function resetEntries() {
+  if (!confirm('Reset ALL raffle entries for THIS show window? (Winner stays)')) return;
+  try {
+    const res = await fetch('/api/admin?action=reset-entries', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer:super:' + (localStorage.getItem('adminKey') || '') }
+    });
+    const json = await res.json();
+    if (!res.ok || !json.success) throw new Error(json.error || 'Failed');
+    toast('Entries reset', 'success');
+    // refresh tables
+    await loadEntries?.();
+  } catch (e) { toast('Failed to reset entries', 'error'); }
+}
+document.querySelector('#reset-entries-btn')?.addEventListener('click', resetEntries);
+
 
     async function pickWinner() {
       if (!confirm('Pick a random winner from all entries?')) return;
@@ -824,21 +775,11 @@ document.addEventListener("DOMContentLoaded", () => {
         if (result?.winner?.name) {
           const winnerName = result.winner.name;
           $('#winnerDisplay').textContent = `🎉 Winner: ${winnerName}`;
-
-          // Try to broadcast to clients
-          await fetch(
-            location.hostname === 'localhost'
-              ? 'http://localhost:3001/broadcast'
-              : 'https://winner-sse-server.onrender.com/broadcast',
-            { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ winner: winnerName }) }
-          );
-
-          localStorage.setItem('shownWinnerName', winnerName);
           toast('Winner announced', 'success');
         } else {
           toast(result?.error || 'No eligible entries', 'error');
         }
-      } catch (e) { toast('Failed to pick winner', 'error'); }
+      } catch { toast('Failed to pick winner', 'error'); }
     }
 
     async function resetWinner() {
@@ -850,18 +791,10 @@ document.addEventListener("DOMContentLoaded", () => {
         });
         const apiJson = await apiRes.json().catch(() => ({}));
         if (!apiRes.ok || !apiJson.success) throw new Error(apiJson.error || 'Reset failed');
-
-        await fetch(
-          location.hostname === 'localhost'
-            ? 'http://localhost:3001/reset'
-            : 'https://winner-sse-server.onrender.com/reset',
-          { method: 'POST' }
-        );
-
+        // Backend already broadcasts; no client-side SSE call needed
         $('#winnerDisplay').textContent = 'No winner yet';
         toast('Winner reset', 'success');
       } catch (e) {
-        console.error(e);
         toast('Failed to reset winner', 'error');
       }
     }
@@ -887,27 +820,22 @@ document.addEventListener("DOMContentLoaded", () => {
 
       if (role === 'moderator') {
         banner.textContent = 'Moderator'; banner.classList.add('badge', 'moderator');
-
         // Hide all admin-only blocks entirely
         $$('.admin-only-block').forEach(el => el.style.display = 'none');
         // Also hide any admin-only buttons that might remain
         $$('.admin-only').forEach(el => el.style.display = 'none');
-
-        // No admin handlers for moderators
       } else {
         banner.textContent = 'Admin'; banner.classList.add('badge', 'admin');
-
         // Admin-only button handlers
         $('#warm-redis-btn')?.addEventListener('click', warmRedis);
         $('#shutdown-toggle-btn')?.addEventListener('click', toggleShutdown);
         $('#save-config-btn')?.addEventListener('click', saveConfig);
         $('#pick-winner-btn')?.addEventListener('click', pickWinner);
-        $('#reset-social-clicks')?.addEventListener('click', resetSocialClicks);
+        $('#reset-entries-btn')?.addEventListener('click', resetEntries);
         $('#reset-winner-btn')?.addEventListener('click', resetWinner);
-        $('#clear-raffle-btn')?.addEventListener('click', clearRaffle);
       }
 
-      // Always load these for admins
+      // Initial loads
       await loadConfig();
       await loadSocialStatus();
       await checkRedisStatus();
@@ -915,7 +843,7 @@ document.addEventListener("DOMContentLoaded", () => {
       await loadEntries();
       await loadCurrentWinner();
 
-      // Refresh social + entries periodically
+      // Refreshers
       setInterval(loadSocialStatus, 15000);
       setInterval(loadEntries, 10000);
       setInterval(loadCurrentWinner, 15000);
