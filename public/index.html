@@ -54,8 +54,6 @@
         <li>
           Click to follow us on Facebook or Insta. Followus on both for an extra chance at the draw ✌️
           <div id="follow-gate">
-            <div id="message" class="message" style="text-align:center;margin-top:8px;"></div>
-
             <div class="follow-links" style="display:flex; justify-content:center; gap:.5rem; flex-wrap:wrap;">
               <button type="button" class="follow-btn-fb" onclick="return openFacebook(event)">Facebook</button>
               <button type="button" class="follow-btn-ig" onclick="return openInstagram(event)">Instagram</button>
@@ -64,28 +62,6 @@
         </li>
       </ol>
     </div>
-
-    <!-- Live guidance slot (app.js writes here) -->
-    <div id="cta-message" class="message cta-message" aria-live="polite"></div>
-
-    <!-- CTA: locked vs unlocked (app.js toggles visibility) -->
-    <div id="upload-cta">
-      <div id="cta-locked">
-        <div class="hint" style="margin-top:.35rem; font-size:.9rem; color:#aaa;"></div>
-        <div id="cta-guard" role="button" tabindex="0" aria-label="Raffle locked. Tap for details">
-          <button id="upload-btn-disabled" type="button" disabled>
-            ENTER THE RAFFLE!
-          </button>
-        </div>
-      </div>
-
-      <div id="cta-unlocked" class="hidden">
-        <button id="upload-btn" type="submit">Enter the raffle!</button>
-      </div>
-    </div>
-
-    <div class="message" id="message"></div>
-
     <!-- Social follower counts -->
     <div class="followers-wrapper">
       <div class="follower-block">
