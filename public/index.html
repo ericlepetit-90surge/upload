@@ -8,12 +8,9 @@
   />
   <title>90 Surge - Free T-shirt!</title>
 
-  <!-- Site styles + raffle app logic -->
+  <!-- Your main styles + app logic -->
   <link rel="stylesheet" href="/public/styles.css" />
   <script type="module" src="/public/app.js"></script>
-
-  <!-- Slot machine script (must exist at /public/slot.js) -->
-  <script src="/public/slot.js" defer></script>
 </head>
 
 <body>
@@ -30,7 +27,7 @@
 
       <h1 id="headline">90 SURGE TONIGHT</h1>
 
-      <!-- Winner banner target (used by app.js setWinnerBanner/clearWinnerBanner) -->
+      <!-- Winner banner -->
       <h2 class="raffle raffle-title blink">
         <strong>ENTER OUR RAFFLE FOR A CHANCE TO WIN A 90 SURGE TEE!</strong>
       </h2>
@@ -79,39 +76,4 @@
         <span id="fb-followers">—</span><span> followers</span>
       </div>
       <div class="follower-block">
-        <img
-          src="https://upload.wikimedia.org/wikipedia/commons/a/a5/Instagram_icon.png"
-          width="16"
-          alt="Instagram"
-        />
-        <span id="ig-followers">—</span><span> followers</span>
-      </div>
-    </div>
-  </form>
-
-  <!-- Slot machine mount point -->
-  <div id="slot-root"></div>
-
-  <!-- Winner modal -->
-  <div id="winnerModal" class="winner-modal hidden" role="dialog" aria-modal="true" aria-labelledby="winnerName">
-    <h1 class="winner-title">🎉 Raffle Winner 🎉</h1>
-    <p id="winnerName" class="winner-name"></p>
-    <button onclick="hideWinnerModal()" class="btn-modal-close">Close</button>
-  </div>
-
-  <!-- Slot init -->
-  <script>
-    window.addEventListener('DOMContentLoaded', () => {
-      if (typeof initSlotMachine !== 'function') {
-        console.warn('initSlotMachine not found. Is /public/slot.js loading?');
-        return;
-      }
-      initSlotMachine('#slot-root', {
-        onResult: ({ targets, win }) => {
-          // hook available if you want to react to spins
-        }
-      });
-    });
-  </script>
-</body>
-</html>
+        <i
