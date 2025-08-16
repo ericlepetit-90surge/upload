@@ -8,7 +8,6 @@
   />
   <title>90 Surge - Free T-shirt!</title>
 
-  <!-- Your main styles + app logic -->
   <link rel="stylesheet" href="/public/styles.css" />
   <script type="module" src="/public/app.js"></script>
 </head>
@@ -76,4 +75,69 @@
         <span id="fb-followers">—</span><span> followers</span>
       </div>
       <div class="follower-block">
-        <i
+        <img
+          src="https://upload.wikimedia.org/wikipedia/commons/a/a5/Instagram_icon.png"
+          width="16"
+          alt="Instagram"
+        />
+        <span id="ig-followers">—</span><span> followers</span>
+      </div>
+    </div>
+  </form>
+
+  <!-- Slot machine mount -->
+  <div id="slot-root"></div>
+
+  <!-- Winner modal -->
+  <div id="winnerModal" class="winner-modal hidden" role="dialog" aria-modal="true" aria-labelledby="winnerName">
+    <h1 class="winner-title">🎉 Raffle Winner 🎉</h1>
+    <p id="winnerName" class="winner-name"></p>
+    <button onclick="hideWinnerModal()" class="btn-modal-close">Close</button>
+  </div>
+
+  <!-- Robust loader for slot.js: tries /public/slot.js then /slot.js -->
+  <script>
+    (function () {
+      const candidates = [
+        "/public/slot.js?v=1",
+        "/slot.js?v=1"
+      ];
+
+      function init() {
+        if (typeof window.initSlotMachine === "function") {
+          window.initSlotMachine("#slot-root", {
+            onResult: ({ targets, win }) => {
+              // optional hook
+            }
+          });
+        } else {
+          console.warn("slot.js loaded but initSlotMachine not found");
+        }
+      }
+
+      function tryLoad(i) {
+        if (i >= candidates.length) {
+          console.error("slot.js not found at any known path:", candidates);
+          return;
+        }
+        const s = document.createElement("script");
+        s.src = candidates[i];
+        s.defer = true;
+        s.onload = init;
+        s.onerror = () => {
+          console.warn("Failed to load", candidates[i], "— trying next");
+          tryLoad(i + 1);
+        };
+        document.body.appendChild(s);
+      }
+
+      // Kick it off after DOM is ready
+      if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", () => tryLoad(0));
+      } else {
+        tryLoad(0);
+      }
+    })();
+  </script>
+</body>
+</html>
