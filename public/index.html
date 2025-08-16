@@ -2,16 +2,21 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0, maximum-scale=1, viewport-fit=cover"
+  />
   <title>90 Surge - Free T-shirt!</title>
 
+  <!-- Site styles + raffle app logic -->
   <link rel="stylesheet" href="/public/styles.css" />
-  <!-- Only your app (no FB SDK needed) -->
   <script type="module" src="/public/app.js"></script>
+
+  <!-- Slot machine script (must exist at /public/slot.js) -->
+  <script src="/public/slot.js" defer></script>
 </head>
 
 <body>
-  <!-- Raffle-only form (no uploads, no gallery) -->
   <form id="raffle-form" method="POST" novalidate>
     <div class="rules">
       <div class="logo-wrap">
@@ -52,7 +57,7 @@
         </li>
 
         <li>
-          Click to follow us on Facebook or Insta. Followus on both for an extra chance at the draw ✌️
+          Click to follow us on Facebook or Insta. Follow us on both for an extra chance at the draw ✌️
           <div id="follow-gate">
             <div class="follow-links" style="display:flex; justify-content:center; gap:.5rem; flex-wrap:wrap;">
               <button type="button" class="follow-btn-fb" onclick="return openFacebook(event)">Facebook</button>
@@ -62,6 +67,7 @@
         </li>
       </ol>
     </div>
+
     <!-- Social follower counts -->
     <div class="followers-wrapper">
       <div class="follower-block">
@@ -83,11 +89,29 @@
     </div>
   </form>
 
+  <!-- Slot machine mount point -->
+  <div id="slot-root"></div>
+
   <!-- Winner modal -->
   <div id="winnerModal" class="winner-modal hidden" role="dialog" aria-modal="true" aria-labelledby="winnerName">
     <h1 class="winner-title">🎉 Raffle Winner 🎉</h1>
     <p id="winnerName" class="winner-name"></p>
     <button onclick="hideWinnerModal()" class="btn-modal-close">Close</button>
   </div>
+
+  <!-- Slot init -->
+  <script>
+    window.addEventListener('DOMContentLoaded', () => {
+      if (typeof initSlotMachine !== 'function') {
+        console.warn('initSlotMachine not found. Is /public/slot.js loading?');
+        return;
+      }
+      initSlotMachine('#slot-root', {
+        onResult: ({ targets, win }) => {
+          // hook available if you want to react to spins
+        }
+      });
+    });
+  </script>
 </body>
 </html>

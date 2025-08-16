@@ -436,6 +436,95 @@ progress { height: 10px; border-radius: 5px; width: 100%; }
   display: flex; justify-content: flex-end; /* use 'center' to center it */
 }
 
+/* Slot Machine widget (scoped styles) */
+.slot-card {
+  max-width: 520px;
+  margin: 16px auto;
+  background: #17181c;
+  color: #eef2ff;
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 14px;
+  padding: 16px;
+  box-shadow: 0 6px 20px rgba(0,0,0,.25);
+}
+
+.slot-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.slot-title {
+  font-weight: 800;
+  letter-spacing: .2px;
+}
+
+.slot-machine {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+
+.slot-viewport {
+  height: 58px;              /* one visible row */
+  overflow: hidden;
+  background: #0f1319;
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 12px;
+}
+
+.slot-reel {
+  will-change: transform;
+  backface-visibility: hidden;
+  transform: translate3d(0,0,0);
+}
+
+.slot-cell {
+  height: 58px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 8px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  font-weight: 700;
+  font-size: 14px;
+  color: #e8edf8;
+}
+
+.slot-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.slot-btn {
+  appearance: none;
+  border: 0;
+  border-radius: 10px;
+  padding: 10px 16px;
+  font-weight: 800;
+  cursor: pointer;
+  color: #0c0f14;
+  background: #e91e63;
+}
+.slot-btn[disabled] {
+  opacity: .6;
+  cursor: not-allowed;
+}
+
+.slot-result {
+  margin-left: auto;
+  font-weight: 800;
+  color: #a3a7b3;
+}
+.slot-result.good { color: #10b981; }
+.slot-result.bad  { color: #ff7272; }
+
+
 /* ===========================
    Misc
 =========================== */

@@ -1,135 +1,160 @@
-const canvas = document.getElementById('wheel');
-const ctx = canvas.getContext('2d');
-const spinBtn = document.getElementById('spinBtn');
-const resultDiv = document.getElementById('result');
+// Slot machine (3 reels) — no placeholders; no blank flash before stop.
 
-const prizeWeights = [
-  { label: 'Sorry, Next Time', weight: 10 },
-  { label: 'T-Shirt', weight: 1 },
-  { label: 'Free Drink', weight: 1 },
-  { label: 'Sticker', weight: 3 },
-  { label: 'Pick a Song', weight: 2 },
-  { label: 'Band Shoutout', weight: 4 },
-  { label: 'Photo with Band', weight: 2 },
-  { label: 'VIP Seat', weight: 1 }
-];
+(() => {
+  const prizeWeights = [
+    { label: 'T-Shirt',         weight: 1  },
+    { label: 'Free Drink',      weight: 1  },
+    { label: 'Sticker',         weight: 3  },
+    { label: 'VIP Seat',        weight: 1  }
+  ];
 
-// 🎯 TOTAL max slices
-const MAX_SLICES =16;
+  const REELS = 3;
+  const MIN_SPINS = 18;
+  const SPIN_VARIANCE = 6;
+  const EASING = 'cubic-bezier(.17,.67,.32,1.31)';
 
-// 1. Normalize weights to slice counts
-const totalWeight = prizeWeights.reduce((sum, p) => sum + p.weight, 0);
-const sliceCounts = prizeWeights.map(p => ({
-  label: p.label,
-  count: Math.max(1, Math.round((p.weight / totalWeight) * MAX_SLICES))
-}));
+  const spinBtn  = document.getElementById('spinBtn');
+  const resultEl = document.getElementById('result');
 
-// 2. Build slice list
-let rawSlices = [];
-sliceCounts.forEach(p => {
-  for (let i = 0; i < p.count; i++) {
-    rawSlices.push(p.label);
+  let ITEM_H = 58; // will be measured from DOM after first render
+
+  // ----- weighted RNG -----
+  function pickWeighted(list){
+    const total = list.reduce((a,b)=>a + b.weight, 0);
+    let r = Math.random() * total;
+    for (const item of list){
+      r -= item.weight;
+      if (r <= 0) return item.label;
+    }
+    return list[list.length - 1].label;
   }
-});
+  function buildWeightedPool(list, cap = 48) {
+    const total = list.reduce((a,b) => a + (b.weight||0), 0) || 1;
+    const pool = [];
+    for (const p of list) {
+      let n = Math.round((p.weight / total) * cap);
+      if (n < 1) n = 1;
+      for (let i=0;i<n;i++) pool.push(p.label);
+    }
+    return pool;
+  }
 
-// 3. Shuffle slices ensuring no identical neighbors
-function shuffledNonRepeating(array) {
-  const maxAttempts = 100;
-  for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    const shuffled = array.slice().sort(() => Math.random() - 0.5);
-    let valid = true;
-    for (let i = 0; i < shuffled.length; i++) {
-      if (shuffled[i] === shuffled[(i + 1) % shuffled.length]) {
-        valid = false;
-        break;
+  // ----- DOM helpers -----
+  const qs = (id) => document.getElementById(id);
+  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+  function buildReelDom(reelEl, names){
+    reelEl.innerHTML = '';
+    const frag = document.createDocumentFragment();
+    for (const name of names) {
+      const div = document.createElement('div');
+      div.className = 'cell';
+      div.textContent = name;
+      frag.appendChild(div);
+    }
+    reelEl.appendChild(frag);
+  }
+  function setTransform(el, y){ el.style.transform = `translate3d(0, ${y}px, 0)`; }
+
+  function ensureItemHeight() {
+    if (ITEM_H && ITEM_H > 0) return;
+    const anyCell = document.querySelector('.reel .cell');
+    const h = anyCell?.getBoundingClientRect().height;
+    if (h) ITEM_H = Math.round(h);
+  }
+
+  function setResult(text, good=true){
+    resultEl.textContent = text || '';
+    resultEl.style.color = good ? 'var(--good)' : '#ff7272';
+    resultEl.classList.remove('hidden');
+  }
+
+  function isWin(symbols){
+    if (symbols.length !== REELS) return false;
+    const allSame = symbols.every(s => s === symbols[0]);
+    return allSame && symbols[0] !== 'Sorry, Next Time';
+  }
+
+  // ----- spin -----
+  async function spinToTargets(targets, fillerPool) {
+    const reels = [];
+    const rowsPerReel = [];
+    const durations = [];
+    const delays    = [];
+
+    for (let i=0;i<REELS;i++){
+      const el = qs(`reel-${i}`);
+
+      // build a scrolling list ending with target, plus a sentinel (duplicate target)
+      // so even if we overshoot by <1px we still see the same symbol (no blank).
+      const loops = MIN_SPINS + Math.floor(Math.random() * SPIN_VARIANCE);
+      const rows = [];
+      while (rows.length < loops) {
+        rows.push(fillerPool[Math.floor(Math.random()*fillerPool.length)]);
       }
+      rows.push(targets[i]);      // actual stop
+      rows.push(targets[i]);      // sentinel
+
+      buildReelDom(el, rows);
+      el.style.transition = 'none';
+      setTransform(el, 0);
+      void el.offsetHeight; // reflow
+
+      reels.push(el);
+      rowsPerReel.push(rows);
+
+      const base = 2200 + i*320;
+      durations.push(base + Math.floor(Math.random()*220));
+      delays.push(i === 0 ? 0 : 80 + Math.floor(Math.random()*80));
     }
-    if (valid) return shuffled;
-  }
-  return array; // fallback
-}
 
-const prizes = shuffledNonRepeating(rawSlices);
-const slices = prizes.length;
-const colors = ['#ff6384', '#36a2eb', '#ffce56', '#4bc0c0', '#9966ff', '#f67019', '#c9cbcf', '#00a86b'];
-const sliceAngle = 2 * Math.PI / slices;
-let angle = 0;
-let isSpinning = false;
+    ensureItemHeight();
 
-function drawWheel() {
-  for (let i = 0; i < slices; i++) {
-    const start = i * sliceAngle;
-    const end = start + sliceAngle;
+    // animate to the *second last* row (the real target)
+    reels.forEach((el, i) => {
+      const targetIndex = rowsPerReel[i].length - 2; // stop on the real target
+      const targetY = -(targetIndex * ITEM_H);
+      el.style.transition = `transform ${durations[i]}ms ${EASING} ${delays[i]}ms`;
+      setTransform(el, targetY);
+    });
 
-    ctx.beginPath();
-    ctx.moveTo(200, 200);
-    ctx.arc(200, 200, 200, start, end);
-    ctx.fillStyle = colors[i % colors.length];
-    ctx.fill();
-
-    ctx.save();
-    ctx.translate(200, 200);
-    ctx.rotate(start + sliceAngle / 2);
-    ctx.fillStyle = 'white';
-    ctx.font = '13px sans-serif';
-    ctx.textAlign = 'right';
-    ctx.fillText(prizes[i], 180, 0);
-    ctx.restore();
+    const maxT = Math.max(...durations.map((d,i)=>d+delays[i]));
+    await sleep(maxT + 40);
   }
 
-  ctx.beginPath();
-  ctx.arc(200, 200, 20, 0, 2 * Math.PI);
-  ctx.fillStyle = '#fff';
-  ctx.fill();
-  ctx.stroke();
-}
+  async function onSpin(){
+    spinBtn.disabled = true;
+    setResult('', true); // clear
 
-function spinWheel() {
-  if (isSpinning) return;
-  isSpinning = true;
-  resultDiv.classList.add('hidden');
+    // decide each reel independently (weighted)
+    const targets = Array.from({length: REELS}, () => pickWeighted(prizeWeights));
 
-  const winningIndex = Math.floor(Math.random() * slices);
-  const degreesPerSlice = 360 / slices;
+    // filler pool: real symbols only (no blanks)
+    const pool = Array.from(new Set(buildWeightedPool(prizeWeights, 36)));
 
-  // Target center of slice, align under top marker
-  const targetAngle = (360 - ((winningIndex + 0.5) * degreesPerSlice) + 270) % 360;
-  const fullSpins = 360 * 5;
-  const finalAngle = fullSpins + targetAngle;
+    await spinToTargets(targets, pool);
 
-  const duration = 5000;
-  const start = Date.now();
-
-  function animate() {
-    const elapsed = Date.now() - start;
-    const progress = Math.min(elapsed / duration, 1);
-    const eased = easeOutCubic(progress);
-    angle = (finalAngle * eased) % 360;
-
-    ctx.clearRect(0, 0, 400, 400);
-    ctx.save();
-    ctx.translate(200, 200);
-    ctx.rotate((angle * Math.PI) / 180);
-    ctx.translate(-200, -200);
-    drawWheel();
-    ctx.restore();
-
-    if (progress < 1) {
-      requestAnimationFrame(animate);
+    if (isWin(targets)) {
+      setResult(`🎉 JACKPOT! You won: ${targets[0]}!`, true);
     } else {
-      isSpinning = false;
-      const selected = prizes[winningIndex];
-      resultDiv.textContent = `🎁 You won: ${selected}!`;
-      resultDiv.classList.remove('hidden');
+      setResult('No match — try again!', false);
     }
+
+    spinBtn.disabled = false;
   }
 
-  animate();
-}
+  // ----- init: show REAL symbols (no placeholders) -----
+  function initReelsWithRandomFaces(){
+    for (let i=0;i<REELS;i++){
+      const sym = pickWeighted(prizeWeights);
+      buildReelDom(qs(`reel-${i}`), [sym]); // single visible row
+      setTransform(qs(`reel-${i}`), 0);
+    }
+    ensureItemHeight();
+  }
 
-function easeOutCubic(t) {
-  return 1 - Math.pow(1 - t, 3);
-}
-
-drawWheel();
-spinBtn.addEventListener('click', spinWheel);
+  document.addEventListener('DOMContentLoaded', () => {
+    initReelsWithRandomFaces();
+    spinBtn.addEventListener('click', onSpin);
+  });
+})();

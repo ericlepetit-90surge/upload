@@ -17,6 +17,44 @@ const FB_PAGE_URL = "https://www.facebook.com/90surge";
 const IG_USERNAME = "90_surge";
 const IG_WEB_URL = "https://www.instagram.com/90_surge";
 
+// Put near the top of /public/app.js, with your other consts
+const WINNER_SSE_URL =
+  location.hostname === 'localhost'
+    ? 'http://localhost:3000/events'
+    : 'https://winner-sse-server.onrender.com/events';
+
+function startWinnerStream() {
+  if (window.__winnerSSE) return; // don’t double-connect
+  try {
+    const es = new EventSource(WINNER_SSE_URL);
+    window.__winnerSSE = es;
+
+    es.onmessage = (ev) => {
+      // Expecting { "winner": "Name" }
+      try {
+        const data = JSON.parse(ev.data || '{}');
+        if (data.winner) {
+          setWinnerBanner(data.winner);
+          showWinnerModal(data.winner);
+        }
+      } catch {}
+    };
+
+    es.addEventListener('reset', () => {
+      clearWinnerBanner();
+    });
+
+    es.onerror = () => {
+      // stop the console spam if the SSE host is down
+      es.close();
+      window.__winnerSSE = null;
+    };
+  } catch {
+    // ignore; we’ll keep polling via hydrateWinnerBanner()
+  }
+}
+
+
 /* ----------------- Helpers ----------------- */
 function isiOS() { return /iPad|iPhone|iPod/.test(navigator.userAgent); }
 
@@ -219,7 +257,7 @@ function startWinnerWatcher() {
   try {
     const url =
       location.hostname === "localhost"
-        ? "http://localhost:3001/events"
+        ? "http://localhost:3000/events"
         : "https://winner-sse-server.onrender.com/events";
     const es = new EventSource(url);
     const connectedAt = Date.now();
