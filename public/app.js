@@ -285,43 +285,31 @@
     }
   }
 
-  // Attempt to open an app-scheme; if nothing handles it, fall back to the website.
-  // Uses visibility change as a signal that we successfully backgrounded into the app.
-  function openSocialOnly(platform) {
-    const { scheme, web } = appLink(platform);
+  // On mobile: open the app only (no web fallback). On desktop: open website.
+function openSocialOnly(platform) {
+  const { scheme, web } = appLink(platform);
 
-    if (isMobile()) {
-      let switched = false;
-      const onVis = () => {
-        if (document.visibilityState === "hidden") switched = true;
-      };
-      document.addEventListener("visibilitychange", onVis, { once: true });
-
-      // Try the app:
-      try {
+  if (isMobile()) {
+    // iOS is fine with location href; Android is more reliable with a hidden iframe.
+    try {
+      if (isAndroid()) {
+        const iframe = document.createElement('iframe');
+        iframe.style.display = 'none';
+        iframe.src = scheme;
+        document.body.appendChild(iframe);
+        setTimeout(() => { try { document.body.removeChild(iframe); } catch {} }, 2000);
+      } else {
+        // iOS
         window.location.href = scheme;
-      } catch (e) {
-        /* ignore */
       }
-
-      // If the app didn't take over shortly, fall back to the web page:
-      setTimeout(() => {
-        document.removeEventListener("visibilitychange", onVis);
-        if (!switched) {
-          try {
-            window.location.href = web;
-          } catch (e) {
-            /* ignore */
-          }
-        }
-      }, 700);
-    } else {
-      // Desktop → open the site in a new tab
-      try {
-        window.open(web, "_blank", "noopener,noreferrer");
-      } catch (e) {}
-    }
+    } catch {}
+    // IMPORTANT: no web fallback here.
+    return;
   }
+
+  // Desktop → you can keep the website for convenience
+  try { window.open(web, "_blank", "noopener,noreferrer"); } catch {}
+}
 
   // ──────────────────────────────────────────────────────────────
   // Harden follow buttons (single-fire; no cross-platform double)
