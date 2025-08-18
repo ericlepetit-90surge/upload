@@ -420,7 +420,7 @@ if (action === "my-entries" && req.method === "GET") {
     return res.status(200).json({ rows });
   }
 
-  /// Reset EVERYTHING for this show window:
+/// Reset EVERYTHING for this show window:
 // - entries list
 // - per-source dedupe sets (fb/ig/jackpot)
 // - bonus/prize logs for this window
@@ -500,6 +500,14 @@ if (action === "reset-entries" && req.method === "POST") {
     // Belt & suspenders: ensure social:ips is completely gone
     try { await delKey("social:ips"); } catch {}
 
+    // 🔔 Bump slot spins reset version so clients reset their local 5 spins
+    let spinsResetVersion = 0;
+    try {
+      spinsResetVersion = await redis.incr("slot:spinsResetVersion");
+    } catch (e) {
+      console.warn("reset-entries: could not bump slot:spinsResetVersion", e?.message || e);
+    }
+
     // Sanity pass: see what (if anything) survived
     const remainingSocial = await scanAll("social:*");
     const remainingRaffleEntered = await scanAll(`raffle:entered:${windowKey}:*`);
@@ -508,6 +516,7 @@ if (action === "reset-entries" && req.method === "POST") {
       success: true,
       windowKey,
       deletedKeys: deleted,
+      spinsResetVersion,   // <- clients compare this to reset local spins
       remaining: {
         social: remainingSocial,
         raffleEntered: remainingRaffleEntered,
@@ -716,14 +725,12 @@ if (action === "reset-entries" && req.method === "POST") {
   }
 
 // GET current spins reset version
+// GET current slot-spins reset version (used by clients to know when to reset their local spins)
 if (action === "slot-spins-version" && req.method === "GET") {
   const ok = await ensureRedisConnected();
-  if (!ok) return res.status(200).json({ version: 0, at: null });
-  const [v, at] = await Promise.all([
-    redis.get("slot:spinsResetVersion").catch(() => "0"),
-    redis.get("slot:spinsResetAt").catch(() => null),
-  ]);
-  return res.status(200).json({ version: Number(v || 0), at });
+  if (!ok) return res.status(200).json({ version: 0 });
+  const v = Number(await redis.get("slot:spinsResetVersion").catch(() => 0)) || 0;
+  return res.status(200).json({ version: v });
 }
 
 // ADMIN: bump the spins reset version → all clients will reset on next load/poll

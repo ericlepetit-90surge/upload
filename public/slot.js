@@ -63,28 +63,28 @@
     return labels;
   }
 
-  async function maybeApplyServerSpinReset(MAX_SPINS) {
+  // Ask server if spins were reset by admin; if so, reset today’s local spins
+  async function maybeApplyServerSpinReset(maxSpins) {
     try {
       const res = await fetch("/api/admin?action=slot-spins-version", { cache: "no-store" });
-      const j = await res.json().catch(()=>({ version:0 }));
+      const j = await res.json().catch(() => ({ version: 0 }));
       const serverV = Number(j?.version || 0);
       const localKey = "slot:spinsResetVersionSeen";
       const seenV = Number(localStorage.getItem(localKey) || "0");
       if (serverV > seenV) {
-        // reset TODAY's spins
-        const todayKey = new Date().toISOString().slice(0,10);
-        localStorage.setItem(`slot:spinsLeft:${todayKey}`, String(MAX_SPINS));
+        const todayKey = new Date().toISOString().slice(0, 10);
+        localStorage.setItem(`slot:spinsLeft:${todayKey}`, String(maxSpins));
         localStorage.setItem(localKey, String(serverV));
       }
-    } catch {}
+    } catch (e) {}
   }
 
   // ---------- Binder (bind to static markup) ----------
   function bindMachine(root) {
-    const reels = Array.from(root.querySelectorAll(".slot-reel"));
-    const btn   = root.querySelector("#slot-spin-btn");
-    const left  = root.querySelector("#slot-spins-left");
-    const result= root.querySelector("#slot-result");
+    const reels  = Array.from(root.querySelectorAll(".slot-reel"));
+    const btn    = root.querySelector("#slot-spin-btn");
+    const left   = root.querySelector("#slot-spins-left");
+    const result = root.querySelector("#slot-result");
 
     if (reels.length !== REELS) {
       console.error(`[slot] expected ${REELS} .slot-reel elements inside #slot-root`);
@@ -128,7 +128,7 @@
       const json = await res.json().catch(() => ({}));
       if (json.already) return { awarded: false, already: true };
       return { awarded: true, already: false };
-    } catch {
+    } catch (e) {
       return { awarded: false, already: false };
     }
   }
@@ -156,7 +156,6 @@
     const state = reels.map(() => ({ absIndex: 0 }));
 
     function setTransformToIndex(reelEl, index) {
-      // Use exact pixel from the target cell’s offset to avoid rounding issues
       const targetCell = reelEl.children[index];
       const px = targetCell ? targetCell.offsetTop : index * CELL_H;
       reelEl.style.transform = `translate3d(0, ${-px}px, 0)`;
@@ -168,9 +167,27 @@
       btn.disabled = n <= 0;
     }
 
-    // Check server reset flag, then render initial count
-    maybeApplyServerSpinReset(MAX_SPINS)
-      .finally(() => renderSpinsLeft(loadSpinsLeft()));
+    // Initial sync with server reset flag, then render
+    maybeApplyServerSpinReset(MAX_SPINS).finally(() => {
+      renderSpinsLeft(loadSpinsLeft());
+    });
+
+    // Keep in sync if admin resets while tab is open (focus/visibility/storage)
+    function syncSpinsFromServer() {
+      maybeApplyServerSpinReset(MAX_SPINS).finally(() => {
+        renderSpinsLeft(loadSpinsLeft());
+      });
+    }
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden) syncSpinsFromServer();
+    });
+    window.addEventListener("focus", syncSpinsFromServer);
+    window.addEventListener("storage", (e) => {
+      // another tab changed today's spins
+      if (e.key && e.key.endsWith(spinsKey())) {
+        renderSpinsLeft(loadSpinsLeft());
+      }
+    });
 
     function spinOnce() {
       const spinsLeft = loadSpinsLeft();

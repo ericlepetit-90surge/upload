@@ -3,6 +3,10 @@
   const FACEBOOK_URL  = "https://facebook.com/90Surge";
   const INSTAGRAM_URL = "https://instagram.com/90_Surge";
 
+  // Derive handles for deep links
+  const FB_HANDLE = "90Surge";
+  const IG_USERNAME = "90_Surge";
+
   const NAME_KEY = "raffle_display_name";
   const $ = (s, r = document) => r.querySelector(s);
 
@@ -30,22 +34,22 @@
       try {
         nameEl()?.focus();
         nameEl()?.scrollIntoView({ behavior: "smooth", block: "center" });
-      } catch {}
+      } catch (e) {}
       alert("Please enter your name first 🙂");
       return false;
     }
     return true;
   }
-  
 
-  async function postJSON(url, body) {
+  async function postJSON(url, body, { keepalive = false } = {}) {
     const res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      keepalive,
       body: JSON.stringify(body || {}),
     });
     let json = {};
-    try { json = await res.json(); } catch {}
+    try { json = await res.json(); } catch (e) {}
     if (!res.ok) throw new Error(json?.error || `Request failed (${res.status})`);
     return json;
   }
@@ -74,16 +78,22 @@
     }
   }
 
-
-async function refreshHeadlineFromConfig() {
-  const h = document.getElementById("headline");
-  if (!h) return;
-  try {
-    const res = await fetch("/api/admin?action=config", { cache: "no-store" });
-    const j = await res.json().catch(() => ({}));
-    if (j?.showName) h.textContent = j.showName;
-  } catch {}
-}
+  // Beacon variant (safe when navigating away to the app)
+  function submitEntryOnceBeacon(source) {
+    const name = getName();
+    if (!name) return;
+    const url = "/api/admin?action=enter";
+    const data = JSON.stringify({ name, source });
+    const blob = new Blob([data], { type: "application/json" });
+    if (navigator.sendBeacon) {
+      navigator.sendBeacon(url, blob);
+    } else {
+      // fallback: keepalive fetch
+      postJSON(url, { name, source }, { keepalive: true }).catch(() => {});
+    }
+    // best-effort UI refresh if we’re still on the page shortly after
+    setTimeout(() => refreshEntryStats().catch(() => {}), 600);
+  }
 
   // ──────────────────────────────────────────────────────────────
   // Social mark (does NOT create entries)
@@ -94,8 +104,19 @@ async function refreshHeadlineFromConfig() {
     // 200 OK even when throttled (server returns {throttled:true})
     if (!res.ok) {
       let msg = "mark-follow failed";
-      try { msg = (await res.json()).error || msg; } catch {}
+      try { msg = (await res.json()).error || msg; } catch (e) {}
       throw new Error(msg);
+    }
+  }
+
+  // Beacon variant (safe when navigating away to the app)
+  function markFollowBeacon(platform) {
+    const url = `/api/admin?action=mark-follow&platform=${encodeURIComponent(platform)}`;
+    if (navigator.sendBeacon) {
+      // empty body is fine for this endpoint
+      navigator.sendBeacon(url, new Blob([""], { type: "text/plain" }));
+    } else {
+      fetch(url, { method: "POST", keepalive: true }).catch(() => {});
     }
   }
 
@@ -111,7 +132,7 @@ async function refreshHeadlineFromConfig() {
       const ig = Number(j?.instagram ?? 0);
       if (fbEl) fbEl.textContent = Number.isFinite(fb) ? fb.toLocaleString() : "—";
       if (igEl) igEl.textContent = Number.isFinite(ig) ? ig.toLocaleString() : "—";
-    } catch {
+    } catch (e) {
       if (fbEl) fbEl.textContent = "—";
       if (igEl) igEl.textContent = "—";
     }
@@ -123,7 +144,7 @@ async function refreshHeadlineFromConfig() {
   async function logSpin(targets, jackpot) {
     const name = getName() || "(anonymous)";
     try { await postJSON("/api/admin?action=prize-log", { name, targets, jackpot: !!jackpot }); }
-    catch {}
+    catch (e) {}
   }
 
   // ──────────────────────────────────────────────────────────────
@@ -174,7 +195,7 @@ async function refreshHeadlineFromConfig() {
         }
         return; // done
       }
-    } catch {}
+    } catch (e) {}
 
     // Fallback: compute total from /entries and ignore "your"
     try {
@@ -189,7 +210,7 @@ async function refreshHeadlineFromConfig() {
         prevTotal = total;
       }
       if (yourEl) yourEl.textContent = prevYour.toString();
-    } catch {
+    } catch (e) {
       if (totalEl) totalEl.textContent = "—";
       if (yourEl)  yourEl.textContent  = "0";
     }
@@ -203,74 +224,34 @@ async function refreshHeadlineFromConfig() {
   }
 
   // ──────────────────────────────────────────────────────────────
-  // Deep-link helpers (open apps on iOS/Android reliably)
+  // Deep-link helpers: open ONLY the app on mobile; web on desktop
   // ──────────────────────────────────────────────────────────────
-  const UA = navigator.userAgent || "";
-  const isIOS = /iP(hone|ad|od)/i.test(UA);
-  const isAndroid = /Android/i.test(UA);
-  const isMobile = isIOS || isAndroid;
+  function isAndroid() { return /Android/i.test(navigator.userAgent); }
+  function isIOS()     { return /iPhone|iPad|iPod/i.test(navigator.userAgent); }
+  function isMobile()  { return isAndroid() || isIOS(); }
 
-  function fbAppUrl() {
-    // Opens Facebook app to a modal with the web URL (works without page id)
-    return `fb://facewebmodal/f?href=${encodeURIComponent(FACEBOOK_URL)}`;
-  }
-
-  function extractInstagramUsername(url) {
-    try {
-      const u = new URL(url);
-      const parts = u.pathname.split("/").filter(Boolean);
-      return (parts[0] || "").replace("@", "");
-    } catch {
-      return (url.split("/").pop() || "").replace("@", "");
+  function appLink(platform) {
+    if (platform === "ig") {
+      if (isAndroid()) return `intent://instagram.com/_u/${IG_USERNAME}#Intent;package=com.instagram.android;scheme=https;end`;
+      if (isIOS())     return `instagram://user?username=${IG_USERNAME}`;
+      return INSTAGRAM_URL;
+    } else {
+      // Facebook: use app-only paths. If we don't have numeric ID, facewebmodal is a solid iOS option.
+      if (isAndroid()) return `intent://facebook.com/${FB_HANDLE}#Intent;package=com.facebook.katana;scheme=https;end`;
+      if (isIOS())     return `fb://facewebmodal/f?href=${encodeURIComponent(FACEBOOK_URL)}`;
+      return FACEBOOK_URL;
     }
   }
 
-  function igAppUrl() {
-    const user = extractInstagramUsername(INSTAGRAM_URL) || "90_Surge";
-    return `instagram://user?username=${encodeURIComponent(user)}`;
-  }
-
-  // Navigate same tab to a deep link, fallback to web if the app doesn’t take focus.
-  function openAppThenFallback(appUrl, webUrl) {
-    let fallbackTimer;
-    const onChange = () => {
-      if (document.visibilityState === "hidden") {
-        clearTimeout(fallbackTimer);
-        document.removeEventListener("visibilitychange", onChange);
-      }
-    };
-    document.addEventListener("visibilitychange", onChange, { once: true });
-
-    try { window.location.href = appUrl; } catch {}
-
-    fallbackTimer = setTimeout(() => {
-      document.removeEventListener("visibilitychange", onChange);
-      try { window.location.href = webUrl; } catch {}
-    }, 800);
-  }
-
-  // ──────────────────────────────────────────────────────────────
-  // Beacon helpers (so tracking is sent even if we leave the page)
-  // ──────────────────────────────────────────────────────────────
-  function beaconJSON(url, dataObj) {
-    try {
-      const blob = new Blob([JSON.stringify(dataObj || {})], { type: "application/json" });
-      return navigator.sendBeacon(url, blob);
-    } catch {
-      return false;
+  function openSocialOnly(platform) {
+    const url = appLink(platform);
+    if (isMobile()) {
+      // Use same-tab navigation to avoid creating an extra web tab
+      try { window.location.href = url; } catch (e) { /* ignore */ }
+    } else {
+      // Desktop: open the regular site in a new tab
+      try { window.open(url, "_blank", "noopener,noreferrer"); } catch (e) {}
     }
-  }
-
-  function beaconMarkFollow(platform) {
-    const url = `/api/admin?action=mark-follow&platform=${encodeURIComponent(platform)}`;
-    beaconJSON(url, { t: Date.now() });
-  }
-
-  function beaconEnter(source) {
-    const name = getName();
-    if (!name) return;
-    const url = `/api/admin?action=enter`;
-    beaconJSON(url, { name, source });
   }
 
   // ──────────────────────────────────────────────────────────────
@@ -299,19 +280,19 @@ async function refreshHeadlineFromConfig() {
     if (igBtn) igBtn.disabled = true;
 
     try {
-      if (isMobile) {
-        // Mobile: send tracking first, then move current tab to the app deep link
-        beaconMarkFollow(platform);
-        beaconEnter(platform);
-        if (platform === "fb") {
-          openAppThenFallback(fbAppUrl(), FACEBOOK_URL);
-        } else {
-          openAppThenFallback(igAppUrl(), INSTAGRAM_URL);
-        }
+      if (isMobile()) {
+        // Queue tracking with beacons first (so it persists through navigation)
+        markFollowBeacon(platform);
+        submitEntryOnceBeacon(platform);
+
+        // Then deep-link straight into the app (no web tab)
+        openSocialOnly(platform);
       } else {
-        // Desktop: keep current behavior (new tab), then await tracking
-        const url = platform === "fb" ? FACEBOOK_URL : INSTAGRAM_URL;
-        try { window.open(url, "_blank", "noopener"); } catch {}
+        // Desktop: open site and do normal async logging
+        try {
+          const url = platform === "fb" ? FACEBOOK_URL : INSTAGRAM_URL;
+          if (url) window.open(url, "_blank", "noopener");
+        } catch (e) {}
         await markFollow(platform);
         await submitEntryOnce(platform);
       }
@@ -370,19 +351,18 @@ async function refreshHeadlineFromConfig() {
   // Boot
   // ──────────────────────────────────────────────────────────────
   function boot() {
-  initNamePersistence();
-  ensureEntryStatsUI();
-  wireFollowButtons();
+    initNamePersistence();
+    ensureEntryStatsUI(); // verifies presence / warns if missing
+    wireFollowButtons();
 
-  refreshHeadlineFromConfig();            // ← NEW
-  refreshFollowers();
-  setInterval(refreshFollowers, 60_000);
+    refreshFollowers();
+    setInterval(refreshFollowers, 60_000);
 
-  refreshEntryStats();
-  setInterval(refreshEntryStats, 15_000);
+    refreshEntryStats();
+    setInterval(refreshEntryStats, 15_000);
 
-  initSlot();
-}
+    initSlot();
+  }
 
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", boot, { once: true });
