@@ -48,7 +48,7 @@ export async function ensureRedisConnected() {
   }
 }
 
-// Small helpers
+// Helper: interpret follow state from Redis (legacy or JSON)
 function isFollowAllowed(raw) {
   if (!raw) return false;
   if (raw === "true") return true; // legacy
@@ -58,18 +58,6 @@ function isFollowAllowed(raw) {
   } catch {
     return false;
   }
-}
-function timeout(ms) {
-  return new Promise((_, reject) =>
-    setTimeout(() => reject(new Error("Timeout after " + ms + "ms")), ms)
-  );
-}
-function normName(s) {
-  return String(s || "")
-    .normalize("NFKC")
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, " ");
 }
 
 // Utility: current show window key + TTL
@@ -107,29 +95,23 @@ async function getWindowInfo() {
   return { showName, startTime, endTime, windowKey, ttlSeconds };
 }
 
-// Read urlencoded body if needed (for sendBeacon/fallback)
-async function readUrlencodedBody(req) {
-  return new Promise((resolve) => {
-    let body = "";
-    req.on("data", (c) => (body += c));
-    req.on("end", () => {
-      try {
-        const params = new URLSearchParams(body);
-        const obj = {};
-        for (const [k, v] of params.entries()) obj[k] = v;
-        resolve(obj);
-      } catch {
-        resolve({});
-      }
-    });
-  });
+function timeout(ms) {
+  return new Promise((_, reject) =>
+    setTimeout(() => reject(new Error("Timeout after " + ms + "ms")), ms)
+  );
 }
 
-// 1×1 GIF for optional GET pixel (we don't actively use it in the client)
-const PIXEL_GIF = Buffer.from(
-  "R0lGODlhAQABAPAAAP///wAAACH5BAAAAAAALAAAAAABAAEAAAICRAEAOw==",
-  "base64"
-);
+// small helpers for key scanning/deletion
+async function collectKeys(match) {
+  const out = [];
+  for await (const k of redis.scanIterator({ MATCH: match, COUNT: 500 })) {
+    out.push(k);
+  }
+  return out;
+}
+async function delKeys(keys) {
+  return keys.length ? await redis.del(...keys) : 0;
+}
 
 // ───────────────────────────────────────────────────────────────
 // Main handler
@@ -139,7 +121,7 @@ export default async function handler(req, res) {
   const action = url.searchParams.get("action");
   console.log("➡️ Incoming admin action:", req.method, action);
 
-  // Parse JSON bodies globally (urlencoded handled ad-hoc)
+  // Parse JSON bodies
   if (
     req.method === "POST" &&
     req.headers["content-type"]?.includes("application/json")
@@ -240,7 +222,7 @@ export default async function handler(req, res) {
           const config = JSON.parse(
             fs.readFileSync(path.join(process.cwd(), "config.json"), "utf8")
           );
-          return res.json(config);
+        return res.json(config);
         } else {
           const [showName, startTime, endTime] = await Promise.race([
             Promise.all([
@@ -283,15 +265,79 @@ export default async function handler(req, res) {
   }
 
   // ───────────────────────────────────────────────────────────────
-  // RAFFLE-ONLY FLOW
-  //   GET  action=entries           -> list raw entries (name, platform, time)
-  //   GET  action=entries-summary   -> {rows:[{name, entries}]}
-  //   POST action=reset-entries     -> clear entries + dedupe for this show
-  //   GET  action=winner            -> get current winner
-  //   POST action=pick-winner       -> weighted by number of recorded entries
-  //   POST action=reset-winner      -> clear winner + broadcast reset
-  //   POST action=mark-follow       -> record social click + add an entry once per platform
+  // RAFFLE FLOW
   // ───────────────────────────────────────────────────────────────
+
+  // Per-source enter (fb | ig | jackpot). One entry per source per IP per window.
+  if (action === "enter" && req.method === "POST") {
+    const ok = await ensureRedisConnected();
+    if (!ok) return res.status(503).json({ error: "Redis not ready" });
+
+    const nameRaw = (req.body?.name || "").trim();
+    if (!nameRaw) return res.status(400).json({ error: "Missing name" });
+    const name = nameRaw.slice(0, 80);
+
+    const rawSource = (req.body?.source || "").toString().toLowerCase();
+    const source = ["fb", "ig", "jackpot"].includes(rawSource)
+      ? rawSource
+      : "other";
+
+    const ip =
+      req.headers["x-forwarded-for"]?.split(",")[0]?.trim() ||
+      req.socket.remoteAddress ||
+      "unknown";
+
+    const { windowKey, ttlSeconds } = await getWindowInfo();
+
+    const setKey = `raffle:entered:${windowKey}:${source}`; // dedupe per source
+    const listKey = `raffle:entries:${windowKey}`; // all tickets
+
+    const already = await redis.sIsMember(setKey, ip);
+    if (already) {
+      // self-heal: if dedupe says already but log row missing, append now
+      try {
+        const tail = await redis.lRange(listKey, -300, -1);
+        let found = false;
+        for (const s of tail) {
+          try {
+            const e = JSON.parse(s);
+            if (e && e.ip === ip && e.source === source) { found = true; break; }
+          } catch {}
+        }
+        if (!found) {
+          const entry = {
+            id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
+            name,
+            ip,
+            source,
+            createdTime: new Date().toISOString(),
+          };
+          await redis.rPush(listKey, JSON.stringify(entry));
+          await redis.expire(listKey, ttlSeconds);
+          return res.status(200).json({ success: true, already: true, repaired: true, entry });
+        }
+      } catch {}
+      return res.status(200).json({ success: true, already: true, source });
+    }
+
+    const entry = {
+      id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
+      name,
+      ip,
+      source,
+      createdTime: new Date().toISOString(),
+    };
+
+    await redis
+      .multi()
+      .sAdd(setKey, ip)
+      .expire(setKey, ttlSeconds)
+      .rPush(listKey, JSON.stringify(entry))
+      .expire(listKey, ttlSeconds)
+      .exec();
+
+    return res.status(200).json({ success: true, entry });
+  }
 
   if (action === "entries" && req.method === "GET") {
     const ok = await ensureRedisConnected();
@@ -300,14 +346,14 @@ export default async function handler(req, res) {
     const { windowKey } = await getWindowInfo();
     const listKey = `raffle:entries:${windowKey}`;
     const raw = await redis.lRange(listKey, 0, -1);
-    const entries = raw.map((s) => {
-      try { return JSON.parse(s); } catch { return null; }
-    }).filter(Boolean);
+    const entries = raw
+      .map((s) => { try { return JSON.parse(s); } catch { return null; } })
+      .filter(Boolean);
 
     return res.status(200).json({ entries, count: entries.length });
   }
 
-  // Summarized table: sum recorded entries per name
+  // Admin table: Name + total entries (sum of rows)
   if (action === "entries-summary" && req.method === "GET") {
     const ok = await ensureRedisConnected();
     if (!ok) return res.status(200).json({ rows: [] });
@@ -315,60 +361,149 @@ export default async function handler(req, res) {
     const { windowKey } = await getWindowInfo();
     const listKey = `raffle:entries:${windowKey}`;
     const raw = await redis.lRange(listKey, 0, -1);
-
-    const map = new Map();
+    const rowsMap = new Map(); // name -> count
     for (const s of raw) {
       try {
         const e = JSON.parse(s);
-        if (!e?.name) continue;
-        const n = String(e.name).trim();
-        map.set(n, (map.get(n) || 0) + 1);
+        const name = (e?.name || "").trim();
+        if (!name) continue;
+        rowsMap.set(name, (rowsMap.get(name) || 0) + 1);
       } catch {}
     }
-    const rows = Array.from(map, ([name, entries]) => ({ name, entries }))
-      .sort((a, b) => b.entries - a.entries || a.name.localeCompare(b.name));
-
+    const rows = Array.from(rowsMap, ([name, entries]) => ({ name, entries }))
+      .sort((a,b)=> b.entries - a.entries || a.name.localeCompare(b.name));
     return res.status(200).json({ rows });
   }
 
-  // ────── RESET ENTRIES (also clears social trackers; winner stays) ──────
-if (action === "reset-entries" && req.method === "POST") {
-  const authHeader = req.headers.authorization || "";
-  const isAdmin =
-    authHeader.startsWith("Bearer:super:") &&
-    authHeader.endsWith(process.env.ADMIN_PASS);
-  if (!isAdmin) return res.status(403).json({ error: "Forbidden" });
+  // Reset EVERYTHING for this show window (namespaced):
+  // - entries list
+  // - per-source dedupe sets (fb/ig/jackpot)
+  // - bonus counters (if any)
+  // - prize/spin logs
+  // - ALL current-window social keys + set + locks
+  // - winner cache
+  // Also (in local/dev), best-effort cleanup of legacy global "social:*"
+  if (action === "reset-entries" && req.method === "POST") {
+    const authHeader = req.headers.authorization || "";
+    const isAdmin =
+      authHeader.startsWith("Bearer:super:") &&
+      authHeader.endsWith(process.env.ADMIN_PASS);
+    if (!isAdmin) return res.status(403).json({ error: "Forbidden" });
 
-  const ok = await ensureRedisConnected();
-  if (!ok) return res.status(503).json({ error: "Redis not ready" });
+    const ok = await ensureRedisConnected();
+    if (!ok) return res.status(503).json({ error: "Redis not ready" });
 
-  const { windowKey } = await getWindowInfo();
-  const setKey = `raffle:entered:${windowKey}`;
-  const listKey = `raffle:entries:${windowKey}`;
+    try {
+      const { windowKey } = await getWindowInfo();
 
-  try {
-    // Clear entries (set + list)
-    const deletedEntries = await redis.del(setKey, listKey);
+      const patterns = [
+        `raffle:entries:${windowKey}`,
+        `raffle:entered:${windowKey}:*`,
+        `raffle:bonus:${windowKey}:*`,
+        `raffle:prizes:${windowKey}`,
+        `social:${windowKey}:*`,
+        `social:ips:${windowKey}`,
+        `social:lock:${windowKey}:*`,
+        `raffle_winner`,
+      ];
 
-    // Also clear follower trackers
-    const toDel = [];
-    for await (const key of redis.scanIterator({ MATCH: "social:*", COUNT: 200 })) {
-      toDel.push(key);
+      const toDelete = [];
+      for (const pat of patterns) {
+        if (pat.includes("*")) {
+          toDelete.push(...(await collectKeys(pat)));
+        } else {
+          const exists = await redis.exists(pat);
+          if (exists) toDelete.push(pat);
+        }
+      }
+
+      // In local/dev, scrub any stray legacy keys from older builds
+      if (isLocal) {
+        toDelete.push(...(await collectKeys("social:*")));
+      }
+
+      // Dedup + delete in chunks
+      const uniq = [...new Set(toDelete.filter(Boolean))];
+      let deleted = 0;
+      const CHUNK = 400;
+      for (let i = 0; i < uniq.length; i += CHUNK) {
+        const slice = uniq.slice(i, i + CHUNK);
+        if (slice.length) deleted += await redis.del(...slice);
+      }
+
+      return res.status(200).json({
+        success: true,
+        windowKey,
+        deletedKeys: deleted,
+        enumerated: uniq.length,
+      });
+    } catch (e) {
+      console.error("❌ reset-entries failed:", e);
+      return res.status(500).json({
+        success: false,
+        error: "Reset entries failed",
+        details: e?.message || String(e),
+      });
     }
-    if (toDel.length) await redis.del(...toDel);
-    await redis.del("social:ips");
-
-    return res.status(200).json({
-      success: true,
-      deletedEntries,
-      deletedSocialKeys: toDel.length
-    });
-  } catch (e) {
-    console.error("❌ reset-entries failed:", e);
-    return res.status(500).json({ success: false, error: "Reset entries failed" });
   }
-}
 
+  // ────── PRIZE/SPIN LOGGING ──────
+  if (action === "prize-log" && req.method === "POST") {
+    const ok = await ensureRedisConnected();
+    if (!ok) return res.status(503).json({ error: "Redis not ready" });
+
+    const { windowKey, ttlSeconds } = await getWindowInfo();
+    const ip =
+      req.headers["x-forwarded-for"]?.split(",")[0]?.trim() ||
+      req.socket.remoteAddress ||
+      "unknown";
+
+    const name = (req.body?.name || "").toString().slice(0, 80);
+    const targets = Array.isArray(req.body?.targets)
+      ? req.body.targets.map(String)
+      : [];
+    const jackpot = !!req.body?.jackpot;
+
+    const log = {
+      id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
+      name: name || "(anonymous)",
+      ip,
+      jackpot,
+      targets,
+      ts: new Date().toISOString(),
+    };
+
+    const listKey = `raffle:prizes:${windowKey}`;
+    try {
+      await redis.rPush(listKey, JSON.stringify(log));
+      await redis.expire(listKey, ttlSeconds);
+      await redis.lTrim(listKey, -300, -1);
+      console.log("🧾 Spin:", log);
+      return res.status(200).json({ success: true });
+    } catch (e) {
+      console.error("prize-log failed:", e);
+      return res.status(500).json({ success: false, error: "prize-log failed" });
+    }
+  }
+
+  if (action === "prize-logs" && req.method === "GET") {
+    const ok = await ensureRedisConnected();
+    if (!ok) return res.status(200).json({ logs: [] });
+
+    const { windowKey } = await getWindowInfo();
+    const listKey = `raffle:prizes:${windowKey}`;
+    try {
+      const raw = await redis.lRange(listKey, 0, -1);
+      const logs = raw
+        .map((s) => { try { return JSON.parse(s); } catch { return null; } })
+        .filter(Boolean)
+        .reverse();
+      return res.status(200).json({ logs });
+    } catch (e) {
+      console.error("prize-logs failed:", e);
+      return res.status(500).json({ logs: [], error: "fetch failed" });
+    }
+  }
 
   if (action === "winner" && req.method === "GET") {
     await ensureRedisConnected();
@@ -381,7 +516,7 @@ if (action === "reset-entries" && req.method === "POST") {
     }
   }
 
-  // Weighted by number of recorded entries
+  // Uniform pick across rows (each row is a ticket)
   if (action === "pick-winner" && req.method === "POST") {
     await ensureRedisConnected();
     const { role } = req.body || {};
@@ -391,42 +526,25 @@ if (action === "reset-entries" && req.method === "POST") {
       const { windowKey } = await getWindowInfo();
       const listKey = `raffle:entries:${windowKey}`;
       const raw = await redis.lRange(listKey, 0, -1);
-      const rows = raw.map((s) => {
-        try { return JSON.parse(s); } catch { return null; }
-      }).filter(Boolean);
+      const entries = raw
+        .map((s) => { try { return JSON.parse(s); } catch { return null; } })
+        .filter(Boolean);
 
-      if (!rows.length) return res.status(400).json({ error: "No eligible entries" });
-
-      // Build weights per name + track platforms they used
-      const weights = new Map();   // name -> count
-      const platforms = new Map(); // name -> {fb:boolean, ig:boolean}
-      for (const e of rows) {
-        const n = String(e.name).trim();
-        weights.set(n, (weights.get(n) || 0) + 1);
-        const p = platforms.get(n) || { fb: false, ig: false };
-        if (e.platform === "fb") p.fb = true;
-        if (e.platform === "ig") p.ig = true;
-        platforms.set(n, p);
+      if (!entries.length) {
+        return res.status(400).json({ error: "No eligible entries" });
       }
 
-      const items = Array.from(weights.entries()); // [name, count]
-      const total = items.reduce((a, [, c]) => a + c, 0);
-      let r = Math.random() * total;
-      let picked = items[0][0];
-      for (const [name, count] of items) {
-        r -= count;
-        if (r <= 0) { picked = name; break; }
-      }
+      const idx = Math.floor(Math.random() * entries.length);
+      const winner = entries[idx];
 
       const payload = {
-        name: picked,
-        weight: weights.get(picked) || 1,
-        platforms: platforms.get(picked) || { fb: false, ig: false },
+        id: winner.id,
+        name: winner.name,
+        source: winner.source || null,
       };
 
       await redis.set("raffle_winner", JSON.stringify(payload));
 
-      // Best-effort broadcast to clients
       try {
         await fetch("https://winner-sse-server.onrender.com/broadcast", {
           method: "POST",
@@ -452,7 +570,9 @@ if (action === "reset-entries" && req.method === "POST") {
       authHeader.startsWith("Bearer:super:") &&
       authHeader.endsWith(process.env.ADMIN_PASS);
 
-    if (!isAdmin) return res.status(403).json({ error: "Forbidden" });
+    if (!isAdmin) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
 
     try {
       await redis.del("raffle_winner");
@@ -472,36 +592,53 @@ if (action === "reset-entries" && req.method === "POST") {
   if (action === "followers" && req.method === "GET") {
     try {
       const token = process.env.FB_PAGE_TOKEN;
+      const pageId = process.env.FB_PAGE_ID;
+      const igId = process.env.IG_ACCOUNT_ID;
+
+      if (!token || !pageId || !igId) {
+        // soft fallback
+        return res.status(200).json({ facebook: 0, instagram: 0, _note: "missing env" });
+      }
+
       const fbRes = await fetch(
-        `https://graph.facebook.com/v19.0/${process.env.FB_PAGE_ID}?fields=fan_count&access_token=${token}`
+        `https://graph.facebook.com/v19.0/${pageId}?fields=fan_count&access_token=${token}`
       );
       const igRes = await fetch(
-        `https://graph.facebook.com/v19.0/${process.env.IG_ACCOUNT_ID}?fields=followers_count&access_token=${token}`
+        `https://graph.facebook.com/v19.0/${igId}?fields=followers_count&access_token=${token}`
       );
-      const fbJson = await fbRes.json();
-      const igJson = await igRes.json();
-      return res.json({
-        facebook: fbJson.fan_count || 0,
-        instagram: igJson.followers_count || 0,
-      });
+      const fbJson = await fbRes.json().catch(() => ({}));
+      const igJson = await igRes.json().catch(() => ({}));
+
+      const facebook = Number(fbJson?.fan_count || 0);
+      const instagram = Number(igJson?.followers_count || 0);
+
+      return res.status(200).json({ facebook, instagram });
     } catch (err) {
-      console.error("❌ Follower fetch failed:", err.message);
-      return res.status(500).json({ error: "Failed to fetch follower counts" });
+      console.error("❌ Follower fetch failed:", err?.message || err);
+      return res.status(200).json({ facebook: 0, instagram: 0 });
     }
   }
 
-  // ────── CHECK FOLLOW STATUS (kept; harmless) ──────
+  // ────── CHECK FOLLOW STATUS (window-scoped) ──────
   if (req.method === "GET" && action === "check-follow") {
     await ensureRedisConnected();
+
+    const { windowKey } = await getWindowInfo();
     const ip =
       req.headers["x-forwarded-for"]?.split(",")[0] ||
       req.socket.remoteAddress ||
       "unknown";
-    const raw = await redis.get(`social:${ip}`).catch(() => null);
+
+    // prefer window-scoped key
+    let raw = await redis.get(`social:${windowKey}:${ip}`).catch(() => null);
+
+    // legacy fallback (read-only)
+    if (!raw) raw = await redis.get(`social:${ip}`).catch(() => null);
+
     return res.status(200).json({ allowed: isFollowAllowed(raw) });
   }
 
-  // ────── SOCIAL STATUS (admin view) ──────
+  // ────── SOCIAL STATUS (admin view, window-scoped) ──────
   if (req.method === "GET" && action === "social-status") {
     const ok = await ensureRedisConnected();
     if (!ok) {
@@ -511,14 +648,17 @@ if (action === "reset-entries" && req.method === "POST") {
       });
     }
 
-    const ips = await redis.sMembers("social:ips");
+    const { windowKey } = await getWindowInfo();
+    const setKey = `social:ips:${windowKey}`;
+    const ips = await redis.sMembers(setKey);
+
     const entries = [];
     let totalUnlocked = 0;
     let fbClicks = 0;
     let igClicks = 0;
 
     for (const ip of ips) {
-      const key = `social:${ip}`;
+      const key = `social:${windowKey}:${ip}`;
       const raw = await redis.get(key);
       if (!raw) continue; // TTL expired
       let s;
@@ -555,147 +695,99 @@ if (action === "reset-entries" && req.method === "POST") {
     });
   }
 
-  // ────── MARK FOLLOW (per IP + platform) + RECORD ENTRY ──────
-  // Accepts:
-  //   - POST application/json: { platform, name }
-  //   - POST x-www-form-urlencoded: platform=..&name=..
-  //   - GET  ...?platform=..&name=..   (returns 1×1 gif)
-  if ((req.method === "POST" || req.method === "GET") && action === "mark-follow") {
-    const ok = await ensureRedisConnected();
-    if (!ok) {
-      if (req.method === "GET") {
-        res.setHeader("Content-Type", "image/gif");
-        res.setHeader("Cache-Control", "no-store");
-        return res.end(PIXEL_GIF);
-      }
-      return res.status(503).json({ error: "Redis not ready" });
+  // ────── SHUTDOWN STATUS / TOGGLE ──────
+  if (req.method === "GET" && action === "shutdown-status") {
+    try {
+      await ensureRedisConnected();
+      const raw = await redis.get("shutdown").catch(() => null);
+      const isShutdown = raw === "true";
+      return res.status(200).json({ isShutdown });
+    } catch (e) {
+      console.error("shutdown-status error:", e);
+      return res.status(200).json({ isShutdown: false, _warning: "fallback" });
     }
+  }
+
+  if (req.method === "POST" && action === "toggle-shutdown") {
+    const authHeader = req.headers.authorization || "";
+    const isAdmin =
+      authHeader.startsWith("Bearer:super:") &&
+      authHeader.endsWith(process.env.ADMIN_PASS);
+    if (!isAdmin) return res.status(403).json({ error: "Forbidden" });
+
+    const ok = await ensureRedisConnected();
+    if (!ok) return res.status(503).json({ error: "Redis not ready" });
+
+    const current = await redis.get("shutdown");
+    const newStatus = current !== "true";
+    await redis.set("shutdown", newStatus ? "true" : "false");
+    return res.status(200).json({ success: true, isShutdown: newStatus });
+  }
+
+  // ────── MARK FOLLOW (per IP + platform) — union, window-scoped ──────
+  if (req.method === "POST" && action === "mark-follow") {
+    const ok = await ensureRedisConnected();
+    if (!ok) return res.status(503).json({ error: "Redis not ready" });
 
     const urlPlatform = url.searchParams.get("platform");
-    const urlName = url.searchParams.get("name");
-
-    let bodyPlatform = null;
-    let bodyName = null;
-
-    if (req.method === "POST") {
-      const ct = req.headers["content-type"] || "";
-      if (ct.includes("application/json")) {
-        bodyPlatform = req.body?.platform ?? null;
-        bodyName = req.body?.name ?? null;
-      } else if (ct.includes("application/x-www-form-urlencoded")) {
-        const form = await readUrlencodedBody(req);
-        bodyPlatform = form.platform || null;
-        bodyName = form.name || null;
-      }
+    const bodyPlatform = (req.body && req.body.platform) || null;
+    const platform = (urlPlatform || bodyPlatform || "").toLowerCase(); // "fb" | "ig"
+    if (platform !== "fb" && platform !== "ig") {
+      return res.status(400).json({ error: "Invalid platform" });
     }
 
-    const platform = String(urlPlatform || bodyPlatform || "").toLowerCase(); // "fb" | "ig"
-    const rawName = urlName || bodyName || "";
-    const name = String(rawName || "").trim();
-    const norm = normName(name);
-
+    const { windowKey, ttlSeconds } = await getWindowInfo();
     const ip =
       req.headers["x-forwarded-for"]?.split(",")[0]?.trim() ||
       req.socket.remoteAddress ||
       "unknown";
 
-    const socialKey = `social:${ip}`;
-    const now = new Date().toISOString();
-    const EX_SECONDS = 60 * 60 * 8; // 8 hours
+    // short per-IP lock within window to prevent cross-fire from a single tap
+    const lockKey = `social:lock:${windowKey}:${ip}`;
+    try {
+      const got = await redis.set(lockKey, platform, { NX: true, PX: 1000 });
+      if (!got) {
+        return res.status(200).json({ success: true, throttled: true });
+      }
+    } catch {}
 
-    // Update social (IP) state (admin "Social Follows" box)
+    const key = `social:${windowKey}:${ip}`;
+    const setKey = `social:ips:${windowKey}`;
+    const now = new Date().toISOString();
+
+    // UNION state
     let state = {
       firstSeen: now,
       lastSeen: now,
       followed: true,
       count: 0,
-      platforms: {},
+      platforms: { fb: false, ig: false },
     };
-    const prev = await redis.get(socialKey).catch(() => null);
+
+    const prev = await redis.get(key).catch(() => null);
     if (prev) {
-      try { state = JSON.parse(prev) || state; } catch {}
+      try {
+        const p = JSON.parse(prev);
+        state.firstSeen = p.firstSeen || state.firstSeen;
+        state.count = Number(p.count || 0);
+        state.platforms = {
+          fb: !!(p.platforms?.fb),
+          ig: !!(p.platforms?.ig),
+        };
+      } catch {}
     }
-    state.firstSeen = state.firstSeen || now;
+
     state.lastSeen = now;
     state.followed = true;
-    state.count = (state.count || 0) + 1;
-    state.platforms = state.platforms || {};
-    if (platform === "fb" || platform === "ig") state.platforms[platform] = true;
+    state.count += 1;
+    state.platforms[platform] = true; // union
 
-    await redis.multi()
-      .set(socialKey, JSON.stringify(state), { EX: EX_SECONDS })
-      .sAdd("social:ips", ip)
-      .exec();
+    await redis.set(key, JSON.stringify(state), { EX: ttlSeconds });
+    await redis.sAdd(setKey, ip);
 
-    // If name missing, just update social state and return
-    if (!norm) {
-      if (req.method === "GET") {
-        res.setHeader("Content-Type", "image/gif");
-        res.setHeader("Cache-Control", "no-store");
-        return res.end(PIXEL_GIF);
-      }
-      return res.json({ success: true, note: "social updated; name empty" });
-    }
-
-    // Add a single recorded entry per (name, platform, show) using atomic SADD gate
-    const { windowKey, ttlSeconds } = await getWindowInfo();
-    const listKey  = `raffle:entries:${windowKey}`;
-    const dedupeNS = `raffle:dedupe:${windowKey}:${platform}`;
-
-    // Only record on fb/ig platforms
-    if (platform === "fb" || platform === "ig") {
-      const added = await redis.sAdd(dedupeNS, norm); // 1 if new, 0 if duplicate
-      if (added === 1) {
-        await redis.expire(dedupeNS, ttlSeconds);
-        await redis.rPush(
-          listKey,
-          JSON.stringify({
-            id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
-            name,
-            platform,
-            createdTime: now,
-          })
-        );
-        await redis.expire(listKey, ttlSeconds);
-      }
-    }
-
-    if (req.method === "GET") {
-      res.setHeader("Content-Type", "image/gif");
-      res.setHeader("Cache-Control", "no-store");
-      return res.end(PIXEL_GIF);
-    }
-    return res.json({ success: true });
+    return res.status(200).json({ success: true, state });
   }
 
-  // ────── SHUTDOWN STATUS / TOGGLE ──────
-if (req.method === "GET" && action === "shutdown-status") {
-  try {
-    await ensureRedisConnected();
-    const raw = await redis.get("shutdown").catch(() => null);
-    const isShutdown = raw === "true";
-    return res.status(200).json({ isShutdown });
-  } catch (e) {
-    console.error("shutdown-status error:", e);
-    return res.status(200).json({ isShutdown: false, _warning: "fallback" });
-  }
-}
-
-if (req.method === "POST" && action === "toggle-shutdown") {
-  const authHeader = req.headers.authorization || "";
-  const isAdmin =
-    authHeader.startsWith("Bearer:super:") &&
-    authHeader.endsWith(process.env.ADMIN_PASS);
-  if (!isAdmin) return res.status(403).json({ error: "Forbidden" });
-
-  const ok = await ensureRedisConnected();
-  if (!ok) return res.status(503).json({ error: "Redis not ready" });
-
-  const current = await redis.get("shutdown");
-  const newStatus = current !== "true";
-  await redis.set("shutdown", newStatus ? "true" : "false");
-  return res.status(200).json({ success: true, isShutdown: newStatus });
-}
   // ────── UNKNOWN ──────
   return res.status(400).json({ error: "Invalid action or method" });
 }

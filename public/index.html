@@ -31,6 +31,11 @@
         <strong>ENTER OUR RAFFLE FOR A CHANCE TO WIN A 90 SURGE TEE!</strong>
       </h2>
 
+      <!-- Entries counter -->
+<div id="entries-count" style="text-align:center;font-weight:800;color:#a3a7b3;margin:.25rem 0 1rem">
+  Entries: —
+</div>
+
       <h2>2 EASY STEPS!</h2>
 
       <ol>
@@ -107,7 +112,33 @@
         if (typeof window.initSlotMachine === "function") {
           window.initSlotMachine("#slot-root", {
             onResult: ({ targets, win }) => {
-              // optional hook
+              // Only award when JACKPOT is the "Extra entry" symbol.
+              if (
+                win &&
+                Array.isArray(targets) &&
+                targets.length === 3 &&
+                targets.every(t => t === "Extra entry")
+              ) {
+                if (
+                  typeof window.canSubmitFor === "function" &&
+                  typeof window.submitEntryOnce === "function" &&
+                  window.canSubmitFor("jackpot")
+                ) {
+                  window.submitEntryOnce("jackpot");
+                } else {
+                  // Nudge: they need a name to claim the +1
+                  const el = document.getElementById("cta-message");
+                  if (el) {
+                    el.style.color = "orange";
+                    el.textContent = "Add your name above to claim your +1";
+                    el.classList.add("show");
+                    setTimeout(() => {
+                      el.textContent = "";
+                      el.classList.remove("show");
+                    }, 2500);
+                  }
+                }
+              }
             }
           });
         } else {

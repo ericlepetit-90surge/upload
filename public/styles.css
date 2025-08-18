@@ -516,11 +516,16 @@ progress { height: 10px; border-radius: 5px; width: 100%; }
   cursor: not-allowed;
 }
 
+
 .slot-result {
-  margin-left: auto;
-  font-weight: 800;
-  color: #a3a7b3;
+  margin-top: 10px;
+  text-align: center;
+  font-weight: 900;
+  color: var(--good);
+  min-height: 1.6em;
+  grid-column: 1 / -1; /* ensures full width */
 }
+
 .slot-result.good { color: #10b981; }
 .slot-result.bad  { color: #ff7272; }
 

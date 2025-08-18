@@ -534,7 +534,8 @@
         const json = await res.json();
         if (!res.ok || !json.success) throw new Error(json.error || 'Failed');
         toast('Entries reset', 'success');
-        await loadEntries?.();
+    // refresh both the Raffle entries table AND the Social status table
+    await Promise.all([loadEntries(), loadSocialStatus()]);
       } catch (e) { toast('Failed to reset entries', 'error'); }
     }
 
