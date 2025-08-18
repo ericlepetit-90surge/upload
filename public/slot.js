@@ -24,8 +24,8 @@
     "T-Shirt":     "WOW, well done! Take a screenshot and show it to us during the break or after the show to get your tee!",
     "Free Drink":  "This one is on us — show it to the bartender!",
     "Sticker":     "Help yourself!",
-    "Extra entry": "Awesome, you got an extra raffle entry to win a 90 Surge t-shirt!",
-    "VIP Seat":    "Bah, you're already in a VIP section!",
+    "Extra entry": "Awesome, you got yourself an extra raffle entry to win a 90 Surge t-shirt!",
+    "VIP Seat":    "Bah, come to the front of the stage! Now you're a VIP!",
   };
 
   // ---------- Utils ----------
@@ -79,6 +79,17 @@
     } catch (e) {}
   }
 
+  // Render helper: split multi-word labels into two lines
+  function twoLineLabel(s) {
+    const txt = String(s || "").trim();
+    if (!txt.includes(" ")) return txt;               // single word → unchanged
+    const parts = txt.split(/\s+/);
+    if (parts.length === 2) return parts.join("\n");  // exactly two words
+    // 3+ words → balance best we can
+    const mid = Math.ceil(parts.length / 2);
+    return parts.slice(0, mid).join(" ") + "\n" + parts.slice(mid).join(" ");
+  }
+
   // ---------- Binder (bind to static markup) ----------
   function bindMachine(root) {
     const reels  = Array.from(root.querySelectorAll(".slot-reel"));
@@ -102,7 +113,9 @@
     for (const label of strip) {
       const cell = document.createElement("div");
       cell.className = "slot-cell";
-      cell.textContent = label;
+      // show multi-word labels on 2 lines
+      cell.style.whiteSpace = "pre-line";
+      cell.textContent = twoLineLabel(label);
       reelEl.appendChild(cell);
     }
   }
@@ -149,7 +162,7 @@
     const strip = Array.from({ length: STRIP_REPEAT }, () => baseStrip).flat();
     reels.forEach((el) => fillReel(el, strip));
 
-    // measure actual cell height after DOM paints
+    // measure actual cell height after DOM paints (includes two-line height)
     let CELL_H = measureCellHeight(reels);
 
     // Track absolute index per reel (which cell is aligned at the top)
@@ -196,12 +209,13 @@
       btn.disabled = true;
       result.textContent = ""; // clear only at start of a spin
 
-      const align = Math.random() < CHANCE_ALIGN;
-      const forcedLabel = align ? pickWeighted(SYMBOLS) : null;
+      // This coin flip only biases toward jackpots; it no longer *defines* a win.
+      const forceAlign = Math.random() < CHANCE_ALIGN;
+      const forcedLabel = forceAlign ? pickWeighted(SYMBOLS) : null;
 
       // choose targets
       const targets = Array.from({ length: REELS }, () =>
-        align ? forcedLabel : pickWeighted(SYMBOLS)
+        forceAlign ? forcedLabel : pickWeighted(SYMBOLS)
       );
 
       // map each target to a base index in baseStrip
@@ -243,7 +257,11 @@
         saveSpinsLeft(newLeft);
         renderSpinsLeft(newLeft);
 
-        const isJackpot = align;
+        // ✅ Real jackpot detection: actual reel equality (not the bias flag)
+        // Jackpot if all reels show the same symbol, regardless of how we got there
+        const isJackpot = targets.length >= 3 && targets.every(t => t === targets[0]);
+        
+
         if (isJackpot) {
           const label = targets[0];
           let msg = `🎉 JACKPOT! ${label}`;
@@ -274,6 +292,7 @@
 
         btn.disabled = loadSpinsLeft() <= 0;
 
+        // Keep outer app.js logging behavior intact
         if (typeof opts.onResult === "function") {
           opts.onResult({ targets, win: isJackpot });
         }

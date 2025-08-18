@@ -3,6 +3,8 @@ import fs from "fs";
 import path from "path";
 import { createClient } from "redis";
 
+export const config = { runtime: "nodejs" };
+
 // ───────────────────────────────────────────────────────────────
 // ENV + paths
 // ───────────────────────────────────────────────────────────────
@@ -48,6 +50,13 @@ export async function ensureRedisConnected() {
   }
 }
 
+// ───────────────────────────────────────────────────────────────
+// In-memory fallback store (SAFE: no ||= new syntax)
+// ───────────────────────────────────────────────────────────────
+const g = globalThis;
+if (!g.__surgeMem) g.__surgeMem = { winners: [], prizes: [], currentWinner: null };
+const MEM = g.__surgeMem;
+
 // Helper: interpret follow state from Redis (legacy or JSON)
 function isFollowAllowed(raw) {
   if (!raw) return false;
@@ -62,6 +71,7 @@ function isFollowAllowed(raw) {
 
 async function scanAll(match) {
   const out = [];
+  if (!redis?.scanIterator) return out;
   for await (const k of redis.scanIterator({ MATCH: match, COUNT: 1000 })) out.push(k);
   return out;
 }
@@ -107,16 +117,14 @@ function timeout(ms) {
   );
 }
 
-// small helpers for key scanning/deletion
-async function collectKeys(match) {
-  const out = [];
-  for await (const k of redis.scanIterator({ MATCH: match, COUNT: 500 })) {
-    out.push(k);
-  }
-  return out;
-}
-async function delKeys(keys) {
-  return keys.length ? await redis.del(...keys) : 0;
+// Strong no-cache headers (browser/CDN/Vercel)
+function noCache(res) {
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
+  res.setHeader("Surrogate-Control", "no-store");
+  res.setHeader("CDN-Cache-Control", "no-store");
+  res.setHeader("Vercel-CDN-Cache-Control", "no-store");
 }
 
 // ───────────────────────────────────────────────────────────────
@@ -128,10 +136,7 @@ export default async function handler(req, res) {
   console.log("➡️ Incoming admin action:", req.method, action);
 
   // Parse JSON bodies
-  if (
-    req.method === "POST" &&
-    req.headers["content-type"]?.includes("application/json")
-  ) {
+  if (req.method === "POST" && req.headers["content-type"]?.includes("application/json")) {
     try {
       let body = "";
       await new Promise((resolve) => {
@@ -215,33 +220,53 @@ export default async function handler(req, res) {
   // ────── CONFIG ──────
   if (action === "config") {
     if (req.method === "GET") {
+      noCache(res);
       await ensureRedisConnected();
-      if (!redis?.isOpen) {
-        return res.status(200).json({
-          showName: "90 Surge",
-          startTime: new Date().toISOString(),
-          endTime: new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString(),
-        });
-      }
+
       try {
+        // Local dev: read from config.json if present
         if (isLocal) {
-          const config = JSON.parse(
-            fs.readFileSync(path.join(process.cwd(), "config.json"), "utf8")
-          );
-        return res.json(config);
-        } else {
-          const [showName, startTime, endTime] = await Promise.race([
+          try {
+            const filePath = path.join(process.cwd(), "config.json");
+            const cfg = JSON.parse(fs.readFileSync(filePath, "utf8"));
+            const showName = cfg.showName ?? "90 Surge";
+            const startTime = cfg.startTime ?? null;
+            const endTime = cfg.endTime ?? null;
+            const version = Number(cfg.version || 0);
+            noCache(res);
+            return res.status(200).json({ showName, startTime, endTime, version });
+          } catch {
+            // fall through to defaults
+          }
+        }
+
+        // Remote (or Redis available): pull from Redis with a timeout guard
+        if (redis?.isOpen) {
+          let [showName, startTime, endTime, version] = await Promise.race([
             Promise.all([
               redis.get("showName").catch(() => ""),
               redis.get("startTime").catch(() => ""),
               redis.get("endTime").catch(() => ""),
+              redis.get("config:version").catch(() => "0"),
             ]),
             timeout(10000),
           ]);
-          return res.json({ showName, startTime, endTime });
+          noCache(res);
+          return res
+            .status(200)
+            .json({ showName, startTime, endTime, version: Number(version || 0) });
         }
+
+        // Fallback when Redis isn’t open
+        noCache(res);
+        return res.status(200).json({
+          showName: "90 Surge",
+          startTime: null,
+          endTime: null,
+          version: 0,
+        });
       } catch (err) {
-        console.error("❌ Config load error:", err.message);
+        console.error("❌ Config load error:", err.message || err);
         return res.status(500).json({ error: "Failed to load config" });
       }
     }
@@ -249,25 +274,58 @@ export default async function handler(req, res) {
     if (req.method === "POST") {
       const { showName, startTime, endTime } = req.body || {};
       try {
+        await ensureRedisConnected();
+
+        let version = 0;
+
         if (isLocal) {
+          // Persist locally and bump version in file
+          const filePath = path.join(process.cwd(), "config.json");
+          let existing = {};
+          try {
+            existing = JSON.parse(fs.readFileSync(filePath, "utf8"));
+          } catch {}
+          version = Number(existing.version || 0) + 1;
+
           fs.writeFileSync(
-            path.join(process.cwd(), "config.json"),
-            JSON.stringify({ showName, startTime, endTime }, null, 2)
+            filePath,
+            JSON.stringify({ showName, startTime, endTime, version }, null, 2)
           );
         } else {
-          const ok = await ensureRedisConnected();
-          if (!ok) return res.status(503).json({ error: "Redis not ready" });
+          if (!redis?.isOpen) return res.status(503).json({ error: "Redis not ready" });
+
           await Promise.all([
             redis.set("showName", showName || ""),
             redis.set("startTime", startTime || ""),
             redis.set("endTime", endTime || ""),
           ]);
+
+          // Atomic version bump
+          version = await redis.incr("config:version");
         }
-        return res.json({ success: true });
-      } catch {
+
+        // Optional: broadcast via your existing SSE channel
+        try {
+          await redis?.publish?.(
+            "sse",
+            JSON.stringify({
+              type: "config",
+              config: { showName, startTime, endTime, version },
+            })
+          );
+        } catch (e) {
+          // non-fatal
+        }
+
+        noCache(res);
+        return res.status(200).json({ success: true, showName, startTime, endTime, version });
+      } catch (err) {
+        console.error("❌ Config save error:", err.message || err);
         return res.status(500).json({ error: "Failed to save config" });
       }
     }
+
+    return res.status(405).json({ error: "Method not allowed" });
   }
 
   // ───────────────────────────────────────────────────────────────
@@ -284,9 +342,7 @@ export default async function handler(req, res) {
     const name = nameRaw.slice(0, 80);
 
     const rawSource = (req.body?.source || "").toString().toLowerCase();
-    const source = ["fb", "ig", "jackpot"].includes(rawSource)
-      ? rawSource
-      : "other";
+    const source = ["fb", "ig", "jackpot"].includes(rawSource) ? rawSource : "other";
 
     const ip =
       req.headers["x-forwarded-for"]?.split(",")[0]?.trim() ||
@@ -360,43 +416,42 @@ export default async function handler(req, res) {
   }
 
   // GET action=my-entries -> { mine, total, sources:{fb, ig, jackpot} }
-// "mine" is per-IP and per-source for the current window (fb + ig + jackpot)
-if (action === "my-entries" && req.method === "GET") {
-  const ok = await ensureRedisConnected();
-  if (!ok) {
+  if (action === "my-entries" && req.method === "GET") {
+    const ok = await ensureRedisConnected();
+    if (!ok) {
+      return res.status(200).json({
+        mine: 0,
+        total: 0,
+        sources: { fb: false, ig: false, jackpot: false },
+      });
+    }
+
+    const { windowKey } = await getWindowInfo();
+    const ip =
+      req.headers["x-forwarded-for"]?.split(",")[0]?.trim() ||
+      req.socket.remoteAddress ||
+      "unknown";
+
+    const setFb = `raffle:entered:${windowKey}:fb`;
+    const setIg = `raffle:entered:${windowKey}:ig`;
+    const setJp = `raffle:entered:${windowKey}:jackpot`;
+    const listKey = `raffle:entries:${windowKey}`;
+
+    const [fb, ig, jp, total] = await Promise.all([
+      redis.sIsMember(setFb, ip),
+      redis.sIsMember(setIg, ip),
+      redis.sIsMember(setJp, ip),
+      redis.lLen(listKey).catch(() => 0),
+    ]);
+
+    const mine = (fb ? 1 : 0) + (ig ? 1 : 0) + (jp ? 1 : 0);
+
     return res.status(200).json({
-      mine: 0,
-      total: 0,
-      sources: { fb: false, ig: false, jackpot: false },
+      mine,
+      total: Number(total || 0),
+      sources: { fb: !!fb, ig: !!ig, jackpot: !!jp },
     });
   }
-
-  const { windowKey } = await getWindowInfo();
-  const ip =
-    req.headers["x-forwarded-for"]?.split(",")[0]?.trim() ||
-    req.socket.remoteAddress ||
-    "unknown";
-
-  const setFb = `raffle:entered:${windowKey}:fb`;
-  const setIg = `raffle:entered:${windowKey}:ig`;
-  const setJp = `raffle:entered:${windowKey}:jackpot`;
-  const listKey = `raffle:entries:${windowKey}`;
-
-  const [fb, ig, jp, total] = await Promise.all([
-    redis.sIsMember(setFb, ip),
-    redis.sIsMember(setIg, ip),
-    redis.sIsMember(setJp, ip),
-    redis.lLen(listKey).catch(() => 0),
-  ]);
-
-  const mine = (fb ? 1 : 0) + (ig ? 1 : 0) + (jp ? 1 : 0);
-
-  return res.status(200).json({
-    mine,
-    total: Number(total || 0),
-    sources: { fb: !!fb, ig: !!ig, jackpot: !!jp },
-  });
-}
 
   // Admin table: Name + total entries (sum of rows)
   if (action === "entries-summary" && req.method === "GET") {
@@ -420,161 +475,192 @@ if (action === "my-entries" && req.method === "GET") {
     return res.status(200).json({ rows });
   }
 
-/// Reset EVERYTHING for this show window:
-// - entries list
-// - per-source dedupe sets (fb/ig/jackpot)
-// - bonus/prize logs for this window
-// - cached winner
-// - ALL social:* keys (including social:ips and social:lock:*)
-// We delete keys ONE-BY-ONE to avoid cluster/multi-key pitfalls.
-if (action === "reset-entries" && req.method === "POST") {
-  const authHeader = req.headers.authorization || "";
-  const isAdmin =
-    authHeader.startsWith("Bearer:super:") &&
-    authHeader.endsWith(process.env.ADMIN_PASS);
-  if (!isAdmin) return res.status(403).json({ error: "Forbidden" });
+  // Reset EVERYTHING for this show window
+  if (action === "reset-entries" && req.method === "POST") {
+    const authHeader = req.headers.authorization || "";
+    const isAdmin =
+      authHeader.startsWith("Bearer:super:") &&
+      authHeader.endsWith(process.env.ADMIN_PASS);
+    if (!isAdmin) return res.status(403).json({ error: "Forbidden" });
 
-  const ok = await ensureRedisConnected();
-  if (!ok) return res.status(503).json({ error: "Redis not ready" });
-
-  // helpers
-  async function scanAll(match) {
-    const out = [];
-    for await (const k of redis.scanIterator({ MATCH: match, COUNT: 1000 })) {
-      out.push(k);
-    }
-    return out;
-  }
-  async function delKey(k) {
-    try { return await redis.unlink(k); } catch { return await redis.del(k); }
-  }
-
-  try {
-    const { windowKey } = await getWindowInfo();
-
-    // Window-scoped keys
-    const listKey   = `raffle:entries:${windowKey}`;
-    const prizeKey  = `raffle:prizes:${windowKey}`;
-    const dedupes   = await scanAll(`raffle:entered:${windowKey}:*`);
-    const bonuses   = await scanAll(`raffle:bonus:${windowKey}:*`);
-
-    // Winner
-    const winnerKey = `raffle_winner`;
-
-    // Social via index
-    const ips = await redis.sMembers("social:ips").catch(() => []);
-    const socialFromIndex = [];
-    for (const ip of ips) {
-      socialFromIndex.push(`social:${ip}`);
-      socialFromIndex.push(`social:lock:${ip}`);
-    }
-    // Include the index set itself
-    socialFromIndex.push("social:ips");
-
-    // Social catch-all (anything not indexed)
-    const socialWildcard = await scanAll("social:*");
-
-    // Unique deletion list
-    const toDelete = Array.from(
-      new Set([
-        listKey,
-        prizeKey,
-        winnerKey,
-        ...dedupes,
-        ...bonuses,
-        ...socialFromIndex,
-        ...socialWildcard,
-      ].filter(Boolean))
-    );
-
-    // Delete ONE BY ONE (prevents cluster cross-slot & arg count issues)
-    let deleted = 0;
-    for (const key of toDelete) {
-      try {
-        deleted += await delKey(key);
-      } catch (e) {
-        console.warn("reset-entries: failed to delete", key, e?.message || e);
-      }
+    const ok = await ensureRedisConnected();
+    if (!ok) {
+      // clear MEM even if no Redis
+      MEM.prizes = [];
+      MEM.winners = [];
+      MEM.currentWinner = null;
+      return res.status(200).json({
+        success: true,
+        windowKey: "(mem)",
+        deletedKeys: 0,
+        spinsResetVersion: 0,
+        remaining: { social: [], raffleEntered: [] },
+      });
     }
 
-    // Belt & suspenders: ensure social:ips is completely gone
-    try { await delKey("social:ips"); } catch {}
+    async function delKey(k) {
+      try { return await redis.unlink(k); } catch { return await redis.del(k); }
+    }
 
-    // 🔔 Bump slot spins reset version so clients reset their local 5 spins
-    let spinsResetVersion = 0;
     try {
-      spinsResetVersion = await redis.incr("slot:spinsResetVersion");
+      const { windowKey } = await getWindowInfo();
+
+      const listKey   = `raffle:entries:${windowKey}`;
+      const prizeKey  = `raffle:prizes:${windowKey}`;
+      const dedupes   = await scanAll(`raffle:entered:${windowKey}:*`);
+      const bonuses   = await scanAll(`raffle:bonus:${windowKey}:*`);
+      const winnerKey = `raffle_winner`;
+
+      const ips = await redis.sMembers("social:ips").catch(() => []);
+      const socialFromIndex = [];
+      for (const ip of ips) {
+        socialFromIndex.push(`social:${ip}`);
+        socialFromIndex.push(`social:lock:${ip}`);
+      }
+      socialFromIndex.push("social:ips");
+      const socialWildcard = await scanAll("social:*");
+
+      const toDelete = Array.from(new Set([
+        listKey, prizeKey, winnerKey, ...dedupes, ...bonuses, ...socialFromIndex, ...socialWildcard,
+      ].filter(Boolean)));
+
+      let deleted = 0;
+      for (const key of toDelete) {
+        try { deleted += await delKey(key); } catch (e) {
+          console.warn("reset-entries: failed to delete", key, e?.message || e);
+        }
+      }
+      try { await delKey("social:ips"); } catch {}
+
+      let spinsResetVersion = 0;
+      try { spinsResetVersion = await redis.incr("slot:spinsResetVersion"); } catch {}
+
+      // also clear in-mem
+      MEM.prizes = [];
+      MEM.winners = [];
+      MEM.currentWinner = null;
+
+      const remainingSocial = await scanAll("social:*");
+      const remainingRaffleEntered = await scanAll(`raffle:entered:${windowKey}:*`);
+
+      return res.status(200).json({
+        success: true,
+        windowKey,
+        deletedKeys: deleted,
+        spinsResetVersion,
+        remaining: { social: remainingSocial, raffleEntered: remainingRaffleEntered },
+      });
     } catch (e) {
-      console.warn("reset-entries: could not bump slot:spinsResetVersion", e?.message || e);
+      console.error("❌ reset-entries failed:", e);
+      return res.status(500).json({
+        success: false,
+        error: "Reset entries failed",
+        details: e?.message || String(e),
+      });
     }
-
-    // Sanity pass: see what (if anything) survived
-    const remainingSocial = await scanAll("social:*");
-    const remainingRaffleEntered = await scanAll(`raffle:entered:${windowKey}:*`);
-
-    return res.status(200).json({
-      success: true,
-      windowKey,
-      deletedKeys: deleted,
-      spinsResetVersion,   // <- clients compare this to reset local spins
-      remaining: {
-        social: remainingSocial,
-        raffleEntered: remainingRaffleEntered,
-      },
-    });
-  } catch (e) {
-    console.error("❌ reset-entries failed:", e);
-    return res.status(500).json({
-      success: false,
-      error: "Reset entries failed",
-      details: e?.message || String(e),
-    });
   }
-}
-
 
   // ────── PRIZE/SPIN LOGGING ──────
-  if (action === "prize-log" && req.method === "POST") {
-    const ok = await ensureRedisConnected();
-    if (!ok) return res.status(503).json({ error: "Redis not ready" });
+  // ────── PRIZE/SPIN LOGGING ──────
+if (action === "prize-log" && req.method === "POST") {
+  const ok = await ensureRedisConnected();
 
-    const { windowKey, ttlSeconds } = await getWindowInfo();
-    const ip =
-      req.headers["x-forwarded-for"]?.split(",")[0]?.trim() ||
-      req.socket.remoteAddress ||
-      "unknown";
+  const { windowKey, ttlSeconds } = await getWindowInfo();
+  const ip =
+    req.headers["x-forwarded-for"]?.split(",")[0]?.trim() ||
+    req.socket.remoteAddress ||
+    "unknown";
 
-    const name = (req.body?.name || "").toString().slice(0, 80);
-    const targets = Array.isArray(req.body?.targets)
-      ? req.body.targets.map(String)
-      : [];
-    const jackpot = !!req.body?.jackpot;
+  const name = (req.body?.name || "").toString().slice(0, 80) || "(anonymous)";
+  const rawTargets = Array.isArray(req.body?.targets) ? req.body.targets : [];
+  const targets = rawTargets.map((t) => String(t));
+  const explicitJackpot = !!req.body?.jackpot;
 
-    const log = {
-      id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
-      name: name || "(anonymous)",
-      ip,
-      jackpot,
-      targets,
-      ts: new Date().toISOString(),
-    };
+  // Robust jackpot detection:
+  const trimmed = targets.map((t) => t.trim()).filter(Boolean);
+  const lowered = trimmed.map((t) => t.toLowerCase());
 
-    const listKey = `raffle:prizes:${windowKey}`;
-    try {
+  const tripleSame =
+    trimmed.length >= 3 &&
+    new Set(lowered.slice(0, 3)).size === 1; // first 3 are identical (e.g., Sticker/Sticker/Sticker)
+
+  const textSaysJackpot = /jackpot/i.test(trimmed.join(" "));
+
+  const isJackpot = explicitJackpot || tripleSame || textSaysJackpot;
+
+  // Friendly prize label
+  let prizeName = "Jackpot";
+  if (tripleSame && trimmed.length) {
+    prizeName = trimmed[0]; // the matched symbol (e.g., "Sticker")
+  } else if (trimmed.length) {
+    prizeName = trimmed[0];
+  }
+
+  const log = {
+    id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
+    name,
+    ip,
+    jackpot: isJackpot,
+    targets,
+    ts: new Date().toISOString(),
+  };
+
+  try {
+    if (ok && redis?.isOpen) {
+      // Rolling spin/prize log (window-scoped)
+      const listKey = `raffle:prizes:${windowKey}`;
       await redis.rPush(listKey, JSON.stringify(log));
       await redis.expire(listKey, ttlSeconds);
       await redis.lTrim(listKey, -300, -1);
-      console.log("🧾 Spin:", log);
-      return res.status(200).json({ success: true });
-    } catch (e) {
-      console.error("prize-log failed:", e);
-      return res.status(500).json({ success: false, error: "prize-log failed" });
+
+      // Winners ledger when jackpot detected
+      if (isJackpot) {
+        const row = {
+          id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
+          name,
+          prize: `Slot Jackpot — ${prizeName}`,
+          source: "slot",
+          windowKey,
+          ts: new Date().toISOString(),
+        };
+        await redis.rPush("raffle:winners:all", JSON.stringify(row));
+        await redis.lTrim("raffle:winners:all", -500, -1);
+      }
+
+      console.log("🧾 Spin (redis):", log);
+      return res.status(200).json({ success: true, isJackpot });
+    } else {
+      // In-memory fallback
+      MEM.prizes.push(log);
+      if (MEM.prizes.length > 300) MEM.prizes = MEM.prizes.slice(-300);
+
+      if (isJackpot) {
+        MEM.winners.push({
+          id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
+          name,
+          prize: `Slot Jackpot — ${prizeName}`,
+          source: "slot",
+          windowKey,
+          ts: new Date().toISOString(),
+        });
+        if (MEM.winners.length > 500) MEM.winners = MEM.winners.slice(-500);
+      }
+
+      console.log("🧾 Spin (mem):", log);
+      return res.status(200).json({ success: true, _fallback: true, isJackpot });
     }
+  } catch (e) {
+    console.error("prize-log failed:", e);
+    return res.status(500).json({ success: false, error: "prize-log failed" });
   }
+}
 
   if (action === "prize-logs" && req.method === "GET") {
     const ok = await ensureRedisConnected();
-    if (!ok) return res.status(200).json({ logs: [] });
+    if (!ok || !redis?.isOpen) {
+      const logs = [...(MEM.prizes || [])].slice(-300).reverse();
+      return res.status(200).json({ logs, _fallback: true });
+    }
 
     const { windowKey } = await getWindowInfo();
     const listKey = `raffle:prizes:${windowKey}`;
@@ -591,11 +677,16 @@ if (action === "reset-entries" && req.method === "POST") {
     }
   }
 
+  // Current winner (graceful if no Redis)
   if (action === "winner" && req.method === "GET") {
-    await ensureRedisConnected();
     try {
-      const winner = await redis.get("raffle_winner");
-      return res.json({ winner: winner ? JSON.parse(winner) : null });
+      const ok = await ensureRedisConnected();
+      if (ok && redis?.isOpen) {
+        const winner = await redis.get("raffle_winner");
+        return res.json({ winner: winner ? JSON.parse(winner) : null });
+      }
+      // in-memory fallback
+      return res.json({ winner: MEM.currentWinner ? { name: MEM.currentWinner } : null, _fallback: true });
     } catch (err) {
       console.error("❌ Failed to fetch winner:", err);
       return res.status(500).json({ error: "Failed to get winner" });
@@ -610,6 +701,11 @@ if (action === "reset-entries" && req.method === "POST") {
 
     try {
       const { windowKey } = await getWindowInfo();
+
+      if (!redis?.isOpen) {
+        return res.status(503).json({ error: "Redis not ready" });
+      }
+
       const listKey = `raffle:entries:${windowKey}`;
       const raw = await redis.lRange(listKey, 0, -1);
       const entries = raw
@@ -630,6 +726,23 @@ if (action === "reset-entries" && req.method === "POST") {
       };
 
       await redis.set("raffle_winner", JSON.stringify(payload));
+      MEM.currentWinner = payload.name; // keep in-mem mirror
+
+      // ✅ auto-log raffle winner to winners ledger
+      try {
+        const row = {
+          id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
+          name: payload.name,
+          prize: "Raffle Winner — T-Shirt",
+          source: "raffle",
+          windowKey,
+          ts: new Date().toISOString(),
+        };
+        await redis.rPush("raffle:winners:all", JSON.stringify(row));
+        await redis.lTrim("raffle:winners:all", -500, -1);
+      } catch (e) {
+        console.warn("winner ledger append (raffle) failed:", e?.message || e);
+      }
 
       try {
         await fetch("https://winner-sse-server.onrender.com/broadcast", {
@@ -661,7 +774,8 @@ if (action === "reset-entries" && req.method === "POST") {
     }
 
     try {
-      await redis.del("raffle_winner");
+      if (redis?.isOpen) await redis.del("raffle_winner");
+      MEM.currentWinner = null; // mirror
       try {
         await fetch("https://winner-sse-server.onrender.com/reset", { method: "POST" });
       } catch (e) {
@@ -674,6 +788,62 @@ if (action === "reset-entries" && req.method === "POST") {
     }
   }
 
+  // ────── WINNER LOGS ──────
+  if (action === "winner-log" && req.method === "POST") {
+    const authHeader = req.headers.authorization || "";
+    const isAdmin =
+      authHeader.startsWith("Bearer:super:") &&
+      authHeader.endsWith(process.env.ADMIN_PASS);
+    if (!isAdmin) return res.status(403).json({ error: "Forbidden" });
+
+    const { name, prize } = req.body || {};
+    const cleanName = (name || "").toString().trim().slice(0, 120);
+    const cleanPrize = (prize || "").toString().trim().slice(0, 160);
+    if (!cleanName || !cleanPrize) return res.status(400).json({ error: "name and prize required" });
+
+    const row = {
+      id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
+      name: cleanName,
+      prize: cleanPrize,
+      ts: new Date().toISOString(),
+    };
+
+    try {
+      const ok = await ensureRedisConnected();
+      if (!ok || !redis?.isOpen) {
+        MEM.winners.push(row);
+        if (MEM.winners.length > 500) MEM.winners = MEM.winners.slice(-500);
+        return res.status(200).json({ success: true, row, _fallback: true });
+      }
+      await redis.rPush("raffle:winners:all", JSON.stringify(row));
+      await redis.lTrim("raffle:winners:all", -500, -1);
+      return res.status(200).json({ success: true, row });
+    } catch (e) {
+      console.error("winner-log failed:", e);
+      return res.status(500).json({ error: "winner-log failed" });
+    }
+  }
+
+  if (action === "winner-logs" && req.method === "GET") {
+    try {
+      const ok = await ensureRedisConnected();
+      if (ok && redis?.isOpen) {
+        const raw = await redis.lRange("raffle:winners:all", -200, -1);
+        const rows = raw
+          .map((s) => { try { return JSON.parse(s); } catch { return null; } })
+          .filter(Boolean)
+          .reverse(); // newest first
+        return res.status(200).json({ rows });
+      } else {
+        const rows = [...(MEM.winners || [])].slice(-200).reverse();
+        return res.status(200).json({ rows, _fallback: true });
+      }
+    } catch (e) {
+      console.error("winner-logs failed:", e);
+      return res.status(500).json({ rows: [], error: "fetch failed" });
+    }
+  }
+
   // ────── LIVE FOLLOWER #s (FB/IG) ──────
   if (action === "followers" && req.method === "GET") {
     try {
@@ -682,10 +852,10 @@ if (action === "reset-entries" && req.method === "POST") {
       const igId = process.env.IG_ACCOUNT_ID;
 
       if (!token || !pageId || !igId) {
-        // soft fallback
         return res.status(200).json({ facebook: 0, instagram: 0, _note: "missing env" });
       }
 
+      // If global fetch is missing in your Node, this will throw and be caught below.
       const fbRes = await fetch(
         `https://graph.facebook.com/v19.0/${pageId}?fields=fan_count&access_token=${token}`
       );
@@ -716,46 +886,47 @@ if (action === "reset-entries" && req.method === "POST") {
       "unknown";
 
     // prefer window-scoped key
-    let raw = await redis.get(`social:${windowKey}:${ip}`).catch(() => null);
+    let raw = null;
+    try { raw = await redis.get(`social:${windowKey}:${ip}`); } catch {}
 
     // legacy fallback (read-only)
-    if (!raw) raw = await redis.get(`social:${ip}`).catch(() => null);
+    if (!raw) try { raw = await redis.get(`social:${ip}`); } catch {}
 
     return res.status(200).json({ allowed: isFollowAllowed(raw) });
   }
 
-// GET current spins reset version
-// GET current slot-spins reset version (used by clients to know when to reset their local spins)
-if (action === "slot-spins-version" && req.method === "GET") {
-  const ok = await ensureRedisConnected();
-  if (!ok) return res.status(200).json({ version: 0 });
-  const v = Number(await redis.get("slot:spinsResetVersion").catch(() => 0)) || 0;
-  return res.status(200).json({ version: v });
-}
+  // GET current slot-spins reset version
+  if (action === "slot-spins-version" && req.method === "GET") {
+    const ok = await ensureRedisConnected();
+    if (!ok || !redis?.isOpen) return res.status(200).json({ version: 0 });
+    const v = Number(await redis.get("slot:spinsResetVersion").catch(() => 0)) || 0;
+    return res.status(200).json({ version: v });
+  }
 
-// ADMIN: bump the spins reset version → all clients will reset on next load/poll
-if (action === "reset-slot-spins" && req.method === "POST") {
-  const authHeader = req.headers.authorization || "";
-  const isAdmin =
-    authHeader.startsWith("Bearer:super:") &&
-    authHeader.endsWith(process.env.ADMIN_PASS);
-  if (!isAdmin) return res.status(403).json({ error: "Forbidden" });
+  // ADMIN: bump spins reset version
+  if (action === "reset-slot-spins" && req.method === "POST") {
+    const authHeader = req.headers.authorization || "";
+    const isAdmin =
+      authHeader.startsWith("Bearer:super:") &&
+      authHeader.endsWith(process.env.ADMIN_PASS);
+    if (!isAdmin) return res.status(403).json({ error: "Forbidden" });
 
-  const ok = await ensureRedisConnected();
-  if (!ok) return res.status(503).json({ error: "Redis not ready" });
+    const ok = await ensureRedisConnected();
+    if (!ok || !redis?.isOpen) return res.status(503).json({ error: "Redis not ready" });
 
-  const version = await redis.incr("slot:spinsResetVersion");
-  await redis.set("slot:spinsResetAt", new Date().toISOString(), { EX: 60 * 60 * 24 * 7 });
-  return res.status(200).json({ success: true, version });
-}
+    const version = await redis.incr("slot:spinsResetVersion");
+    await redis.set("slot:spinsResetAt", new Date().toISOString(), { EX: 60 * 60 * 24 * 7 });
+    return res.status(200).json({ success: true, version });
+  }
 
   // ────── SOCIAL STATUS (admin view, window-scoped) ──────
   if (req.method === "GET" && action === "social-status") {
     const ok = await ensureRedisConnected();
-    if (!ok) {
+    if (!ok || !redis?.isOpen) {
       return res.status(200).json({
         totals: { uniqueIPsTracked: 0, unlocked: 0, facebookClicks: 0, instagramClicks: 0 },
         entries: [],
+        _fallback: true
       });
     }
 
@@ -810,7 +981,7 @@ if (action === "reset-slot-spins" && req.method === "POST") {
   if (req.method === "GET" && action === "shutdown-status") {
     try {
       await ensureRedisConnected();
-      const raw = await redis.get("shutdown").catch(() => null);
+      const raw = await redis?.get("shutdown").catch(() => null);
       const isShutdown = raw === "true";
       return res.status(200).json({ isShutdown });
     } catch (e) {
@@ -827,7 +998,7 @@ if (action === "reset-slot-spins" && req.method === "POST") {
     if (!isAdmin) return res.status(403).json({ error: "Forbidden" });
 
     const ok = await ensureRedisConnected();
-    if (!ok) return res.status(503).json({ error: "Redis not ready" });
+    if (!ok || !redis?.isOpen) return res.status(503).json({ error: "Redis not ready" });
 
     const current = await redis.get("shutdown");
     const newStatus = current !== "true";
@@ -838,7 +1009,7 @@ if (action === "reset-slot-spins" && req.method === "POST") {
   // ────── MARK FOLLOW (per IP + platform) — union, window-scoped ──────
   if (req.method === "POST" && action === "mark-follow") {
     const ok = await ensureRedisConnected();
-    if (!ok) return res.status(503).json({ error: "Redis not ready" });
+    if (!ok || !redis?.isOpen) return res.status(503).json({ error: "Redis not ready" });
 
     const urlPlatform = url.searchParams.get("platform");
     const bodyPlatform = (req.body && req.body.platform) || null;
@@ -881,10 +1052,7 @@ if (action === "reset-slot-spins" && req.method === "POST") {
         const p = JSON.parse(prev);
         state.firstSeen = p.firstSeen || state.firstSeen;
         state.count = Number(p.count || 0);
-        state.platforms = {
-          fb: !!(p.platforms?.fb),
-          ig: !!(p.platforms?.ig),
-        };
+        state.platforms = { fb: !!(p.platforms?.fb), ig: !!(p.platforms?.ig) };
       } catch {}
     }
 

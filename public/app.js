@@ -1,6 +1,6 @@
 // /public/app.js
 (() => {
-  const FACEBOOK_URL  = "https://facebook.com/90Surge";
+  const FACEBOOK_URL = "https://facebook.com/90Surge";
   const INSTAGRAM_URL = "https://instagram.com/90_Surge";
 
   // Derive handles for deep links
@@ -10,8 +10,10 @@
   const NAME_KEY = "raffle_display_name";
   const $ = (s, r = document) => r.querySelector(s);
 
-  const nameEl  = () => $("#user-display-name");
+  const nameEl = () => $("#user-display-name");
   const getName = () => (nameEl()?.value || "").trim().slice(0, 80);
+
+  const WINNER_SSE_URL = ""; // "https://winner-sse-server.onrender.com/stream" (if/when you turn it on)
 
   // ──────────────────────────────────────────────────────────────
   // Name persistence
@@ -49,8 +51,11 @@
       body: JSON.stringify(body || {}),
     });
     let json = {};
-    try { json = await res.json(); } catch (e) {}
-    if (!res.ok) throw new Error(json?.error || `Request failed (${res.status})`);
+    try {
+      json = await res.json();
+    } catch (e) {}
+    if (!res.ok)
+      throw new Error(json?.error || `Request failed (${res.status})`);
     return json;
   }
 
@@ -99,19 +104,25 @@
   // Social mark (does NOT create entries)
   // ──────────────────────────────────────────────────────────────
   async function markFollow(platform) {
-    const url = `/api/admin?action=mark-follow&platform=${encodeURIComponent(platform)}`;
+    const url = `/api/admin?action=mark-follow&platform=${encodeURIComponent(
+      platform
+    )}`;
     const res = await fetch(url, { method: "POST" });
     // 200 OK even when throttled (server returns {throttled:true})
     if (!res.ok) {
       let msg = "mark-follow failed";
-      try { msg = (await res.json()).error || msg; } catch (e) {}
+      try {
+        msg = (await res.json()).error || msg;
+      } catch (e) {}
       throw new Error(msg);
     }
   }
 
   // Beacon variant (safe when navigating away to the app)
   function markFollowBeacon(platform) {
-    const url = `/api/admin?action=mark-follow&platform=${encodeURIComponent(platform)}`;
+    const url = `/api/admin?action=mark-follow&platform=${encodeURIComponent(
+      platform
+    )}`;
     if (navigator.sendBeacon) {
       // empty body is fine for this endpoint
       navigator.sendBeacon(url, new Blob([""], { type: "text/plain" }));
@@ -124,14 +135,19 @@
   // Followers counts
   // ──────────────────────────────────────────────────────────────
   async function refreshFollowers() {
-    const fbEl = $("#fb-followers"), igEl = $("#ig-followers");
+    const fbEl = $("#fb-followers"),
+      igEl = $("#ig-followers");
     try {
-      const res = await fetch("/api/admin?action=followers", { cache: "no-store" });
+      const res = await fetch("/api/admin?action=followers", {
+        cache: "no-store",
+      });
       const j = await res.json().catch(() => ({}));
       const fb = Number(j?.facebook ?? 0);
       const ig = Number(j?.instagram ?? 0);
-      if (fbEl) fbEl.textContent = Number.isFinite(fb) ? fb.toLocaleString() : "—";
-      if (igEl) igEl.textContent = Number.isFinite(ig) ? ig.toLocaleString() : "—";
+      if (fbEl)
+        fbEl.textContent = Number.isFinite(fb) ? fb.toLocaleString() : "—";
+      if (igEl)
+        igEl.textContent = Number.isFinite(ig) ? ig.toLocaleString() : "—";
     } catch (e) {
       if (fbEl) fbEl.textContent = "—";
       if (igEl) igEl.textContent = "—";
@@ -143,8 +159,13 @@
   // ──────────────────────────────────────────────────────────────
   async function logSpin(targets, jackpot) {
     const name = getName() || "(anonymous)";
-    try { await postJSON("/api/admin?action=prize-log", { name, targets, jackpot: !!jackpot }); }
-    catch (e) {}
+    try {
+      await postJSON("/api/admin?action=prize-log", {
+        name,
+        targets,
+        jackpot: !!jackpot,
+      });
+    } catch (e) {}
   }
 
   // ──────────────────────────────────────────────────────────────
@@ -152,11 +173,14 @@
   // ──────────────────────────────────────────────────────────────
   function ensureEntryStatsUI() {
     if (!$("#entry-stats")) {
-      console.warn("[entry-stats] #entry-stats container not found. Add the static markup to your HTML.");
+      console.warn(
+        "[entry-stats] #entry-stats container not found. Add the static markup to your HTML."
+      );
     }
   }
 
-  let prevYour = 0, prevTotal = 0;
+  let prevYour = 0,
+    prevTotal = 0;
 
   function bump(el) {
     if (!el) return;
@@ -170,26 +194,32 @@
 
   async function refreshEntryStats() {
     ensureEntryStatsUI();
-    const yourEl  = $("#your-entries-count");
+    const yourEl = $("#your-entries-count");
     const totalEl = $("#total-entries-count");
 
     // Prefer per-IP/server truth:
     try {
-      const res = await fetch("/api/admin?action=my-entries", { cache: "no-store" });
+      const res = await fetch("/api/admin?action=my-entries", {
+        cache: "no-store",
+      });
       if (res.ok) {
         const j = await res.json();
-        const mine  = Number(j?.mine  ?? 0);
+        const mine = Number(j?.mine ?? 0);
         const total = Number(j?.total ?? 0);
 
         if (totalEl) {
           const old = prevTotal;
-          totalEl.textContent = Number.isFinite(total) ? total.toLocaleString() : "—";
+          totalEl.textContent = Number.isFinite(total)
+            ? total.toLocaleString()
+            : "—";
           if (total > old) bump(totalEl);
           prevTotal = total;
         }
         if (yourEl) {
           const old = prevYour;
-          yourEl.textContent = Number.isFinite(mine) ? mine.toLocaleString() : "0";
+          yourEl.textContent = Number.isFinite(mine)
+            ? mine.toLocaleString()
+            : "0";
           if (mine > old) bump(yourEl);
           prevYour = mine;
         }
@@ -199,7 +229,9 @@
 
     // Fallback: compute total from /entries and ignore "your"
     try {
-      const res = await fetch("/api/admin?action=entries", { cache: "no-store" });
+      const res = await fetch("/api/admin?action=entries", {
+        cache: "no-store",
+      });
       const j = await res.json().catch(() => ({ entries: [], count: 0 }));
       const total = Number(j?.count || 0);
 
@@ -212,7 +244,7 @@
       if (yourEl) yourEl.textContent = prevYour.toString();
     } catch (e) {
       if (totalEl) totalEl.textContent = "—";
-      if (yourEl)  yourEl.textContent  = "0";
+      if (yourEl) yourEl.textContent = "0";
     }
   }
 
@@ -226,45 +258,83 @@
   // ──────────────────────────────────────────────────────────────
   // Deep-link helpers: open ONLY the app on mobile; web on desktop
   // ──────────────────────────────────────────────────────────────
-  function isAndroid() { return /Android/i.test(navigator.userAgent); }
-  function isIOS()     { return /iPhone|iPad|iPod/i.test(navigator.userAgent); }
-  function isMobile()  { return isAndroid() || isIOS(); }
+  function isAndroid() {
+    return /\bAndroid\b/i.test(navigator.userAgent);
+  }
+  function isIOS() {
+    return /\b(iPhone|iPad|iPod)\b/i.test(navigator.userAgent);
+  }
+  function isMobile() {
+    return isAndroid() || isIOS();
+  }
 
+  // New: universal app schemes + guaranteed web fallback (no intent://)
   function appLink(platform) {
     if (platform === "ig") {
-      if (isAndroid()) return `intent://instagram.com/_u/${IG_USERNAME}#Intent;package=com.instagram.android;scheme=https;end`;
-      if (isIOS())     return `instagram://user?username=${IG_USERNAME}`;
-      return INSTAGRAM_URL;
+      return {
+        scheme: `instagram://user?username=${IG_USERNAME}`, // works iOS + most Androids
+        web: INSTAGRAM_URL,
+      };
     } else {
-      // Facebook: use app-only paths. If we don't have numeric ID, facewebmodal is a solid iOS option.
-      if (isAndroid()) return `intent://facebook.com/${FB_HANDLE}#Intent;package=com.facebook.katana;scheme=https;end`;
-      if (isIOS())     return `fb://facewebmodal/f?href=${encodeURIComponent(FACEBOOK_URL)}`;
-      return FACEBOOK_URL;
+      // Facebook: use facewebmodal scheme (works on iOS and many Android builds)
+      // If the app isn't installed, we’ll fall back to HTTPS.
+      return {
+        scheme: `fb://facewebmodal/f?href=${encodeURIComponent(FACEBOOK_URL)}`,
+        web: FACEBOOK_URL,
+      };
     }
   }
 
+  // Attempt to open an app-scheme; if nothing handles it, fall back to the website.
+  // Uses visibility change as a signal that we successfully backgrounded into the app.
   function openSocialOnly(platform) {
-    const url = appLink(platform);
+    const { scheme, web } = appLink(platform);
+
     if (isMobile()) {
-      // Use same-tab navigation to avoid creating an extra web tab
-      try { window.location.href = url; } catch (e) { /* ignore */ }
+      let switched = false;
+      const onVis = () => {
+        if (document.visibilityState === "hidden") switched = true;
+      };
+      document.addEventListener("visibilitychange", onVis, { once: true });
+
+      // Try the app:
+      try {
+        window.location.href = scheme;
+      } catch (e) {
+        /* ignore */
+      }
+
+      // If the app didn't take over shortly, fall back to the web page:
+      setTimeout(() => {
+        document.removeEventListener("visibilitychange", onVis);
+        if (!switched) {
+          try {
+            window.location.href = web;
+          } catch (e) {
+            /* ignore */
+          }
+        }
+      }, 700);
     } else {
-      // Desktop: open the regular site in a new tab
-      try { window.open(url, "_blank", "noopener,noreferrer"); } catch (e) {}
+      // Desktop → open the site in a new tab
+      try {
+        window.open(web, "_blank", "noopener,noreferrer");
+      } catch (e) {}
     }
   }
 
   // ──────────────────────────────────────────────────────────────
   // Harden follow buttons (single-fire; no cross-platform double)
   // ──────────────────────────────────────────────────────────────
-  let globalFollowLock = false;   // blocks cross-platform double firing
-  let fbBtn = null, igBtn = null;
+  let globalFollowLock = false; // blocks cross-platform double firing
+  let fbBtn = null,
+    igBtn = null;
 
   function wipeInlineAndListeners(btn) {
     if (!btn) return null;
     btn.onclick = null;
     btn.removeAttribute("onclick");
-    const clone = btn.cloneNode(true);  // nukes any previously attached listeners
+    const clone = btn.cloneNode(true); // nukes any previously attached listeners
     btn.replaceWith(clone);
     return clone;
   }
@@ -307,6 +377,72 @@
     }
   }
 
+  // 1) Rewrite any existing intent:// anchors to safe https + tag them
+document.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('a[href^="intent://"]').forEach(a => {
+    const href = a.getAttribute('href') || '';
+    const isFb = /facebook|katana|\/profile\//i.test(href);
+    a.setAttribute('href', isFb ? "https://facebook.com/90Surge"
+                                : "https://instagram.com/90_Surge");
+    a.classList.add(isFb ? 'follow-btn-fb' : 'follow-btn-ig');
+  });
+}, { once: true });
+
+// 2) Catch any remaining intent:// clicks just in case and reroute
+document.addEventListener('click', (e) => {
+  const a = e.target.closest('a[href^="intent://"]');
+  if (!a) return;
+  e.preventDefault();
+  e.stopImmediatePropagation();
+  const isFb = /facebook|katana|\/profile\//i.test(a.getAttribute('href') || '');
+  const platform = isFb ? 'fb' : 'ig';
+  // track + give entry (beacon so it survives navigation) then open app/https
+  try { markFollowBeacon(platform); } catch {}
+  try { submitEntryOnceBeacon(platform); } catch {}
+  openSocialOnly(platform);
+}, true);
+
+// 3) Make wireFollowButtons also pick up plain <a> links to fb/ig
+function wireFollowButtons() {
+  // Existing buttons
+  let fb0 = document.querySelector(".follow-btn-fb");
+  let ig0 = document.querySelector(".follow-btn-ig");
+
+  // Also sweep plain anchors that point to fb/ig and tag them
+  document.querySelectorAll('a[href*="facebook.com"]').forEach(a => a.classList.add('follow-btn-fb'));
+  document.querySelectorAll('a[href*="instagram.com"]').forEach(a => a.classList.add('follow-btn-ig'));
+
+  // (re)select after tagging
+  fb0 = document.querySelector(".follow-btn-fb");
+  ig0 = document.querySelector(".follow-btn-ig");
+
+  // wipe & rebind (your existing logic)
+  function wipeInlineAndListeners(btn) {
+    if (!btn) return null;
+    btn.onclick = null;
+    btn.removeAttribute("onclick");
+    const clone = btn.cloneNode(true);
+    btn.replaceWith(clone);
+    return clone;
+  }
+  fbBtn = wipeInlineAndListeners(fb0);
+  igBtn = wipeInlineAndListeners(ig0);
+
+  if (fbBtn) fbBtn.addEventListener("pointerup", (e) => {
+    e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
+    handleFollow("fb", fbBtn);
+  }, { capture: true });
+
+  if (igBtn) igBtn.addEventListener("pointerup", (e) => {
+    e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
+    handleFollow("ig", igBtn);
+  }, { capture: true });
+
+  // Back-compat for any old HTML onclicks
+  window.openFacebook  = (ev) => { ev?.preventDefault?.(); return fbBtn ? fbBtn.dispatchEvent(new PointerEvent("pointerup", { bubbles: true })) : false; };
+  window.openInstagram = (ev) => { ev?.preventDefault?.(); return igBtn ? igBtn.dispatchEvent(new PointerEvent("pointerup", { bubbles: true })) : false; };
+}
+
   function wireFollowButtons() {
     // Find originals
     const fb0 = $(".follow-btn-fb");
@@ -317,35 +453,308 @@
     igBtn = wipeInlineAndListeners(ig0);
 
     // Fresh single handlers (pointerup avoids extra synthetic click on mobile)
-    if (fbBtn) fbBtn.addEventListener("pointerup", (e) => {
-      e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
-      handleFollow("fb", fbBtn);
-    }, { capture: true });
+    if (fbBtn)
+      fbBtn.addEventListener(
+        "pointerup",
+        (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          e.stopImmediatePropagation();
+          handleFollow("fb", fbBtn);
+        },
+        { capture: true }
+      );
 
-    if (igBtn) igBtn.addEventListener("pointerup", (e) => {
-      e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
-      handleFollow("ig", igBtn);
-    }, { capture: true });
+    if (igBtn)
+      igBtn.addEventListener(
+        "pointerup",
+        (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          e.stopImmediatePropagation();
+          handleFollow("ig", igBtn);
+        },
+        { capture: true }
+      );
 
     // Backward-compat if HTML still calls these
-    window.openFacebook  = (ev) => { ev?.preventDefault?.(); return fbBtn ? fbBtn.dispatchEvent(new PointerEvent("pointerup", { bubbles: true })) : false; };
-    window.openInstagram = (ev) => { ev?.preventDefault?.(); return igBtn ? igBtn.dispatchEvent(new PointerEvent("pointerup", { bubbles: true })) : false; };
+    window.openFacebook = (ev) => {
+      ev?.preventDefault?.();
+      return fbBtn
+        ? fbBtn.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }))
+        : false;
+    };
+    window.openInstagram = (ev) => {
+      ev?.preventDefault?.();
+      return igBtn
+        ? igBtn.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }))
+        : false;
+    };
   }
 
   // ──────────────────────────────────────────────────────────────
   // Slot hookup (jackpot => extra entry)
   // ──────────────────────────────────────────────────────────────
   function initSlot() {
-    if (typeof window.initSlotMachine !== "function") return;
-    window.initSlotMachine("#slot-root", {
-      onResult: async ({ targets, win }) => {
-        logSpin(targets, win);
-        if (win && getName()) {
-          await submitEntryOnce("jackpot"); // server dedupes per IP per window
-        }
+  if (typeof window.initSlotMachine !== "function") return;
+
+  window.initSlotMachine("#slot-root", {
+    onResult: async (result) => {
+      // result may look like:
+      // { targets: [...], win: boolean, jackpot: boolean, align: boolean, isJackpot: boolean }
+      const targets = Array.isArray(result?.targets) ? result.targets : [];
+      const lcase = targets.map((t) => String(t).toLowerCase());
+
+      // Heuristics: prefer explicit flags; otherwise detect triple match
+      const hitJackpot =
+        !!(result?.jackpot ?? result?.isJackpot ?? result?.align) ||
+        (targets.length >= 3 && new Set(lcase.slice(0, 3)).size === 1) ||
+        /jackpot/i.test(String(targets.join(" ")));
+
+      // Always log the spin (with our computed jackpot boolean)
+      await logSpin(targets, hitJackpot);
+
+      // Only grant the extra raffle ticket on actual jackpots
+      if (hitJackpot && getName()) {
+        await submitEntryOnce("jackpot"); // server dedupes per IP per window
       }
+    },
+  });
+}
+
+
+  // ──────────────────────────────────────────────────────────────
+  // HEADLINE CONFIG (existing behavior)
+  // ──────────────────────────────────────────────────────────────
+  const CFG_CACHE_KEY = "cfg";
+  const HEADLINE_SELECTORS = ["#headline", ".show-name", "[data-headline]"];
+
+  function setHeadlineText(name) {
+    const text = name && name.trim() ? name : "90 Surge";
+    HEADLINE_SELECTORS.forEach((sel) => {
+      document.querySelectorAll(sel).forEach((el) => {
+        el.textContent = text;
+      });
     });
   }
+
+  function readCfgCache() {
+    try {
+      return JSON.parse(sessionStorage.getItem(CFG_CACHE_KEY) || "null");
+    } catch {
+      return null;
+    }
+  }
+  function writeCfgCache(cfg) {
+    try {
+      sessionStorage.setItem(CFG_CACHE_KEY, JSON.stringify(cfg));
+    } catch {}
+  }
+
+  async function fetchConfigFresh() {
+    const res = await fetch(`/api/admin?action=config&_=${Date.now()}`, {
+      cache: "no-store",
+      headers: { "Cache-Control": "no-store", "Pragma": "no-cache" },
+    });
+    if (!res.ok) throw new Error(`config fetch failed: ${res.status}`);
+    return await res.json();
+  }
+
+  async function initConfigHeadline(force = false) {
+    const cached = force ? null : readCfgCache();
+    if (cached?.showName) setHeadlineText(cached.showName);
+
+    try {
+      const fresh = await fetchConfigFresh();
+      if (
+        !cached ||
+        fresh.version !== cached.version ||
+        fresh.showName !== cached.showName
+      ) {
+        writeCfgCache(fresh);
+        setHeadlineText(fresh.showName);
+      }
+    } catch (e) {
+      // leave whatever headline is currently shown
+      console.debug("[config] headline refresh skipped:", e?.message || e);
+    }
+  }
+
+  // ──────────────────────────────────────────────────────────────
+  // Winner UI (modal + banner) — fixed to auto-fire + live update
+  // ──────────────────────────────────────────────────────────────
+  const SHOWN_WINNER_KEY = "shownWinnerName";
+  let lastWinner = null;
+  let winnerPollTimer = null;
+
+  function winnerBannerEl() {
+    return (
+      document.querySelector(".raffle.raffle-title.blink") ||
+      document.querySelector("[data-winner-banner]")
+    );
+  }
+
+  function formatWinnerMessage(name) {
+    const n = (name || "").trim();
+    return n ? `Woohooo! Tonight's winner is ${n}!` : "";
+  }
+
+  function initWinnerBannerDefault() {
+    const el =
+      document.querySelector(".raffle.raffle-title.blink") ||
+      document.querySelector("[data-winner-banner]");
+    if (!el) return;
+    // Capture the very first, original copy so we can always restore it
+    if (!el.getAttribute("data-default")) {
+      el.setAttribute("data-default", el.textContent || "Free T-shirt raffle!");
+    }
+  }
+  // Ensure we capture the default banner copy once
+  function initWinnerWatchers() {
+    initWinnerBannerDefault();
+    // sync headline once on load
+    fetchWinnerOnce()
+      .then((name) => {
+        maybeDisplayWinner(name);
+      })
+      .catch(() => {});
+  }
+
+  function setWinnerBanner(name) {
+    const el =
+      document.querySelector(".raffle.raffle-title.blink") ||
+      document.querySelector("[data-winner-banner]");
+    if (!el) return;
+
+    // Ensure we’ve stored the original banner text for resets
+    if (!el.getAttribute("data-default")) {
+      el.setAttribute("data-default", el.textContent || "Free T-shirt raffle!");
+    }
+
+    if (name) {
+      el.textContent = `Woohooo! Tonight's winner is ${name}!`;
+      el.classList.add("has-winner");
+    } else {
+      const fallback =
+        el.getAttribute("data-default") || "Free T-shirt raffle!";
+      el.textContent = fallback;
+      el.classList.remove("has-winner");
+    }
+  }
+
+  function showWinnerModal(name) {
+    const modal =
+      document.getElementById("winner-modal") ||
+      document.querySelector(".winner-modal");
+    const nameSpans = modal
+      ? modal.querySelectorAll(".winner-name, [data-winner-name]")
+      : null;
+
+    if (nameSpans && nameSpans.length)
+      nameSpans.forEach((n) => (n.textContent = name));
+    if (modal) {
+      modal.classList.remove("hidden");
+      modal.removeAttribute("aria-hidden");
+
+      const close = modal.querySelector(
+        ".winner-close, [data-close], .modal-close"
+      );
+      const overlay = modal.querySelector(".modal-overlay, [data-overlay]");
+      const hide = () => {
+        modal.classList.add("hidden");
+        modal.setAttribute("aria-hidden", "true");
+      };
+      if (close) close.addEventListener("click", hide, { once: true });
+      if (overlay) overlay.addEventListener("click", hide, { once: true });
+    } else {
+      // Fallback if no modal exists in markup
+      alert(`Winner: ${name}`);
+    }
+  }
+
+  async function fetchWinnerOnce() {
+    const res = await fetch("/api/admin?action=winner&_=" + Date.now(), {
+      cache: "no-store",
+    });
+    if (!res.ok) return null;
+    const j = await res.json().catch(() => ({}));
+    return j?.winner?.name || null;
+  }
+
+  function maybeDisplayWinner(name) {
+    if (!name) {
+      lastWinner = null;
+      localStorage.removeItem(SHOWN_WINNER_KEY);
+      setWinnerBanner(null);
+      return;
+    }
+    setWinnerBanner(name);
+
+    // Show once per unique winner per browser
+    const already = localStorage.getItem(SHOWN_WINNER_KEY);
+    if (already !== name) {
+      localStorage.setItem(SHOWN_WINNER_KEY, name);
+      showWinnerModal(name);
+    }
+    lastWinner = name;
+  }
+
+
+  // ──────────────────────────────────────────────────────────────
+  // Winner realtime + polling (SSE optional; polling always on)
+  // ──────────────────────────────────────────────────────────────
+  function startWinnerPolling() {
+    const T = 4000;
+    async function tick() {
+      try {
+        const r = await fetch("/api/admin?action=winner", {
+          cache: "no-store",
+        });
+        const j = await r.json().catch(() => ({}));
+        const name = j?.winner?.name || null;
+        // Single source of truth (handles banner + modal + reset)
+        maybeDisplayWinner(name);
+      } catch {}
+    }
+    tick();
+    return setInterval(tick, T);
+  }
+
+  function initWinnerRealtime() {
+  // If SSE not configured, just poll.
+  if (!WINNER_SSE_URL || !("EventSource" in window)) {
+    startWinnerPolling();
+    return;
+  }
+
+  try {
+    const es = new EventSource(WINNER_SSE_URL);
+    let pollingTimer = null;
+
+    es.onmessage = (e) => {
+      try {
+        const data = JSON.parse(e.data || "{}");
+        if (data?.reset) {
+          maybeDisplayWinner(null);
+        } else if (data?.winner || data?.name) {
+          maybeDisplayWinner(data.winner || data.name);
+        }
+      } catch {
+        const raw = (e?.data ?? "").toString().trim();
+        if (/^reset$/i.test(raw)) maybeDisplayWinner(null);
+        else if (raw) maybeDisplayWinner(raw);
+      }
+    };
+
+    es.onerror = () => {
+      try { es.close(); } catch {}
+      if (!pollingTimer) pollingTimer = startWinnerPolling();
+    };
+  } catch {
+    startWinnerPolling();
+  }
+}
+
 
   // ──────────────────────────────────────────────────────────────
   // Boot
@@ -358,8 +767,19 @@
     refreshFollowers();
     setInterval(refreshFollowers, 60_000);
 
+    initWinnerRealtime();
+
     refreshEntryStats();
     setInterval(refreshEntryStats, 15_000);
+
+    // headline init/refresh — only affects headline text
+    initConfigHeadline();
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") initConfigHeadline();
+    });
+
+    // winner modal + banner (auto-fire + live)
+    initWinnerWatchers();
 
     initSlot();
   }
