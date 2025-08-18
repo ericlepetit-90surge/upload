@@ -353,6 +353,45 @@ export default async function handler(req, res) {
     return res.status(200).json({ entries, count: entries.length });
   }
 
+  // GET action=my-entries -> { mine, total, sources:{fb, ig, jackpot} }
+// "mine" is per-IP and per-source for the current window (fb + ig + jackpot)
+if (action === "my-entries" && req.method === "GET") {
+  const ok = await ensureRedisConnected();
+  if (!ok) {
+    return res.status(200).json({
+      mine: 0,
+      total: 0,
+      sources: { fb: false, ig: false, jackpot: false },
+    });
+  }
+
+  const { windowKey } = await getWindowInfo();
+  const ip =
+    req.headers["x-forwarded-for"]?.split(",")[0]?.trim() ||
+    req.socket.remoteAddress ||
+    "unknown";
+
+  const setFb = `raffle:entered:${windowKey}:fb`;
+  const setIg = `raffle:entered:${windowKey}:ig`;
+  const setJp = `raffle:entered:${windowKey}:jackpot`;
+  const listKey = `raffle:entries:${windowKey}`;
+
+  const [fb, ig, jp, total] = await Promise.all([
+    redis.sIsMember(setFb, ip),
+    redis.sIsMember(setIg, ip),
+    redis.sIsMember(setJp, ip),
+    redis.lLen(listKey).catch(() => 0),
+  ]);
+
+  const mine = (fb ? 1 : 0) + (ig ? 1 : 0) + (jp ? 1 : 0);
+
+  return res.status(200).json({
+    mine,
+    total: Number(total || 0),
+    sources: { fb: !!fb, ig: !!ig, jackpot: !!jp },
+  });
+}
+
   // Admin table: Name + total entries (sum of rows)
   if (action === "entries-summary" && req.method === "GET") {
     const ok = await ensureRedisConnected();
