@@ -93,7 +93,7 @@ form {
   max-width: 100%;
 }
 
-.rules h2 { font-size: 1.5rem; margin-top: 1.25rem; }
+.rules h2 { font-size: 1.5rem;}
 .rules h2.raffle { font-size: 1.4rem; line-height: 1.5rem; }
 
 .rules ol {
@@ -103,10 +103,10 @@ form {
   font-size: 1.1rem;
   line-height: 1.5rem;
 }
-.rules li { margin: 0 0 1.5rem 0; line-height: 1.2rem; }
+.rules li { margin: 0 0 2rem 0; line-height: 1.2rem; }
 .rules ol > li:last-child { margin-bottom: 0; }
 
-.input-group { display: flex; flex-direction: column; gap: .25rem; width: 100%; }
+.input-group { display: flex; flex-direction: column; gap: .25rem; width: 100%; padding-top:5px}
 .input-label { font-size: 1rem; font-weight: bold; color: var(--text-color); }
 
 input[type="text"],
@@ -324,6 +324,7 @@ progress { height: 10px; border-radius: 5px; width: 100%; }
   text-align: center;
   color: #ff5900;
   padding-bottom: 1rem;
+  padding-top: 1rem;
 }
 .gallery-title {
   margin: 1rem 0;
@@ -458,6 +459,7 @@ progress { height: 10px; border-radius: 5px; width: 100%; }
 .slot-title {
   font-weight: 800;
   letter-spacing: .2px;
+  padding-top: 1rem;
 }
 
 .slot-machine {
@@ -530,7 +532,140 @@ progress { height: 10px; border-radius: 5px; width: 100%; }
 .slot-result.bad  { color: #ff7272; }
 
 
-/* ===========================
-   Misc
-=========================== */
-.disclaimer { font-size: 11px; }
+/* Entry stats card */
+.entry-stats-card{
+  width:100%;
+  margin:16px auto 28px;
+  padding:14px 16px;
+  border-radius:14px;
+  background:linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.02));
+  border:1px solid rgba(255,255,255,.10);
+  color:#eef2ff;
+  display:grid;
+  grid-template-columns: 1fr 1fr;
+  gap:12px;
+}
+.entry-stat{
+  display:grid;
+  grid-template-rows:auto 1fr;
+  align-items:center;
+  background:rgba(0,0,0,.2);
+  border-radius:10px;
+  padding:10px 12px;
+  border:1px solid rgba(255,255,255,.06);
+}
+.entry-stat-label{ font-size:.85rem; opacity:.8; letter-spacing:.2px; }
+.entry-stat-value{ font-size:1.6rem; font-weight:900; line-height:1.1; }
+
+/* little bump animation when numbers go up */
+.entry-bump{ animation: entry-bump .35s ease-out; }
+@keyframes entry-bump {
+  0%{ transform:scale(1); }
+  40%{ transform:scale(1.12); }
+  100%{ transform:scale(1); }
+}
+
+@media (max-width:420px){
+  .entry-stats-card{ grid-template-columns: 1fr; }
+}
+
+
+:root{
+  --reel-w:120px;    /* keep in sync with your design */
+  --reel-gap:12px;
+  --item-h:58px;
+  --accent:#e91e63;
+  --bg:#0f0f12;
+  --card:#17181c;
+  --text:#eef2ff;
+  --muted:#a3a7b3;
+  --good:#10b981;
+}
+
+.slot-card{
+  width:100%;
+  background:var(--card);
+  border:1px solid rgba(255,255,255,.08);
+  border-radius:14px;
+  padding:18px;
+  margin:16px auto;
+  color:var(--text);
+  box-shadow:0 8px 18px rgba(0,0,0,.25);
+  user-select:none;
+}
+.slot-title{ margin:0 0 .5rem 0; text-align:center; }
+
+.slot-machine{
+  display:flex;
+  justify-content:center;
+  gap:var(--reel-gap);
+  padding:12px;
+  background:#0c0d11;
+  border:1px solid rgba(255,255,255,.06);
+  border-radius:12px;
+  position:relative;
+}
+
+.slot-window{
+  width:var(--reel-w);
+  height:var(--item-h);
+  overflow:hidden;
+  border-radius:10px;
+  background:#0a0b0f;
+  border:1px solid rgba(255,255,255,.06);
+  position:relative;
+}
+/* soft mask edges (no layout impact) */
+.slot-window::before,
+.slot-window::after{
+  content:"";
+  position:absolute;
+  left:0; right:0;
+  height:10px;
+  pointer-events:none;
+}
+.slot-window::before{ top:0;    background:linear-gradient(#0a0b0f,transparent); }
+.slot-window::after { bottom:0; background:linear-gradient(transparent,#0a0b0f); }
+
+.slot-reel{ will-change:transform; transform:translate3d(0,0,0); }
+
+.slot-cell{
+  height:var(--item-h);
+  box-sizing:border-box;
+  display:grid;
+  place-items:center;
+  color:var(--text);
+  font-weight:800;
+  letter-spacing:.2px;
+  padding:0 10px;
+  white-space:nowrap;
+  text-overflow:ellipsis;
+  overflow:hidden;
+  text-align:center;
+  /* divider that doesn't change layout height */
+  box-shadow: inset 0 -1px rgba(255,255,255,.06);
+}
+.slot-cell:last-child{ box-shadow:none; }
+
+.slot-controls{
+  display:flex;
+  justify-content:center;
+  align-items:center;
+  gap:10px;
+  margin-top:14px;
+  flex-wrap:wrap;
+}
+.slot-spin{
+  padding:12px 18px;
+  border:0;
+  border-radius:10px;
+  background:var(--accent);
+  color:#fff;
+  font-weight:900;
+  cursor:pointer;
+  box-shadow:0 6px 16px rgba(233,30,99,.35);
+}
+.slot-spin[disabled]{ opacity:.6; cursor:not-allowed; box-shadow:none; }
+
+.slot-left{ color:var(--muted); font-weight:700; }
+.slot-result{ margin-top:12px; text-align:center; font-weight:900; color:var(--good); min-height:1.6em; }

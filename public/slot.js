@@ -2,12 +2,10 @@
 (function () {
   // ---------- Config ----------
   const REELS = 3;
-  const ITEM_H = 58;      // nominal; we still measure at runtime
-  const REEL_W = 120;
-  const REEL_GAP = 12;
-  const STRIP_MIN = 32;   // base strip length (unique sequence)
-  const STRIP_REPEAT = 40; // big buffer for smooth spins
-  const MAX_SPINS = 5;    // per-day
+  const ITEM_H = 58;          // nominal; we still measure at runtime
+  const STRIP_MIN = 32;       // base strip length (unique sequence)
+  const STRIP_REPEAT = 40;    // big buffer for smooth spins
+  const MAX_SPINS = 5;        // per-day
 
   // Weighted symbols (no empties)
   const SYMBOLS = [
@@ -23,16 +21,17 @@
 
   // Jackpot instructions
   const JACKPOT_TEXT = {
-    "T-Shirt":    "WOW, well done! Take a screenshot and show it to us during the break or after the show to get your tee!",
-    "Free Drink": "This one is on us — show it to the bartender!",
-    "Sticker":    "Help yourself!",
-    "Extra entry":"Awesome, you got an extra raffle entry to win a 90 Surge t-shirt!",
-    "VIP Seat":   "Bah, you're already in a VIP section!",
+    "T-Shirt":     "WOW, well done! Take a screenshot and show it to us during the break or after the show to get your tee!",
+    "Free Drink":  "This one is on us — show it to the bartender!",
+    "Sticker":     "Help yourself!",
+    "Extra entry": "Awesome, you got an extra raffle entry to win a 90 Surge t-shirt!",
+    "VIP Seat":    "Bah, you're already in a VIP section!",
   };
 
   // ---------- Utils ----------
-  const dayKey = () => new Date().toISOString().slice(0,10);
+  const dayKey   = () => new Date().toISOString().slice(0, 10);
   const spinsKey = () => `slot:spinsLeft:${dayKey()}`;
+
   function loadSpinsLeft() {
     const n = parseInt(localStorage.getItem(spinsKey()) ?? "", 10);
     if (Number.isFinite(n) && n >= 0 && n <= MAX_SPINS) return n;
@@ -50,67 +49,13 @@
     return arr[arr.length - 1].label;
   }
 
-  function ensureStyles() {
-    const css = `
-    :root{
-      --reel-w:${REEL_W}px; --reel-gap:${REEL_GAP}px; --item-h:${ITEM_H}px;
-      --accent:#e91e63; --bg:#0f0f12; --card:#17181c; --text:#eef2ff; --muted:#a3a7b3; --good:#10b981;
-    }
-    .slot-card{
-      width:min(440px,96vw); background:var(--card);
-      border:1px solid rgba(255,255,255,.08); border-radius:14px;
-      padding:18px; margin:16px auto; color:var(--text); box-shadow:0 8px 18px rgba(0,0,0,.25);
-      user-select:none;
-    }
-    .slot-title{ margin:0 0 .5rem 0; text-align:center; }
-    .slot-machine{
-      display:flex; justify-content:center; gap:var(--reel-gap);
-      padding:12px; background:#0c0d11; border:1px solid rgba(255,255,255,.06);
-      border-radius:12px; position:relative;
-    }
-    .slot-window{
-      width:var(--reel-w); height:var(--item-h); overflow:hidden;
-      border-radius:10px; background:#0a0b0f; border:1px solid rgba(255,255,255,.06);
-      position:relative;
-    }
-    .slot-window::before, .slot-window::after{
-      content:""; position:absolute; left:0; right:0; height:10px; pointer-events:none;
-    }
-    .slot-window::before{ top:0; background:linear-gradient(#0a0b0f,transparent); }
-    .slot-window::after{ bottom:0; background:linear-gradient(transparent,#0a0b0f); }
-
-    .slot-reel{ will-change:transform; transform:translate3d(0,0,0); }
-
-    .slot-cell{
-      height:var(--item-h); box-sizing:border-box;
-      display:grid; place-items:center;
-      color:var(--text); font-weight:800; letter-spacing:.2px; padding:0 10px;
-      white-space:nowrap; text-overflow:ellipsis; overflow:hidden; text-align:center;
-      box-shadow: inset 0 -1px rgba(255,255,255,.06);
-    }
-    .slot-cell:last-child{ box-shadow:none; }
-
-    .slot-controls{ display:flex; justify-content:center; align-items:center; gap:10px; margin-top:14px; flex-wrap:wrap; }
-    .slot-spin{
-      padding:12px 18px; border:0; border-radius:10px;
-      background:var(--accent); color:#fff; font-weight:900; cursor:pointer;
-      box-shadow:0 6px 16px rgba(233,30,99,.35);
-    }
-    .slot-spin[disabled]{ opacity:.6; cursor:not-allowed; box-shadow:none; }
-    .slot-left{ color:var(--muted); font-weight:700; }
-    .slot-result{ margin-top:12px; text-align:center; font-weight:900; color:var(--good); min-height:1.6em; }
-    `;
-    let style = document.getElementById("slot-css");
-    if (!style) { style = document.createElement("style"); style.id = "slot-css"; document.head.appendChild(style); }
-    style.textContent = css;
-  }
-
   function makeStrip(symbols, minLen = STRIP_MIN) {
     const labels = [];
     while (labels.length < minLen) {
       const next = pickWeighted(symbols);
       if (!labels.length || labels[labels.length - 1] !== next) labels.push(next);
     }
+    // ensure wrap-around isn’t identical
     if (labels[0] === labels[labels.length - 1]) {
       const alt = symbols.find((s) => s.label !== labels[0])?.label || labels[0];
       labels[labels.length - 1] = alt;
@@ -118,59 +63,38 @@
     return labels;
   }
 
-  // ---------- Builder ----------
-  function buildMachine(root) {
-    ensureStyles();
+  async function maybeApplyServerSpinReset(MAX_SPINS) {
+    try {
+      const res = await fetch("/api/admin?action=slot-spins-version", { cache: "no-store" });
+      const j = await res.json().catch(()=>({ version:0 }));
+      const serverV = Number(j?.version || 0);
+      const localKey = "slot:spinsResetVersionSeen";
+      const seenV = Number(localStorage.getItem(localKey) || "0");
+      if (serverV > seenV) {
+        // reset TODAY's spins
+        const todayKey = new Date().toISOString().slice(0,10);
+        localStorage.setItem(`slot:spinsLeft:${todayKey}`, String(MAX_SPINS));
+        localStorage.setItem(localKey, String(serverV));
+      }
+    } catch {}
+  }
 
-    const card = document.createElement("div");
-    card.className = "slot-card";
+  // ---------- Binder (bind to static markup) ----------
+  function bindMachine(root) {
+    const reels = Array.from(root.querySelectorAll(".slot-reel"));
+    const btn   = root.querySelector("#slot-spin-btn");
+    const left  = root.querySelector("#slot-spins-left");
+    const result= root.querySelector("#slot-result");
 
-    const title = document.createElement("h2");
-    title.className = "slot-title";
-    title.textContent = "🎰 Slot to Win";
-    card.appendChild(title);
-
-    const machine = document.createElement("div");
-    machine.className = "slot-machine";
-
-    const reels = [];
-    for (let i = 0; i < REELS; i++) {
-      const w = document.createElement("div");
-      w.className = "slot-window";
-      const r = document.createElement("div");
-      r.className = "slot-reel";
-      r.id = `slot-reel-${i}`;
-      w.appendChild(r);
-      machine.appendChild(w);
-      reels.push(r);
+    if (reels.length !== REELS) {
+      console.error(`[slot] expected ${REELS} .slot-reel elements inside #slot-root`);
+      return null;
     }
-    card.appendChild(machine);
-
-    const controls = document.createElement("div");
-    controls.className = "slot-controls";
-
-    const left = document.createElement("div");
-    left.id = "slot-spins-left";
-    left.className = "slot-left";
-    controls.appendChild(left);
-
-    const btn = document.createElement("button");
-    btn.id = "slot-spin-btn";
-    btn.className = "slot-spin";
-    btn.textContent = "Spin";
-    controls.appendChild(btn);
-
-    card.appendChild(controls);
-
-    const result = document.createElement("div");
-    result.id = "slot-result";
-    result.className = "slot-result";
-    card.appendChild(result);
-
-    root.innerHTML = "";
-    root.appendChild(card);
-
-    return { reels, btn, result, left };
+    if (!btn || !left || !result) {
+      console.error("[slot] missing required elements (#slot-spin-btn, #slot-spins-left, #slot-result)");
+      return null;
+    }
+    return { reels, btn, left, result };
   }
 
   function fillReel(reelEl, strip) {
@@ -183,6 +107,7 @@
     }
   }
 
+  // Measure actual cell height after paint
   function measureCellHeight(reels) {
     const firstCell = reels[0]?.querySelector(".slot-cell");
     if (!firstCell) return ITEM_H;
@@ -213,18 +138,25 @@
     const root = document.querySelector(rootSelector);
     if (!root) { console.warn("initSlotMachine: mount point not found:", rootSelector); return; }
 
-    const { reels, btn, result, left } = buildMachine(root);
+    const bound = bindMachine(root);
+    if (!bound) return;
+    const { reels, btn, result, left } = bound;
 
     const baseStrip = makeStrip(SYMBOLS, STRIP_MIN);
     const len = baseStrip.length;
 
+    // Build a very long strip so our target index always exists
     const strip = Array.from({ length: STRIP_REPEAT }, () => baseStrip).flat();
     reels.forEach((el) => fillReel(el, strip));
 
+    // measure actual cell height after DOM paints
     let CELL_H = measureCellHeight(reels);
+
+    // Track absolute index per reel (which cell is aligned at the top)
     const state = reels.map(() => ({ absIndex: 0 }));
 
     function setTransformToIndex(reelEl, index) {
+      // Use exact pixel from the target cell’s offset to avoid rounding issues
       const targetCell = reelEl.children[index];
       const px = targetCell ? targetCell.offsetTop : index * CELL_H;
       reelEl.style.transform = `translate3d(0, ${-px}px, 0)`;
@@ -235,7 +167,10 @@
       left.textContent = `Spins left: ${n}`;
       btn.disabled = n <= 0;
     }
-    renderSpinsLeft(loadSpinsLeft());
+
+    // Check server reset flag, then render initial count
+    maybeApplyServerSpinReset(MAX_SPINS)
+      .finally(() => renderSpinsLeft(loadSpinsLeft()));
 
     function spinOnce() {
       const spinsLeft = loadSpinsLeft();
@@ -247,15 +182,18 @@
       const align = Math.random() < CHANCE_ALIGN;
       const forcedLabel = align ? pickWeighted(SYMBOLS) : null;
 
+      // choose targets
       const targets = Array.from({ length: REELS }, () =>
         align ? forcedLabel : pickWeighted(SYMBOLS)
       );
 
+      // map each target to a base index in baseStrip
       const targetIdxs = targets.map((t) => {
         const idx = baseStrip.indexOf(t);
         return idx < 0 ? 0 : idx;
       });
 
+      // staggered loops/durations (in base-strip rows)
       const SPINS = [len * 5, len * 6, len * 7];
       const DUR   = [1000, 1300, 1600];
 
@@ -275,12 +213,12 @@
       const settleMs = Math.max(...DUR) + 60;
 
       setTimeout(async () => {
-        // normalize
+        // Normalize back into the first base block so we never reach strip end
         reels.forEach((reelEl, i) => {
           const st = state[i];
-          st.absIndex = st.absIndex % len;
+          st.absIndex = st.absIndex % len; // keep equivalent position
           reelEl.style.transition = "none";
-          setTransformToIndex(reelEl, st.absIndex);
+          setTransformToIndex(reelEl, st.absIndex); // snap to normalized cell
         });
 
         // decrement spins AFTER a completed spin
@@ -291,9 +229,9 @@
         const isJackpot = align;
         if (isJackpot) {
           const label = targets[0];
-          // Always show a jackpot message
           let msg = `🎉 JACKPOT! ${label}`;
           const extra = JACKPOT_TEXT[label] || "";
+
           if (label === "Extra entry") {
             const nameEl = document.querySelector("#user-display-name");
             const name = (nameEl?.value || "").trim();
@@ -302,7 +240,7 @@
             } else {
               const { awarded, already } = await awardExtraEntry(name);
               if (awarded) {
-                msg = `🎉 JACKPOT! Extra entry — Awesome, you got an extra raffle entry to win a 90 Surge t-shirt!`;
+                msg = `🎉 JACKPOT! Extra entry — ${JACKPOT_TEXT["Extra entry"]}`;
               } else if (already) {
                 msg = `🎉 JACKPOT! Extra entry — Already counted for this device.`;
               } else {
@@ -314,8 +252,7 @@
           }
           result.textContent = msg;
         } else {
-          // keep blank for non-jackpot
-          result.textContent = "";
+          result.textContent = ""; // keep blank for non-jackpot
         }
 
         btn.disabled = loadSpinsLeft() <= 0;

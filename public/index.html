@@ -1,11 +1,9 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8" />
-  <meta
-    name="viewport"
-    content="width=device-width, initial-scale=1.0, maximum-scale=1, viewport-fit=cover"
-  />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, viewport-fit=cover" />
   <title>90 Surge - Free T-shirt!</title>
 
   <link rel="stylesheet" href="/public/styles.css" />
@@ -16,12 +14,8 @@
   <form id="raffle-form" method="POST" novalidate>
     <div class="rules">
       <div class="logo-wrap">
-        <img
-          src="https://pub-d919971fb927454bab9481eee8a435e3.r2.dev/logo-horizontal-white.png"
-          width="200"
-          height="auto"
-          alt="90 Surge logo"
-        />
+        <img src="https://pub-d919971fb927454bab9481eee8a435e3.r2.dev/logo-horizontal-white.png" width="200"
+          height="auto" alt="90 Surge logo" />
       </div>
 
       <h1 id="headline">90 SURGE TONIGHT</h1>
@@ -31,74 +25,90 @@
         <strong>ENTER OUR RAFFLE FOR A CHANCE TO WIN A 90 SURGE TEE!</strong>
       </h2>
 
-      <!-- Entries counter -->
-<div id="entries-count" style="text-align:center;font-weight:800;color:#a3a7b3;margin:.25rem 0 1rem">
-  Entries: —
-</div>
-
-      <h2>2 EASY STEPS!</h2>
-
       <ol>
         <li>
           Drop your name / nickname
           <div class="input-group">
-            <input
-              type="text"
-              id="user-display-name"
-              name="user_display_name"
-              required
-              placeholder=""
-              autocomplete="off"
-              inputmode="text"
-              autocorrect="off"
-              autocapitalize="none"
-              spellcheck="false"
-            />
+            <input type="text" id="user-display-name" name="user_display_name" required placeholder=""
+              autocomplete="off" inputmode="text" autocorrect="off" autocapitalize="none" spellcheck="false" />
           </div>
         </li>
 
         <li>
-          Click to follow us on Facebook or Insta. Follow us on both for an extra chance at the draw ✌️
+          Follow us on Facebook or Insta. Each follow gives you 1 raffle entry!
           <div id="follow-gate">
-            <div class="follow-links" style="display:flex; justify-content:center; gap:.5rem; flex-wrap:wrap;">
+            <div class="follow-links" style="display:flex; justify-content:center; gap:.5rem;padding-top: 5px">
               <button type="button" class="follow-btn-fb" onclick="return openFacebook(event)">Facebook</button>
               <button type="button" class="follow-btn-ig" onclick="return openInstagram(event)">Instagram</button>
             </div>
           </div>
         </li>
       </ol>
+      <div id="entry-stats" class="entry-stats-card">
+        <div class="entry-stat">
+          <div class="entry-stat-label">Your raffle entries</div>
+          <div class="entry-stat-value" id="your-entries-count">0</div>
+        </div>
+        <div class="entry-stat">
+          <div class="entry-stat-label">Total entries (current)</div>
+          <div class="entry-stat-value" id="total-entries-count">0</div>
+        </div>
+      </div>
+      <h2 class="raffle raffle-title blink">
+        <strong>5 CHANCES TO GET ADDITIONAL ENTRIES AND MORE PRIZES. PLAY THE SURGE MACHINE.</strong>
+      </h2>
+      <!-- Slot machine mount -->
+      <div id="slot-root">
+
+        <div class="slot-card">
+          <h2 class="slot-title">🎰 Slot to Win</h2>
+
+          <div class="slot-machine">
+            <div class="slot-window">
+              <div class="slot-reel" id="slot-reel-0"></div>
+            </div>
+            <div class="slot-window">
+              <div class="slot-reel" id="slot-reel-1"></div>
+            </div>
+            <div class="slot-window">
+              <div class="slot-reel" id="slot-reel-2"></div>
+            </div>
+          </div>
+
+          <div class="slot-controls">
+            <div class="slot-left" id="slot-spins-left">Spins left: 5</div>
+            <button class="slot-spin" id="slot-spin-btn">Spin</button>
+          </div>
+
+          <div class="slot-result" id="slot-result"></div>
+        </div>
+
+
+
+      </div>
+
+      <!-- Winner modal -->
+      <div id="winnerModal" class="winner-modal hidden" role="dialog" aria-modal="true" aria-labelledby="winnerName">
+        <h1 class="winner-title">🎉 Raffle Winner 🎉</h1>
+        <p id="winnerName" class="winner-name"></p>
+        <button onclick="hideWinnerModal()" class="btn-modal-close">Close</button>
+      </div>
+      <!-- Social follower counts -->
+      <div class="followers-wrapper">
+        <div class="follower-block">
+          <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/c/c3/FB_Logo_PNG.png/640px-FB_Logo_PNG.png"
+            width="16" alt="Facebook" />
+          <span id="fb-followers">—</span><span> followers</span>
+        </div>
+        <div class="follower-block">
+          <img src="https://upload.wikimedia.org/wikipedia/commons/a/a5/Instagram_icon.png" width="16"
+            alt="Instagram" />
+          <span id="ig-followers">—</span><span> followers</span>
+        </div>
+      </div>
     </div>
 
-    <!-- Social follower counts -->
-    <div class="followers-wrapper">
-      <div class="follower-block">
-        <img
-          src="https://upload.wikimedia.org/wikipedia/commons/thumb/c/c3/FB_Logo_PNG.png/640px-FB_Logo_PNG.png"
-          width="16"
-          alt="Facebook"
-        />
-        <span id="fb-followers">—</span><span> followers</span>
-      </div>
-      <div class="follower-block">
-        <img
-          src="https://upload.wikimedia.org/wikipedia/commons/a/a5/Instagram_icon.png"
-          width="16"
-          alt="Instagram"
-        />
-        <span id="ig-followers">—</span><span> followers</span>
-      </div>
-    </div>
   </form>
-
-  <!-- Slot machine mount -->
-  <div id="slot-root"></div>
-
-  <!-- Winner modal -->
-  <div id="winnerModal" class="winner-modal hidden" role="dialog" aria-modal="true" aria-labelledby="winnerName">
-    <h1 class="winner-title">🎉 Raffle Winner 🎉</h1>
-    <p id="winnerName" class="winner-name"></p>
-    <button onclick="hideWinnerModal()" class="btn-modal-close">Close</button>
-  </div>
 
   <!-- Robust loader for slot.js: tries /public/slot.js then /slot.js -->
   <script>
@@ -171,4 +181,5 @@
     })();
   </script>
 </body>
+
 </html>

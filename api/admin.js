@@ -60,6 +60,12 @@ function isFollowAllowed(raw) {
   }
 }
 
+async function scanAll(match) {
+  const out = [];
+  for await (const k of redis.scanIterator({ MATCH: match, COUNT: 1000 })) out.push(k);
+  return out;
+}
+
 // Utility: current show window key + TTL
 async function getWindowInfo() {
   let showName = "90 Surge";
@@ -414,77 +420,109 @@ if (action === "my-entries" && req.method === "GET") {
     return res.status(200).json({ rows });
   }
 
-  // Reset EVERYTHING for this show window (namespaced):
-  // - entries list
-  // - per-source dedupe sets (fb/ig/jackpot)
-  // - bonus counters (if any)
-  // - prize/spin logs
-  // - ALL current-window social keys + set + locks
-  // - winner cache
-  // Also (in local/dev), best-effort cleanup of legacy global "social:*"
-  if (action === "reset-entries" && req.method === "POST") {
-    const authHeader = req.headers.authorization || "";
-    const isAdmin =
-      authHeader.startsWith("Bearer:super:") &&
-      authHeader.endsWith(process.env.ADMIN_PASS);
-    if (!isAdmin) return res.status(403).json({ error: "Forbidden" });
+  /// Reset EVERYTHING for this show window:
+// - entries list
+// - per-source dedupe sets (fb/ig/jackpot)
+// - bonus/prize logs for this window
+// - cached winner
+// - ALL social:* keys (including social:ips and social:lock:*)
+// We delete keys ONE-BY-ONE to avoid cluster/multi-key pitfalls.
+if (action === "reset-entries" && req.method === "POST") {
+  const authHeader = req.headers.authorization || "";
+  const isAdmin =
+    authHeader.startsWith("Bearer:super:") &&
+    authHeader.endsWith(process.env.ADMIN_PASS);
+  if (!isAdmin) return res.status(403).json({ error: "Forbidden" });
 
-    const ok = await ensureRedisConnected();
-    if (!ok) return res.status(503).json({ error: "Redis not ready" });
+  const ok = await ensureRedisConnected();
+  if (!ok) return res.status(503).json({ error: "Redis not ready" });
 
-    try {
-      const { windowKey } = await getWindowInfo();
-
-      const patterns = [
-        `raffle:entries:${windowKey}`,
-        `raffle:entered:${windowKey}:*`,
-        `raffle:bonus:${windowKey}:*`,
-        `raffle:prizes:${windowKey}`,
-        `social:${windowKey}:*`,
-        `social:ips:${windowKey}`,
-        `social:lock:${windowKey}:*`,
-        `raffle_winner`,
-      ];
-
-      const toDelete = [];
-      for (const pat of patterns) {
-        if (pat.includes("*")) {
-          toDelete.push(...(await collectKeys(pat)));
-        } else {
-          const exists = await redis.exists(pat);
-          if (exists) toDelete.push(pat);
-        }
-      }
-
-      // In local/dev, scrub any stray legacy keys from older builds
-      if (isLocal) {
-        toDelete.push(...(await collectKeys("social:*")));
-      }
-
-      // Dedup + delete in chunks
-      const uniq = [...new Set(toDelete.filter(Boolean))];
-      let deleted = 0;
-      const CHUNK = 400;
-      for (let i = 0; i < uniq.length; i += CHUNK) {
-        const slice = uniq.slice(i, i + CHUNK);
-        if (slice.length) deleted += await redis.del(...slice);
-      }
-
-      return res.status(200).json({
-        success: true,
-        windowKey,
-        deletedKeys: deleted,
-        enumerated: uniq.length,
-      });
-    } catch (e) {
-      console.error("❌ reset-entries failed:", e);
-      return res.status(500).json({
-        success: false,
-        error: "Reset entries failed",
-        details: e?.message || String(e),
-      });
+  // helpers
+  async function scanAll(match) {
+    const out = [];
+    for await (const k of redis.scanIterator({ MATCH: match, COUNT: 1000 })) {
+      out.push(k);
     }
+    return out;
   }
+  async function delKey(k) {
+    try { return await redis.unlink(k); } catch { return await redis.del(k); }
+  }
+
+  try {
+    const { windowKey } = await getWindowInfo();
+
+    // Window-scoped keys
+    const listKey   = `raffle:entries:${windowKey}`;
+    const prizeKey  = `raffle:prizes:${windowKey}`;
+    const dedupes   = await scanAll(`raffle:entered:${windowKey}:*`);
+    const bonuses   = await scanAll(`raffle:bonus:${windowKey}:*`);
+
+    // Winner
+    const winnerKey = `raffle_winner`;
+
+    // Social via index
+    const ips = await redis.sMembers("social:ips").catch(() => []);
+    const socialFromIndex = [];
+    for (const ip of ips) {
+      socialFromIndex.push(`social:${ip}`);
+      socialFromIndex.push(`social:lock:${ip}`);
+    }
+    // Include the index set itself
+    socialFromIndex.push("social:ips");
+
+    // Social catch-all (anything not indexed)
+    const socialWildcard = await scanAll("social:*");
+
+    // Unique deletion list
+    const toDelete = Array.from(
+      new Set([
+        listKey,
+        prizeKey,
+        winnerKey,
+        ...dedupes,
+        ...bonuses,
+        ...socialFromIndex,
+        ...socialWildcard,
+      ].filter(Boolean))
+    );
+
+    // Delete ONE BY ONE (prevents cluster cross-slot & arg count issues)
+    let deleted = 0;
+    for (const key of toDelete) {
+      try {
+        deleted += await delKey(key);
+      } catch (e) {
+        console.warn("reset-entries: failed to delete", key, e?.message || e);
+      }
+    }
+
+    // Belt & suspenders: ensure social:ips is completely gone
+    try { await delKey("social:ips"); } catch {}
+
+    // Sanity pass: see what (if anything) survived
+    const remainingSocial = await scanAll("social:*");
+    const remainingRaffleEntered = await scanAll(`raffle:entered:${windowKey}:*`);
+
+    return res.status(200).json({
+      success: true,
+      windowKey,
+      deletedKeys: deleted,
+      remaining: {
+        social: remainingSocial,
+        raffleEntered: remainingRaffleEntered,
+      },
+    });
+  } catch (e) {
+    console.error("❌ reset-entries failed:", e);
+    return res.status(500).json({
+      success: false,
+      error: "Reset entries failed",
+      details: e?.message || String(e),
+    });
+  }
+}
+
 
   // ────── PRIZE/SPIN LOGGING ──────
   if (action === "prize-log" && req.method === "POST") {
@@ -676,6 +714,33 @@ if (action === "my-entries" && req.method === "GET") {
 
     return res.status(200).json({ allowed: isFollowAllowed(raw) });
   }
+
+// GET current spins reset version
+if (action === "slot-spins-version" && req.method === "GET") {
+  const ok = await ensureRedisConnected();
+  if (!ok) return res.status(200).json({ version: 0, at: null });
+  const [v, at] = await Promise.all([
+    redis.get("slot:spinsResetVersion").catch(() => "0"),
+    redis.get("slot:spinsResetAt").catch(() => null),
+  ]);
+  return res.status(200).json({ version: Number(v || 0), at });
+}
+
+// ADMIN: bump the spins reset version → all clients will reset on next load/poll
+if (action === "reset-slot-spins" && req.method === "POST") {
+  const authHeader = req.headers.authorization || "";
+  const isAdmin =
+    authHeader.startsWith("Bearer:super:") &&
+    authHeader.endsWith(process.env.ADMIN_PASS);
+  if (!isAdmin) return res.status(403).json({ error: "Forbidden" });
+
+  const ok = await ensureRedisConnected();
+  if (!ok) return res.status(503).json({ error: "Redis not ready" });
+
+  const version = await redis.incr("slot:spinsResetVersion");
+  await redis.set("slot:spinsResetAt", new Date().toISOString(), { EX: 60 * 60 * 24 * 7 });
+  return res.status(200).json({ success: true, version });
+}
 
   // ────── SOCIAL STATUS (admin view, window-scoped) ──────
   if (req.method === "GET" && action === "social-status") {
