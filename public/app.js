@@ -157,16 +157,16 @@
   // ──────────────────────────────────────────────────────────────
   // Prize/spin logging (optional, safe to fail)
   // ──────────────────────────────────────────────────────────────
-  async function logSpin(targets, jackpot) {
-    const name = getName() || "(anonymous)";
-    try {
-      await postJSON("/api/admin?action=prize-log", {
-        name,
-        targets,
-        jackpot: !!jackpot,
-      });
-    } catch (e) {}
+async function logSpin(targets, jackpot) {
+  console.debug("[spin] logSpin →", { targets, jackpot });
+  const name = getName() || "(anonymous)";
+  try {
+    await postJSON("/api/admin?action=prize-log", { name, targets, jackpot: !!jackpot });
+  } catch (e) {
+    console.warn("logSpin failed:", e?.message || e);
   }
+}
+
 
   // ──────────────────────────────────────────────────────────────
   // Entry Stats (Your entries + Total entries) — expects static markup
