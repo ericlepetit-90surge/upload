@@ -490,7 +490,7 @@
         if (!res.ok || !json.success) throw new Error(json.error || 'Failed');
         toast('Entries & logs reset','success');
         $('#winnerDisplay').textContent = 'No winner yet';
-        await Promise.all([loadEntries(), loadSocialStatus(), loadWinnerLogs(), loadPrizeLogs()]);
+        await Promise.all([loadEntries(), loadSocialStatus(), loadWinnerLogs()]);
       }catch(e){ toast('Failed to reset entries','error'); }
     }
 
@@ -539,7 +539,7 @@
       await loadWinnerLogs();
       document.getElementById("refresh-winners-btn")?.addEventListener("click", loadWinnerLogs);
       setInterval(loadWinnerLogs, 10000);
-      
+
       const role = localStorage.getItem('role');
       const login = $('#login-section');
       const app = $('#admin-content');
