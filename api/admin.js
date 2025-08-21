@@ -16,6 +16,9 @@ const isLocal =
   (!process.env.VERCEL && process.env.NODE_ENV !== "production") ||
   process.env.VERCEL_ENV === "development";
 
+// Local ledger file (dev fallback)
+const LOCAL_LEDGER_FILE = path.join(process.cwd(), "winners-local.json");
+
 /* ──────────────────────────────────────────────────────────────
    Redis singleton
 ────────────────────────────────────────────────────────────── */
@@ -102,6 +105,32 @@ function noCache(res) {
   res.setHeader("Vercel-CDN-Cache-Control", "no-store");
 }
 
+// Local file helpers (dev)
+function readLocalLedgerSafe() {
+  try {
+    if (!fs.existsSync(LOCAL_LEDGER_FILE)) return [];
+    const txt = fs.readFileSync(LOCAL_LEDGER_FILE, "utf8");
+    const arr = JSON.parse(txt);
+    return Array.isArray(arr) ? arr : [];
+  } catch {
+    return [];
+  }
+}
+function writeLocalLedgerSafe(rows) {
+  try {
+    fs.writeFileSync(LOCAL_LEDGER_FILE, JSON.stringify(rows, null, 2));
+    return true;
+  } catch {
+    return false;
+  }
+}
+function appendLocalLedgerRow(row) {
+  const arr = readLocalLedgerSafe();
+  arr.push(row);
+  if (arr.length > 500) arr.splice(0, arr.length - 500);
+  writeLocalLedgerSafe(arr);
+}
+
 // Current show window (fallback = current UTC day)
 async function getWindowInfo() {
   let showName = "90 Surge";
@@ -165,35 +194,52 @@ async function getWindowInfo() {
 
 /* Winners persistence with robust fallback */
 async function appendWinnerRow(row) {
+  // Always mirror in-process (helps when using same worker)
+  MEM.winners.push(row);
+  if (MEM.winners.length > 500) MEM.winners = MEM.winners.slice(-500);
+
+  // Try Redis
   try {
     const ok = await ensureRedisConnected();
     if (ok && redis?.isOpen) {
       await redis.rPush("raffle:winners:all", JSON.stringify(row));
       await redis.lTrim("raffle:winners:all", -500, -1);
-      // mirror to mem too (keeps Admin UI happy if Redis hiccups later)
-      MEM.winners.push(row);
-      if (MEM.winners.length > 500) MEM.winners = MEM.winners.slice(-500);
+      // Also keep local file in dev for easy manual inspection
+      if (isLocal) appendLocalLedgerRow(row);
       return { ok: true, where: "redis" };
     }
   } catch (e) {
     console.warn("appendWinnerRow.redis failed:", e?.message || e);
   }
 
-  // fallback to mem
-  MEM.winners.push(row);
-  if (MEM.winners.length > 500) MEM.winners = MEM.winners.slice(-500);
+  // Dev fallback: write to local file so GET winner-logs sees it across requests
+  if (isLocal) {
+    appendLocalLedgerRow(row);
+    return { ok: true, where: "file" };
+  }
+
+  // Last resort: only memory (works on same request worker)
   return { ok: true, where: "mem" };
 }
 
-// super-safe normalizer (no Unicode property escapes)
 function normalizeSymbol(s) {
-  return String(s || "").trim().toLowerCase();
+  try {
+    return String(s || "")
+      .toLowerCase()
+      .replace(/\p{Extended_Pictographic}|\p{Emoji_Presentation}/gu, "")
+      .replace(/\s+/g, " ")
+      .trim();
+  } catch {
+    return String(s || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, " ")
+      .trim();
+  }
 }
-
 function detectJackpot(targets = [], clientFlag = false) {
   if (clientFlag) return true;
-  const norm = targets.slice(0, 3).map(normalizeSymbol);
-  if (norm.length >= 3 && new Set(norm).size === 1) return true;
+  const norm = targets.slice(0, 3).map(normalizeSymbol).filter(Boolean);
+  if (norm.length >= 3 && new Set(norm.slice(0, 3)).size === 1) return true;
   if (normalizeSymbol(targets.join(" ")).includes("jackpot")) return true;
   return false;
 }
@@ -202,10 +248,7 @@ function detectJackpot(targets = [], clientFlag = false) {
    Main handler
 ────────────────────────────────────────────────────────────── */
 export default async function handler(req, res) {
-  const url = new URL(
-    req.url || "",
-    `http://${req.headers.host || "localhost"}`
-  );
+  const url = new URL(req.url || "", `http://${req.headers.host}`);
   const action = url.searchParams.get("action");
   console.log("➡️ Admin action:", req.method, action);
 
@@ -224,11 +267,12 @@ export default async function handler(req, res) {
         try {
           req.body = body ? JSON.parse(body) : {};
         } catch {
-          console.warn("JSON parse failed, continuing with empty body");
+          console.warn("JSON parse failed, continuing with empty body (tolerant)");
           req.body = {};
         }
       } else {
-        req.body = req.body && typeof req.body === "object" ? req.body : {};
+        req.body =
+          req.body && typeof req.body === "object" ? req.body : {};
       }
     } catch {
       req.body = {};
@@ -494,11 +538,13 @@ export default async function handler(req, res) {
   if (action === "my-entries" && req.method === "GET") {
     const ok = await ensureRedisConnected();
     if (!ok) {
-      return res.status(200).json({
-        mine: 0,
-        total: 0,
-        sources: { fb: false, ig: false, jackpot: false },
-      });
+      return res
+        .status(200)
+        .json({
+          mine: 0,
+          total: 0,
+          sources: { fb: false, ig: false, jackpot: false },
+        });
     }
 
     const { windowKey } = await getWindowInfo();
@@ -520,11 +566,13 @@ export default async function handler(req, res) {
     ]);
 
     const mine = (fb ? 1 : 0) + (ig ? 1 : 0) + (jp ? 1 : 0);
-    return res.status(200).json({
-      mine,
-      total: Number(total || 0),
-      sources: { fb: !!fb, ig: !!ig, jackpot: !!jp },
-    });
+    return res
+      .status(200)
+      .json({
+        mine,
+        total: Number(total || 0),
+        sources: { fb: !!fb, ig: !!ig, jackpot: !!jp },
+      });
   }
 
   if (action === "entries-summary" && req.method === "GET") {
@@ -560,6 +608,8 @@ export default async function handler(req, res) {
     if (!ok || !redis?.isOpen) {
       MEM.winners = [];
       MEM.currentWinner = null;
+      // also clear local file in dev
+      if (isLocal) try { fs.unlinkSync(LOCAL_LEDGER_FILE); } catch {}
       return res.status(200).json({
         success: true,
         windowKey: "(mem)",
@@ -615,9 +665,10 @@ export default async function handler(req, res) {
       let deleted = 0;
       for (const k of toDelete) deleted += await delKey(k);
 
-      // clear in-memory mirrors
+      // clear in-memory mirrors & local file
       MEM.winners = [];
       MEM.currentWinner = null;
+      if (isLocal) try { fs.unlinkSync(LOCAL_LEDGER_FILE); } catch {}
 
       const remainingSocial = await scanAll(`social:${windowKey}:*`);
       const remainingRaffleEntered = await scanAll(
@@ -635,11 +686,13 @@ export default async function handler(req, res) {
       });
     } catch (e) {
       console.error("❌ reset-entries failed:", e);
-      return res.status(500).json({
-        success: false,
-        error: "Reset entries failed",
-        details: e?.message || String(e),
-      });
+      return res
+        .status(500)
+        .json({
+          success: false,
+          error: "Reset entries failed",
+          details: e?.message || String(e),
+        });
     }
   }
 
@@ -649,6 +702,7 @@ export default async function handler(req, res) {
   if (req.method === "GET" && action === "social-status") {
     const ok = await ensureRedisConnected();
     if (!ok || !redis?.isOpen) {
+      // local dev fallback: nothing tracked
       return res.status(200).json({
         totals: {
           uniqueIPsTracked: 0,
@@ -814,7 +868,7 @@ export default async function handler(req, res) {
   }
 
   /* ────────────────────────────────────────────────────────────
-     WINNERS LEDGER
+     WINNERS LEDGER (manual + list)
   ───────────────────────────────────────────────────────────── */
   if (action === "winner-log" && req.method === "POST") {
     if (!isAdmin(req)) return res.status(403).json({ error: "Forbidden" });
@@ -860,10 +914,11 @@ export default async function handler(req, res) {
       }
 
       const memRows = Array.isArray(MEM.winners) ? MEM.winners : [];
+      const fileRows = isLocal ? readLocalLedgerSafe() : [];
 
       // Merge & dedupe by id
       const byId = new Map();
-      for (const r of [...redisRows, ...memRows]) {
+      for (const r of [...redisRows, ...fileRows, ...memRows]) {
         if (r && r.id) byId.set(r.id, r);
       }
 
@@ -899,10 +954,12 @@ export default async function handler(req, res) {
       );
       const fbJson = await fbRes.json().catch(() => ({}));
       const igJson = await igRes.json().catch(() => ({}));
-      return res.status(200).json({
-        facebook: Number(fbJson?.fan_count || 0),
-        instagram: Number(igJson?.followers_count || 0),
-      });
+      return res
+        .status(200)
+        .json({
+          facebook: Number(fbJson?.fan_count || 0),
+          instagram: Number(igJson?.followers_count || 0),
+        });
     } catch (err) {
       console.error("❌ followers:", err?.message || err);
       return res.status(200).json({ facebook: 0, instagram: 0 });
@@ -938,8 +995,9 @@ export default async function handler(req, res) {
       return res.status(503).json({ error: "Redis not ready" });
 
     let platform =
-      new URL(req.url, `http://${req.headers.host || "localhost"}`)
-        .searchParams.get("platform") ||
+      new URL(req.url, `http://${req.headers.host}`).searchParams.get(
+        "platform"
+      ) ||
       (typeof req.body === "object" && req.body ? req.body.platform : null);
     platform = (platform || "").toString().trim().toLowerCase();
 
@@ -1051,10 +1109,7 @@ export default async function handler(req, res) {
     await ensureRedisConnected();
     const { windowKey } = await getWindowInfo();
 
-    const u = new URL(
-      req.url || "",
-      `http://${req.headers.host || "localhost"}`
-    );
+    const u = new URL(req.url || "", `http://${req.headers.host}`);
     const body = req.body && typeof req.body === "object" ? req.body : {};
 
     const name = (body.name || u.searchParams.get("name") || "(anonymous)")
@@ -1072,7 +1127,7 @@ export default async function handler(req, res) {
           .map((s) => s.trim());
     }
 
-    // jackpot detection (explicit flag OR triple OR keyword)
+    // explicit jackpot flag from body or query
     const explicit =
       body.jackpot === true ||
       body.jackpot === "true" ||
