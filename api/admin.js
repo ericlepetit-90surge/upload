@@ -16,8 +16,9 @@ const isLocal =
   (!process.env.VERCEL && process.env.NODE_ENV !== "production") ||
   process.env.VERCEL_ENV === "development";
 
-// Local ledger file (dev fallback)
-const LOCAL_LEDGER_FILE = path.join(process.cwd(), "winners-local.json");
+/* Local ledger file (dev fallback) */
+const DATA_DIR = path.join(process.cwd(), ".data");
+const LOCAL_LEDGER_FILE = path.join(DATA_DIR, "winners-local.json");
 
 /* ──────────────────────────────────────────────────────────────
    Redis singleton
@@ -57,7 +58,7 @@ async function ensureRedisConnected() {
    Helpers
 ────────────────────────────────────────────────────────────── */
 const g = globalThis;
-// Tiny in-memory mirror as a safety net
+// In-memory mirror (safety net in same process)
 if (!g.__surgeMem) g.__surgeMem = { winners: [], currentWinner: null };
 const MEM = g.__surgeMem;
 
@@ -72,32 +73,22 @@ function isAdmin(req) {
 async function scanAll(match) {
   const out = [];
   if (!redis?.scanIterator) return out;
-  for await (const k of redis.scanIterator({ MATCH: match, COUNT: 1000 }))
-    out.push(k);
+  for await (const k of redis.scanIterator({ MATCH: match, COUNT: 1000 })) out.push(k);
   return out;
 }
 
 function isFollowAllowed(raw) {
   if (!raw) return false;
   if (raw === "true") return true;
-  try {
-    return !!JSON.parse(raw)?.followed;
-  } catch {
-    return false;
-  }
+  try { return !!JSON.parse(raw)?.followed; } catch { return false; }
 }
 
 function timeout(ms) {
-  return new Promise((_, rej) =>
-    setTimeout(() => rej(new Error("Timeout " + ms + "ms")), ms)
-  );
+  return new Promise((_, rej) => setTimeout(() => rej(new Error("Timeout " + ms + "ms")), ms));
 }
 
 function noCache(res) {
-  res.setHeader(
-    "Cache-Control",
-    "no-store, no-cache, must-revalidate, proxy-revalidate"
-  );
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
   res.setHeader("Pragma", "no-cache");
   res.setHeader("Expires", "0");
   res.setHeader("Surrogate-Control", "no-store");
@@ -105,24 +96,24 @@ function noCache(res) {
   res.setHeader("Vercel-CDN-Cache-Control", "no-store");
 }
 
-// Local file helpers (dev)
+function ensureLocalDir() {
+  try { if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true }); } catch {}
+}
 function readLocalLedgerSafe() {
   try {
+    ensureLocalDir();
     if (!fs.existsSync(LOCAL_LEDGER_FILE)) return [];
     const txt = fs.readFileSync(LOCAL_LEDGER_FILE, "utf8");
     const arr = JSON.parse(txt);
     return Array.isArray(arr) ? arr : [];
-  } catch {
-    return [];
-  }
+  } catch { return []; }
 }
 function writeLocalLedgerSafe(rows) {
   try {
-    fs.writeFileSync(LOCAL_LEDGER_FILE, JSON.stringify(rows, null, 2));
+    ensureLocalDir();
+    fs.writeFileSync(LOCAL_LEDGER_FILE, JSON.stringify(rows, null, 2), "utf8");
     return true;
-  } catch {
-    return false;
-  }
+  } catch { return false; }
 }
 function appendLocalLedgerRow(row) {
   const arr = readLocalLedgerSafe();
@@ -131,7 +122,6 @@ function appendLocalLedgerRow(row) {
   writeLocalLedgerSafe(arr);
 }
 
-// Current show window (fallback = current UTC day)
 async function getWindowInfo() {
   let showName = "90 Surge";
   let startTime = null;
@@ -161,26 +151,8 @@ async function getWindowInfo() {
 
   if (!startTime || !endTime) {
     const now = new Date();
-    const start = new Date(
-      Date.UTC(
-        now.getUTCFullYear(),
-        now.getUTCMonth(),
-        now.getUTCDate(),
-        0,
-        0,
-        0
-      )
-    );
-    const end = new Date(
-      Date.UTC(
-        now.getUTCFullYear(),
-        now.getUTCMonth(),
-        now.getUTCDate() + 1,
-        0,
-        0,
-        0
-      )
-    );
+    const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0));
+    const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1, 0, 0, 0));
     startTime = start.toISOString();
     endTime = end.toISOString();
   }
@@ -194,7 +166,7 @@ async function getWindowInfo() {
 
 /* Winners persistence with robust fallback */
 async function appendWinnerRow(row) {
-  // Always mirror in-process (helps when using same worker)
+  // Always mirror in memory
   MEM.winners.push(row);
   if (MEM.winners.length > 500) MEM.winners = MEM.winners.slice(-500);
 
@@ -204,22 +176,21 @@ async function appendWinnerRow(row) {
     if (ok && redis?.isOpen) {
       await redis.rPush("raffle:winners:all", JSON.stringify(row));
       await redis.lTrim("raffle:winners:all", -500, -1);
-      // Also keep local file in dev for easy manual inspection
-      if (isLocal) appendLocalLedgerRow(row);
-      return { ok: true, where: "redis" };
+      if (isLocal) appendLocalLedgerRow(row); // also file in dev for visibility
+      return { where: "redis" };
     }
   } catch (e) {
     console.warn("appendWinnerRow.redis failed:", e?.message || e);
   }
 
-  // Dev fallback: write to local file so GET winner-logs sees it across requests
+  // Dev fallback: file
   if (isLocal) {
     appendLocalLedgerRow(row);
-    return { ok: true, where: "file" };
+    return { where: "file" };
   }
 
-  // Last resort: only memory (works on same request worker)
-  return { ok: true, where: "mem" };
+  // Last resort: mem only
+  return { where: "mem" };
 }
 
 function normalizeSymbol(s) {
@@ -230,10 +201,7 @@ function normalizeSymbol(s) {
       .replace(/\s+/g, " ")
       .trim();
   } catch {
-    return String(s || "")
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, " ")
-      .trim();
+    return String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
   }
 }
 function detectJackpot(targets = [], clientFlag = false) {
@@ -252,11 +220,9 @@ export default async function handler(req, res) {
   const action = url.searchParams.get("action");
   console.log("➡️ Admin action:", req.method, action);
 
-  // parse JSON body (tolerant)
+  // tolerant JSON body parsing
   if (req.method === "POST") {
-    const isJson = (req.headers["content-type"] || "").includes(
-      "application/json"
-    );
+    const isJson = (req.headers["content-type"] || "").includes("application/json");
     try {
       if (isJson) {
         let body = "";
@@ -264,36 +230,26 @@ export default async function handler(req, res) {
           req.on("data", (c) => (body += c));
           req.on("end", resolve);
         });
-        try {
-          req.body = body ? JSON.parse(body) : {};
-        } catch {
-          console.warn("JSON parse failed, continuing with empty body (tolerant)");
-          req.body = {};
-        }
+        try { req.body = body ? JSON.parse(body) : {}; }
+        catch { console.warn("JSON parse failed; using {}"); req.body = {}; }
       } else {
-        req.body =
-          req.body && typeof req.body === "object" ? req.body : {};
+        req.body = req.body && typeof req.body === "object" ? req.body : {};
       }
-    } catch {
-      req.body = {};
-    }
+    } catch { req.body = {}; }
   }
 
   /* ───── AUTH ───── */
   if (action === "login" && req.method === "POST") {
     const { password } = req.body || {};
-    if (password === ADMIN_PASS)
-      return res.json({ success: true, role: "admin" });
-    if (password === MODERATOR_PASS)
-      return res.json({ success: true, role: "moderator" });
+    if (password === ADMIN_PASS) return res.json({ success: true, role: "admin" });
+    if (password === MODERATOR_PASS) return res.json({ success: true, role: "moderator" });
     return res.status(401).json({ success: false, error: "Invalid password" });
   }
 
   /* ───── REDIS STATUS / WARM ───── */
   if (req.method === "GET" && action === "redis-status") {
     try {
-      if (!(await ensureRedisConnected()))
-        return res.status(200).json({ status: "idle" });
+      if (!(await ensureRedisConnected())) return res.status(200).json({ status: "idle" });
       const t0 = Date.now();
       await redis.ping();
       const pingMs = Date.now() - t0;
@@ -304,10 +260,7 @@ export default async function handler(req, res) {
         redis.get("cache:hitRate").catch(() => null),
       ]);
       return res.status(200).json({
-        status: "active",
-        pingMs,
-        keyCount,
-        lastWarmAt,
+        status: "active", pingMs, keyCount, lastWarmAt,
         seeded: seeded === "true" ? true : seeded ?? null,
         hitRate: hitRate ? Number(hitRate) : null,
       });
@@ -331,9 +284,7 @@ export default async function handler(req, res) {
       await redis.ping();
       const pingMs = Date.now() - t0;
       const keyCount = await redis.dbSize().catch(() => null);
-      return res
-        .status(200)
-        .json({ success: true, pong: "PONG", pingMs, keyCount });
+      return res.status(200).json({ success: true, pong: "PONG", pingMs, keyCount });
     } catch (err) {
       console.error("❌ warm-redis:", err);
       return res.status(500).json({ error: "Warm-up failed" });
@@ -345,7 +296,6 @@ export default async function handler(req, res) {
     if (req.method === "GET") {
       noCache(res);
       await ensureRedisConnected();
-
       try {
         if (isLocal) {
           try {
@@ -355,9 +305,7 @@ export default async function handler(req, res) {
             const startTime = cfg.startTime ?? null;
             const endTime = cfg.endTime ?? null;
             const version = Number(cfg.version || 0);
-            return res
-              .status(200)
-              .json({ showName, startTime, endTime, version });
+            return res.status(200).json({ showName, startTime, endTime, version });
           } catch {}
         }
         if (redis?.isOpen) {
@@ -370,21 +318,9 @@ export default async function handler(req, res) {
             ]),
             timeout(10000),
           ]);
-          return res.status(200).json({
-            showName,
-            startTime,
-            endTime,
-            version: Number(version || 0),
-          });
+          return res.status(200).json({ showName, startTime, endTime, version: Number(version || 0) });
         }
-        return res
-          .status(200)
-          .json({
-            showName: "90 Surge",
-            startTime: null,
-            endTime: null,
-            version: 0,
-          });
+        return res.status(200).json({ showName: "90 Surge", startTime: null, endTime: null, version: 0 });
       } catch (err) {
         console.error("❌ config GET:", err);
         return res.status(500).json({ error: "Failed to load config" });
@@ -399,17 +335,11 @@ export default async function handler(req, res) {
         if (isLocal) {
           const filePath = path.join(process.cwd(), "config.json");
           let existing = {};
-          try {
-            existing = JSON.parse(fs.readFileSync(filePath, "utf8"));
-          } catch {}
+          try { existing = JSON.parse(fs.readFileSync(filePath, "utf8")); } catch {}
           version = Number(existing.version || 0) + 1;
-          fs.writeFileSync(
-            filePath,
-            JSON.stringify({ showName, startTime, endTime, version }, null, 2)
-          );
+          fs.writeFileSync(filePath, JSON.stringify({ showName, startTime, endTime, version }, null, 2));
         } else {
-          if (!redis?.isOpen)
-            return res.status(503).json({ error: "Redis not ready" });
+          if (!redis?.isOpen) return res.status(503).json({ error: "Redis not ready" });
           await Promise.all([
             redis.set("showName", showName || ""),
             redis.set("startTime", startTime || ""),
@@ -418,18 +348,10 @@ export default async function handler(req, res) {
           version = await redis.incr("config:version");
         }
         try {
-          await redis?.publish?.(
-            "sse",
-            JSON.stringify({
-              type: "config",
-              config: { showName, startTime, endTime, version },
-            })
-          );
+          await redis?.publish?.("sse", JSON.stringify({ type: "config", config: { showName, startTime, endTime, version } }));
         } catch {}
         noCache(res);
-        return res
-          .status(200)
-          .json({ success: true, showName, startTime, endTime, version });
+        return res.status(200).json({ success: true, showName, startTime, endTime, version });
       } catch (err) {
         console.error("❌ config POST:", err);
         return res.status(500).json({ error: "Failed to save config" });
@@ -451,14 +373,9 @@ export default async function handler(req, res) {
     const name = nameRaw.slice(0, 80);
 
     const rawSource = (req.body?.source || "").toString().toLowerCase();
-    const source = ["fb", "ig", "jackpot"].includes(rawSource)
-      ? rawSource
-      : "other";
+    const source = ["fb", "ig", "jackpot"].includes(rawSource) ? rawSource : "other";
 
-    const ip =
-      req.headers["x-forwarded-for"]?.split(",")[0]?.trim() ||
-      req.socket.remoteAddress ||
-      "unknown";
+    const ip = req.headers["x-forwarded-for"]?.split(",")[0]?.trim() || req.socket.remoteAddress || "unknown";
     const { windowKey, ttlSeconds } = await getWindowInfo();
 
     const setKey = `raffle:entered:${windowKey}:${source}`;
@@ -466,32 +383,23 @@ export default async function handler(req, res) {
 
     const already = await redis.sIsMember(setKey, ip);
     if (already) {
-      // self-heal (append if row missing)
       try {
         const tail = await redis.lRange(listKey, -300, -1);
         let found = false;
         for (const s of tail) {
           try {
             const e = JSON.parse(s);
-            if (e && e.ip === ip && e.source === source) {
-              found = true;
-              break;
-            }
+            if (e && e.ip === ip && e.source === source) { found = true; break; }
           } catch {}
         }
         if (!found) {
           const entry = {
             id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
-            name,
-            ip,
-            source,
-            createdTime: new Date().toISOString(),
+            name, ip, source, createdTime: new Date().toISOString(),
           };
           await redis.rPush(listKey, JSON.stringify(entry));
           await redis.expire(listKey, ttlSeconds);
-          return res
-            .status(200)
-            .json({ success: true, already: true, repaired: true, entry });
+          return res.status(200).json({ success: true, already: true, repaired: true, entry });
         }
       } catch {}
       return res.status(200).json({ success: true, already: true, source });
@@ -499,14 +407,10 @@ export default async function handler(req, res) {
 
     const entry = {
       id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
-      name,
-      ip,
-      source,
-      createdTime: new Date().toISOString(),
+      name, ip, source, createdTime: new Date().toISOString(),
     };
 
-    await redis
-      .multi()
+    await redis.multi()
       .sAdd(setKey, ip)
       .expire(setKey, ttlSeconds)
       .rPush(listKey, JSON.stringify(entry))
@@ -523,35 +427,18 @@ export default async function handler(req, res) {
     const { windowKey } = await getWindowInfo();
     const listKey = `raffle:entries:${windowKey}`;
     const raw = await redis.lRange(listKey, 0, -1);
-    const entries = raw
-      .map((s) => {
-        try {
-          return JSON.parse(s);
-        } catch {
-          return null;
-        }
-      })
-      .filter(Boolean);
+    const entries = raw.map(s => { try { return JSON.parse(s); } catch { return null; } }).filter(Boolean);
     return res.status(200).json({ entries, count: entries.length });
   }
 
   if (action === "my-entries" && req.method === "GET") {
     const ok = await ensureRedisConnected();
     if (!ok) {
-      return res
-        .status(200)
-        .json({
-          mine: 0,
-          total: 0,
-          sources: { fb: false, ig: false, jackpot: false },
-        });
+      return res.status(200).json({ mine: 0, total: 0, sources: { fb: false, ig: false, jackpot: false } });
     }
 
     const { windowKey } = await getWindowInfo();
-    const ip =
-      req.headers["x-forwarded-for"]?.split(",")[0]?.trim() ||
-      req.socket.remoteAddress ||
-      "unknown";
+    const ip = req.headers["x-forwarded-for"]?.split(",")[0]?.trim() || req.socket.remoteAddress || "unknown";
 
     const setFb = `raffle:entered:${windowKey}:fb`;
     const setIg = `raffle:entered:${windowKey}:ig`;
@@ -566,13 +453,7 @@ export default async function handler(req, res) {
     ]);
 
     const mine = (fb ? 1 : 0) + (ig ? 1 : 0) + (jp ? 1 : 0);
-    return res
-      .status(200)
-      .json({
-        mine,
-        total: Number(total || 0),
-        sources: { fb: !!fb, ig: !!ig, jackpot: !!jp },
-      });
+    return res.status(200).json({ mine, total: Number(total || 0), sources: { fb: !!fb, ig: !!ig, jackpot: !!jp } });
   }
 
   if (action === "entries-summary" && req.method === "GET") {
@@ -591,10 +472,8 @@ export default async function handler(req, res) {
         rowsMap.set(name, (rowsMap.get(name) || 0) + 1);
       } catch {}
     }
-    const rows = Array.from(rowsMap, ([name, entries]) => ({
-      name,
-      entries,
-    })).sort((a, b) => b.entries - a.entries || a.name.localeCompare(b.name));
+    const rows = Array.from(rowsMap, ([name, entries]) => ({ name, entries }))
+      .sort((a, b) => b.entries - a.entries || a.name.localeCompare(b.name));
     return res.status(200).json({ rows });
   }
 
@@ -608,91 +487,49 @@ export default async function handler(req, res) {
     if (!ok || !redis?.isOpen) {
       MEM.winners = [];
       MEM.currentWinner = null;
-      // also clear local file in dev
       if (isLocal) try { fs.unlinkSync(LOCAL_LEDGER_FILE); } catch {}
-      return res.status(200).json({
-        success: true,
-        windowKey: "(mem)",
-        deletedKeys: 0,
-        remaining: { social: [], raffleEntered: [] },
-      });
+      return res.status(200).json({ success: true, windowKey: "(mem)", deletedKeys: 0, remaining: { social: [], raffleEntered: [] } });
     }
 
     async function delKey(k) {
-      try {
-        return await redis.unlink(k);
-      } catch {
-        try {
-          return await redis.del(k);
-        } catch {
-          return 0;
-        }
-      }
+      try { return await redis.unlink(k); }
+      catch { try { return await redis.del(k); } catch { return 0; } }
     }
 
     try {
       const { windowKey } = await getWindowInfo();
 
-      // window-scoped raffle keys
       const listKey = `raffle:entries:${windowKey}`;
       const dedupes = await scanAll(`raffle:entered:${windowKey}:*`);
       const bonuses = await scanAll(`raffle:bonus:${windowKey}:*`);
 
-      // winners
       const winnersKey = "raffle:winners:all";
       const winnerKey = "raffle_winner";
 
-      // social (scoped + locks) and legacy set
       const socialIpsScoped = `social:ips:${windowKey}`;
       const socialStates = await scanAll(`social:${windowKey}:*`);
       const socialLocks = await scanAll(`social:lock:${windowKey}:*`);
       const socialIpsLegacy = "social:ips";
 
-      const toDelete = Array.from(
-        new Set([
-          listKey,
-          winnersKey,
-          winnerKey,
-          socialIpsScoped,
-          socialIpsLegacy,
-          ...dedupes,
-          ...bonuses,
-          ...socialStates,
-          ...socialLocks,
-        ])
-      );
+      const toDelete = Array.from(new Set([
+        listKey, winnersKey, winnerKey, socialIpsScoped, socialIpsLegacy,
+        ...dedupes, ...bonuses, ...socialStates, ...socialLocks,
+      ]));
 
       let deleted = 0;
       for (const k of toDelete) deleted += await delKey(k);
 
-      // clear in-memory mirrors & local file
       MEM.winners = [];
       MEM.currentWinner = null;
       if (isLocal) try { fs.unlinkSync(LOCAL_LEDGER_FILE); } catch {}
 
       const remainingSocial = await scanAll(`social:${windowKey}:*`);
-      const remainingRaffleEntered = await scanAll(
-        `raffle:entered:${windowKey}:*`
-      );
+      const remainingRaffleEntered = await scanAll(`raffle:entered:${windowKey}:*`);
 
-      return res.status(200).json({
-        success: true,
-        windowKey,
-        deletedKeys: deleted,
-        remaining: {
-          social: remainingSocial,
-          raffleEntered: remainingRaffleEntered,
-        },
-      });
+      return res.status(200).json({ success: true, windowKey, deletedKeys: deleted, remaining: { social: remainingSocial, raffleEntered: remainingRaffleEntered } });
     } catch (e) {
       console.error("❌ reset-entries failed:", e);
-      return res
-        .status(500)
-        .json({
-          success: false,
-          error: "Reset entries failed",
-          details: e?.message || String(e),
-        });
+      return res.status(500).json({ success: false, error: "Reset entries failed", details: e?.message || String(e) });
     }
   }
 
@@ -702,16 +539,9 @@ export default async function handler(req, res) {
   if (req.method === "GET" && action === "social-status") {
     const ok = await ensureRedisConnected();
     if (!ok || !redis?.isOpen) {
-      // local dev fallback: nothing tracked
       return res.status(200).json({
-        totals: {
-          uniqueIPsTracked: 0,
-          unlocked: 0,
-          facebookClicks: 0,
-          instagramClicks: 0,
-        },
-        entries: [],
-        _fallback: true,
+        totals: { uniqueIPsTracked: 0, unlocked: 0, facebookClicks: 0, instagramClicks: 0 },
+        entries: [], _fallback: true,
       });
     }
 
@@ -720,46 +550,25 @@ export default async function handler(req, res) {
     const ips = await redis.sMembers(setKey);
 
     const entries = [];
-    let totalUnlocked = 0;
-    let fbClicks = 0;
-    let igClicks = 0;
+    let totalUnlocked = 0, fbClicks = 0, igClicks = 0;
 
     for (const ip of ips) {
       const key = `social:${windowKey}:${ip}`;
       const raw = await redis.get(key);
       if (!raw) continue;
-
-      let s;
-      try {
-        s = JSON.parse(raw);
-      } catch {
-        s = { followed: raw === "true", platforms: {} };
-      }
-
+      let s; try { s = JSON.parse(raw); } catch { s = { followed: raw === "true", platforms: {} }; }
       const ttlSeconds = await redis.ttl(key);
-
       if (s.followed) totalUnlocked += 1;
       if (s.platforms?.fb) fbClicks += 1;
       if (s.platforms?.ig) igClicks += 1;
-
       entries.push({
-        ip,
-        firstSeen: s.firstSeen || null,
-        lastSeen: s.lastSeen || null,
-        followed: !!s.followed,
-        platforms: s.platforms || {},
-        count: s.count || 1,
-        ttlSeconds,
+        ip, firstSeen: s.firstSeen || null, lastSeen: s.lastSeen || null,
+        followed: !!s.followed, platforms: s.platforms || {}, count: s.count || 1, ttlSeconds,
       });
     }
 
     return res.status(200).json({
-      totals: {
-        uniqueIPsTracked: entries.length,
-        unlocked: totalUnlocked,
-        facebookClicks: fbClicks,
-        instagramClicks: igClicks,
-      },
+      totals: { uniqueIPsTracked: entries.length, unlocked: totalUnlocked, facebookClicks: fbClicks, instagramClicks: igClicks },
       entries,
     });
   }
@@ -774,10 +583,7 @@ export default async function handler(req, res) {
         const winner = await redis.get("raffle_winner");
         return res.json({ winner: winner ? JSON.parse(winner) : null });
       }
-      return res.json({
-        winner: MEM.currentWinner ? { name: MEM.currentWinner } : null,
-        _fallback: true,
-      });
+      return res.json({ winner: MEM.currentWinner ? { name: MEM.currentWinner } : null, _fallback: true });
     } catch (err) {
       console.error("❌ winner GET:", err);
       return res.status(500).json({ error: "Failed to get winner" });
@@ -787,40 +593,24 @@ export default async function handler(req, res) {
   if (action === "pick-winner" && req.method === "POST") {
     await ensureRedisConnected();
     const { role } = req.body || {};
-    if (role !== "admin")
-      return res.status(401).json({ error: "Unauthorized" });
+    if (role !== "admin") return res.status(401).json({ error: "Unauthorized" });
 
     try {
       const { windowKey } = await getWindowInfo();
-      if (!redis?.isOpen)
-        return res.status(503).json({ error: "Redis not ready" });
+      if (!redis?.isOpen) return res.status(503).json({ error: "Redis not ready" });
 
       const listKey = `raffle:entries:${windowKey}`;
       const raw = await redis.lRange(listKey, 0, -1);
-      const entries = raw
-        .map((s) => {
-          try {
-            return JSON.parse(s);
-          } catch {
-            return null;
-          }
-        })
-        .filter(Boolean);
-      if (!entries.length)
-        return res.status(400).json({ error: "No eligible entries" });
+      const entries = raw.map(s => { try { return JSON.parse(s); } catch { return null; } }).filter(Boolean);
+      if (!entries.length) return res.status(400).json({ error: "No eligible entries" });
 
       const idx = Math.floor(Math.random() * entries.length);
       const winner = entries[idx];
-      const payload = {
-        id: winner.id,
-        name: winner.name,
-        source: winner.source || null,
-      };
+      const payload = { id: winner.id, name: winner.name, source: winner.source || null };
 
       await redis.set("raffle_winner", JSON.stringify(payload));
       MEM.currentWinner = payload.name;
 
-      // append to winners ledger
       const row = {
         id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
         name: payload.name,
@@ -831,7 +621,6 @@ export default async function handler(req, res) {
       };
       await appendWinnerRow(row);
 
-      // optional broadcast
       try {
         await fetch("https://winner-sse-server.onrender.com/broadcast", {
           method: "POST",
@@ -839,7 +628,6 @@ export default async function handler(req, res) {
           body: JSON.stringify({ winner: payload.name }),
         });
       } catch {}
-
       return res.json({ success: true, winner: payload });
     } catch (err) {
       console.error("❌ pick-winner:", err);
@@ -853,17 +641,11 @@ export default async function handler(req, res) {
     try {
       if (redis?.isOpen) await redis.del("raffle_winner");
       MEM.currentWinner = null;
-      try {
-        await fetch("https://winner-sse-server.onrender.com/reset", {
-          method: "POST",
-        });
-      } catch {}
+      try { await fetch("https://winner-sse-server.onrender.com/reset", { method: "POST" }); } catch {}
       return res.json({ success: true });
     } catch (err) {
       console.error("❌ reset-winner:", err);
-      return res
-        .status(500)
-        .json({ success: false, error: "Failed to reset winner" });
+      return res.status(500).json({ success: false, error: "Failed to reset winner" });
     }
   }
 
@@ -875,8 +657,7 @@ export default async function handler(req, res) {
     const { name, prize } = req.body || {};
     const cleanName = (name || "").toString().trim().slice(0, 120);
     const cleanPrize = (prize || "").toString().trim().slice(0, 160);
-    if (!cleanName || !cleanPrize)
-      return res.status(400).json({ error: "name and prize required" });
+    if (!cleanName || !cleanPrize) return res.status(400).json({ error: "name and prize required" });
 
     const row = {
       id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
@@ -885,9 +666,9 @@ export default async function handler(req, res) {
       source: "manual",
       ts: new Date().toISOString(),
     };
-
     try {
       await appendWinnerRow(row);
+      noCache(res);
       return res.status(200).json({ success: true, row });
     } catch (e) {
       console.error("winner-log failed:", e);
@@ -902,35 +683,43 @@ export default async function handler(req, res) {
       let redisRows = [];
       if (ok && redis?.isOpen) {
         const raw = await redis.lRange("raffle:winners:all", -400, -1);
-        redisRows = raw
-          .map((s) => {
-            try {
-              return JSON.parse(s);
-            } catch {
-              return null;
-            }
-          })
-          .filter(Boolean);
+        redisRows = raw.map(s => { try { return JSON.parse(s); } catch { return null; } }).filter(Boolean);
       }
 
-      const memRows = Array.isArray(MEM.winners) ? MEM.winners : [];
+      const memRows  = Array.isArray(MEM.winners) ? MEM.winners : [];
       const fileRows = isLocal ? readLocalLedgerSafe() : [];
 
       // Merge & dedupe by id
       const byId = new Map();
-      for (const r of [...redisRows, ...fileRows, ...memRows]) {
-        if (r && r.id) byId.set(r.id, r);
-      }
+      for (const r of [...redisRows, ...fileRows, ...memRows]) { if (r && r.id) byId.set(r.id, r); }
 
       const rows = Array.from(byId.values())
         .sort((a, b) => new Date(b.ts) - new Date(a.ts))
         .slice(0, 200);
 
+      noCache(res);
       return res.status(200).json({ rows });
     } catch (e) {
       console.error("winner-logs failed:", e);
       return res.status(500).json({ rows: [], error: "fetch failed" });
     }
+  }
+
+  // DEBUG endpoint to see exactly where rows exist
+  if (action === "winner-logs-debug" && req.method === "GET") {
+    const ok = await ensureRedisConnected();
+    let redisLen = null;
+    try {
+      if (ok && redis?.isOpen) redisLen = await redis.lLen("raffle:winners:all");
+    } catch { redisLen = null; }
+    const memLen  = Array.isArray(MEM.winners) ? MEM.winners.length : 0;
+    const fileLen = isLocal ? readLocalLedgerSafe().length : 0;
+    noCache(res);
+    return res.status(200).json({
+      isLocal, redisAvailable: !!(ok && redis?.isOpen),
+      counts: { redisLen, fileLen, memLen },
+      localFilePath: isLocal ? LOCAL_LEDGER_FILE : null,
+    });
   }
 
   /* ────────────────────────────────────────────────────────────
@@ -942,62 +731,35 @@ export default async function handler(req, res) {
       const pageId = process.env.FB_PAGE_ID;
       const igId = process.env.IG_ACCOUNT_ID;
       if (!token || !pageId || !igId) {
-        return res
-          .status(200)
-          .json({ facebook: 0, instagram: 0, _note: "missing env" });
+        return res.status(200).json({ facebook: 0, instagram: 0, _note: "missing env" });
       }
-      const fbRes = await fetch(
-        `https://graph.facebook.com/v19.0/${pageId}?fields=fan_count&access_token=${token}`
-      );
-      const igRes = await fetch(
-        `https://graph.facebook.com/v19.0/${igId}?fields=followers_count&access_token=${token}`
-      );
+      const fbRes = await fetch(`https://graph.facebook.com/v19.0/${pageId}?fields=fan_count&access_token=${token}`);
+      const igRes = await fetch(`https://graph.facebook.com/v19.0/${igId}?fields=followers_count&access_token=${token}`);
       const fbJson = await fbRes.json().catch(() => ({}));
       const igJson = await igRes.json().catch(() => ({}));
-      return res
-        .status(200)
-        .json({
-          facebook: Number(fbJson?.fan_count || 0),
-          instagram: Number(igJson?.followers_count || 0),
-        });
+      return res.status(200).json({ facebook: Number(fbJson?.fan_count || 0), instagram: Number(igJson?.followers_count || 0) });
     } catch (err) {
       console.error("❌ followers:", err?.message || err);
       return res.status(200).json({ facebook: 0, instagram: 0 });
     }
   }
 
-  // read-only follow status for client
   if (req.method === "GET" && action === "check-follow") {
     await ensureRedisConnected();
     const { windowKey } = await getWindowInfo();
-    const ip =
-      req.headers["x-forwarded-for"]?.split(",")[0] ||
-      req.socket.remoteAddress ||
-      "unknown";
+    const ip = req.headers["x-forwarded-for"]?.split(",")[0] || req.socket.remoteAddress || "unknown";
     let raw = null;
-    try {
-      raw = await redis.get(`social:${windowKey}:${ip}`);
-    } catch {}
-    if (!raw)
-      try {
-        raw = await redis.get(`social:${ip}`);
-      } catch {}
+    try { raw = await redis.get(`social:${windowKey}:${ip}`); } catch {}
+    if (!raw) try { raw = await redis.get(`social:${ip}`); } catch {}
     return res.status(200).json({ allowed: isFollowAllowed(raw) });
   }
 
-  // MARK FOLLOW (per IP + platform) — accepts POST or GET; query or JSON
-  if (
-    (req.method === "POST" || req.method === "GET") &&
-    action === "mark-follow"
-  ) {
+  if ((req.method === "POST" || req.method === "GET") && action === "mark-follow") {
     await ensureRedisConnected();
-    if (!redis?.isOpen)
-      return res.status(503).json({ error: "Redis not ready" });
+    if (!redis?.isOpen) return res.status(503).json({ error: "Redis not ready" });
 
     let platform =
-      new URL(req.url, `http://${req.headers.host}`).searchParams.get(
-        "platform"
-      ) ||
+      new URL(req.url, `http://${req.headers.host}`).searchParams.get("platform") ||
       (typeof req.body === "object" && req.body ? req.body.platform : null);
     platform = (platform || "").toString().trim().toLowerCase();
 
@@ -1011,7 +773,6 @@ export default async function handler(req, res) {
       req.socket.remoteAddress ||
       "unknown";
 
-    // short lock to avoid double-fires from a single tap
     const lockKey = `social:lock:${windowKey}:${ip}`;
     try {
       const got = await redis.set(lockKey, platform, { NX: true, PX: 1000 });
@@ -1022,14 +783,7 @@ export default async function handler(req, res) {
     const setKey = `social:ips:${windowKey}`;
     const now = new Date().toISOString();
 
-    // Merge/union state
-    let state = {
-      firstSeen: now,
-      lastSeen: now,
-      followed: true,
-      count: 0,
-      platforms: { fb: false, ig: false },
-    };
+    let state = { firstSeen: now, lastSeen: now, followed: true, count: 0, platforms: { fb: false, ig: false } };
 
     try {
       const prev = await redis.get(key);
@@ -1054,23 +808,18 @@ export default async function handler(req, res) {
     return res.status(200).json({ success: true, state });
   }
 
-  // spins reset version helpers (UI button)
   if (action === "slot-spins-version" && req.method === "GET") {
     const ok = await ensureRedisConnected();
     if (!ok || !redis?.isOpen) return res.status(200).json({ version: 0 });
-    const v =
-      Number(await redis.get("slot:spinsResetVersion").catch(() => 0)) || 0;
+    const v = Number(await redis.get("slot:spinsResetVersion").catch(() => 0)) || 0;
     return res.status(200).json({ version: v });
   }
   if (action === "reset-slot-spins" && req.method === "POST") {
     if (!isAdmin(req)) return res.status(403).json({ error: "Forbidden" });
     const ok = await ensureRedisConnected();
-    if (!ok || !redis?.isOpen)
-      return res.status(503).json({ error: "Redis not ready" });
+    if (!ok || !redis?.isOpen) return res.status(503).json({ error: "Redis not ready" });
     const version = await redis.incr("slot:spinsResetVersion");
-    await redis.set("slot:spinsResetAt", new Date().toISOString(), {
-      EX: 60 * 60 * 24 * 7,
-    });
+    await redis.set("slot:spinsResetAt", new Date().toISOString(), { EX: 60 * 60 * 24 * 7 });
     return res.status(200).json({ success: true, version });
   }
 
@@ -1091,8 +840,7 @@ export default async function handler(req, res) {
   if (req.method === "POST" && action === "toggle-shutdown") {
     if (!isAdmin(req)) return res.status(403).json({ error: "Forbidden" });
     const ok = await ensureRedisConnected();
-    if (!ok || !redis?.isOpen)
-      return res.status(503).json({ error: "Redis not ready" });
+    if (!ok || !redis?.isOpen) return res.status(503).json({ error: "Redis not ready" });
     const current = await redis.get("shutdown");
     const newStatus = current !== "true";
     await redis.set("shutdown", newStatus ? "true" : "false");
@@ -1102,32 +850,23 @@ export default async function handler(req, res) {
   /* ────────────────────────────────────────────────────────────
      SLOT → winners only (no spin history)
   ───────────────────────────────────────────────────────────── */
-  if (
-    action === "prize-log" &&
-    (req.method === "POST" || req.method === "GET")
-  ) {
+  if (action === "prize-log" && (req.method === "POST" || req.method === "GET")) {
     await ensureRedisConnected();
     const { windowKey } = await getWindowInfo();
 
     const u = new URL(req.url || "", `http://${req.headers.host}`);
     const body = req.body && typeof req.body === "object" ? req.body : {};
 
-    const name = (body.name || u.searchParams.get("name") || "(anonymous)")
-      .toString()
-      .slice(0, 80);
+    const name = (body.name || u.searchParams.get("name") || "(anonymous)").toString().slice(0, 80);
 
     // targets from body array or comma-separated query
     let targets = [];
     if (Array.isArray(body.targets)) targets = body.targets.map(String);
     else {
       const qs = u.searchParams.get("targets");
-      if (qs)
-        targets = String(qs)
-          .split(",")
-          .map((s) => s.trim());
+      if (qs) targets = String(qs).split(",").map((s) => s.trim());
     }
 
-    // explicit jackpot flag from body or query
     const explicit =
       body.jackpot === true ||
       body.jackpot === "true" ||
@@ -1136,9 +875,8 @@ export default async function handler(req, res) {
     const isJackpot = detectJackpot(targets, explicit);
 
     if (!isJackpot) {
-      return res
-        .status(200)
-        .json({ success: true, ignored: true, isJackpot: false });
+      noCache(res);
+      return res.status(200).json({ success: true, ignored: true, isJackpot: false });
     }
 
     const prizeName = targets[0]?.trim() || "Jackpot";
@@ -1152,13 +890,12 @@ export default async function handler(req, res) {
     };
 
     try {
-      await appendWinnerRow(row);
-      return res.status(200).json({ success: true, isJackpot: true });
+      const where = await appendWinnerRow(row);
+      noCache(res);
+      return res.status(200).json({ success: true, isJackpot: true, row, stored: where.where });
     } catch (e) {
       console.error("prize-log failed:", e);
-      return res
-        .status(500)
-        .json({ success: false, error: "prize-log failed" });
+      return res.status(500).json({ success: false, error: "prize-log failed" });
     }
   }
 
