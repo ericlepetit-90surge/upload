@@ -850,54 +850,79 @@ export default async function handler(req, res) {
   /* ────────────────────────────────────────────────────────────
      SLOT → winners only (no spin history)
   ───────────────────────────────────────────────────────────── */
-  if (action === "prize-log" && (req.method === "POST" || req.method === "GET")) {
-    await ensureRedisConnected();
-    const { windowKey } = await getWindowInfo();
 
-    const u = new URL(req.url || "", `http://${req.headers.host}`);
-    const body = req.body && typeof req.body === "object" ? req.body : {};
+if (action === "prize-log" && (req.method === "POST" || req.method === "GET")) {
+  await ensureRedisConnected();
+  const { windowKey } = await getWindowInfo();
 
-    const name = (body.name || u.searchParams.get("name") || "(anonymous)").toString().slice(0, 80);
+  const u = new URL(req.url || "", `http://${req.headers.host}`);
+  const body = req.body && typeof req.body === "object" ? req.body : {};
 
-    // targets from body array or comma-separated query
-    let targets = [];
-    if (Array.isArray(body.targets)) targets = body.targets.map(String);
-    else {
-      const qs = u.searchParams.get("targets");
-      if (qs) targets = String(qs).split(",").map((s) => s.trim());
-    }
+  const name = (body.name || u.searchParams.get("name") || "(anonymous)")
+    .toString()
+    .slice(0, 80);
 
-    const explicit =
-      body.jackpot === true ||
-      body.jackpot === "true" ||
-      String(u.searchParams.get("jackpot") || "").toLowerCase() === "true";
-
-    const isJackpot = detectJackpot(targets, explicit);
-
-    if (!isJackpot) {
-      noCache(res);
-      return res.status(200).json({ success: true, ignored: true, isJackpot: false });
-    }
-
-    const prizeName = targets[0]?.trim() || "Jackpot";
-    const row = {
-      id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
-      name,
-      prize: `Slot Jackpot — ${prizeName}`,
-      source: "slot",
-      windowKey,
-      ts: new Date().toISOString(),
-    };
-
-    try {
-      const where = await appendWinnerRow(row);
-      noCache(res);
-      return res.status(200).json({ success: true, isJackpot: true, row, stored: where.where });
-    } catch (e) {
-      console.error("prize-log failed:", e);
-      return res.status(500).json({ success: false, error: "prize-log failed" });
-    }
+  // targets from body array or comma-separated query
+  let targets = [];
+  if (Array.isArray(body.targets)) targets = body.targets.map(String);
+  else {
+    const qs = u.searchParams.get("targets");
+    if (qs) targets = String(qs).split(",").map((s) => s.trim());
   }
+
+  // jackpot detection (explicit flag OR triple OR keyword)
+  const explicit =
+    body.jackpot === true ||
+    body.jackpot === "true" ||
+    String(u.searchParams.get("jackpot") || "").toLowerCase() === "true";
+
+  const isJackpot = detectJackpot(targets, explicit);
+  if (!isJackpot) {
+    noCache(res);
+    return res.status(200).json({ success: true, ignored: true, isJackpot: false });
+  }
+
+  const prizeName = targets[0]?.trim() || "Jackpot";
+  const row = {
+    id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
+    name,
+    prize: `Slot Jackpot — ${prizeName}`,
+    source: "slot",
+    windowKey,
+    ts: new Date().toISOString(),
+  };
+
+  try {
+    // 1) Normal path: list
+    await appendWinnerRow(row);
+
+    // 2) **NEW**: KV backup (merge+cap at 400)
+    try {
+      const ok = await ensureRedisConnected();
+      if (ok && redis?.isOpen) {
+        const kvKey = "raffle:winners:kv";
+        let arr = [];
+        try {
+          const raw = await redis.get(kvKey);
+          if (raw) arr = JSON.parse(raw);
+          if (!Array.isArray(arr)) arr = [];
+        } catch {}
+        arr.push(row);
+        if (arr.length > 400) arr = arr.slice(-400);
+        await redis.set(kvKey, JSON.stringify(arr));
+      }
+    } catch (e) {
+      // ignore; we still have list/mem/file
+    }
+
+    noCache(res);
+    return res.status(200).json({ success: true, isJackpot: true, row });
+  } catch (e) {
+    console.error("prize-log failed:", e);
+    return res.status(500).json({ success: false, error: "prize-log failed" });
+  }
+}
+
 
   /* ───── UNKNOWN ───── */
   return res.status(400).json({ error: "Invalid action or method" });
