@@ -52,7 +52,6 @@
   </style>
 </head>
 <body>
-  <!-- topbar -->
   <div class="topbar">
     <div class="topbar-inner">
       <div class="brand">
@@ -65,7 +64,6 @@
   </div>
 
   <div class="container">
-    <!-- LOGIN -->
     <section id="login-section">
       <h2 class="mb-8">Admin Login</h2>
       <div class="field">
@@ -78,11 +76,9 @@
       </div>
     </section>
 
-    <!-- MAIN CONTENT -->
     <section id="admin-content" style="display:none;">
       <div class="grid">
 
-        <!-- Controls (ADMIN ONLY) -->
         <div class="card col-12 admin-only-block">
           <div class="card-header">
             <div class="card-title">Controls</div>
@@ -99,7 +95,6 @@
           </div>
         </div>
 
-        <!-- Config (ADMIN ONLY) -->
         <div class="card col-6 admin-only-block">
           <div class="card-header">
             <div class="card-title">Show Config</div>
@@ -125,7 +120,6 @@
           </div>
         </div>
 
-        <!-- 🎉 Raffle (ADMIN ONLY) -->
         <div class="card col-6 admin-only-block">
           <div class="card-header">
             <div class="card-title">🎉 Raffle</div>
@@ -143,7 +137,6 @@
               <small id="reset-spins-status" class="muted"></small>
             </div>
 
-            <!-- Live entries -->
             <div class="mt-16">
               <div id="entries-totals" class="mb-8 muted">Loading entries…</div>
               <div class="table-scroll">
@@ -161,7 +154,6 @@
           </div>
         </div>
 
-        <!-- 🏆 Winners Ledger (ADMIN ONLY) -->
         <div class="card col-12 admin-only-block" id="winners-ledger-card">
           <div class="card-header">
             <div class="card-title">🏆 Winners Ledger</div>
@@ -185,8 +177,8 @@
               </table>
             </div>
           </div>
-        </div><s></s>
-        <!-- Social status (ADMIN ONLY) -->
+        </div>
+
         <div class="card col-12 admin-only-block">
           <div class="card-header">
             <div class="card-title">Social Follows</div>
@@ -215,7 +207,6 @@
     </section>
   </div>
 
-  <!-- App script -->
   <script type="module">
     // ---------- helpers ----------
     const $  = (sel, root = document) => root.querySelector(sel);

@@ -169,30 +169,28 @@ async function appendWinnerRow(row) {
   // Always mirror in memory
   MEM.winners.push(row);
   if (MEM.winners.length > 500) MEM.winners = MEM.winners.slice(-500);
-  // DEBUG: Log where the winner is being saved
-  let where = "memory";
+
+  // Try Redis
   try {
     const ok = await ensureRedisConnected();
     if (ok && redis?.isOpen) {
       await redis.rPush("raffle:winners:all", JSON.stringify(row));
       await redis.lTrim("raffle:winners:all", -500, -1);
-      where = "redis";
-      if (isLocal) appendLocalLedgerRow(row);
-    } else if (isLocal) {
-        appendLocalLedgerRow(row);
-        where = "file";
+      if (isLocal) appendLocalLedgerRow(row); // also file in dev for visibility
+      return { where: "redis" };
     }
-    console.log(`// DEBUG: Successfully appended winner row to ${where}.`);
-    return { where };
   } catch (e) {
-    console.error("// DEBUG: Failed to append winner row:", e?.message || e);
-    if (isLocal) {
-        appendLocalLedgerRow(row);
-        where = "file (fallback)";
-        console.log(`// DEBUG: Successfully appended winner row to ${where}.`);
-    }
+    console.warn("appendWinnerRow.redis failed:", e?.message || e);
   }
-  return { where };
+
+  // Dev fallback: file
+  if (isLocal) {
+    appendLocalLedgerRow(row);
+    return { where: "file" };
+  }
+
+  // Last resort: mem only
+  return { where: "mem" };
 }
 
 function normalizeSymbol(s) {
@@ -220,7 +218,8 @@ function detectJackpot(targets = [], clientFlag = false) {
 export default async function handler(req, res) {
   const url = new URL(req.url || "", `http://${req.headers.host}`);
   const action = url.searchParams.get("action");
-  
+  console.log("➡️ Admin action:", req.method, action);
+
   // tolerant JSON body parsing
   if (req.method === "POST") {
     const isJson = (req.headers["content-type"] || "").includes("application/json");
@@ -706,6 +705,23 @@ export default async function handler(req, res) {
     }
   }
 
+  // DEBUG endpoint to see exactly where rows exist
+  if (action === "winner-logs-debug" && req.method === "GET") {
+    const ok = await ensureRedisConnected();
+    let redisLen = null;
+    try {
+      if (ok && redis?.isOpen) redisLen = await redis.lLen("raffle:winners:all");
+    } catch { redisLen = null; }
+    const memLen  = Array.isArray(MEM.winners) ? MEM.winners.length : 0;
+    const fileLen = isLocal ? readLocalLedgerSafe().length : 0;
+    noCache(res);
+    return res.status(200).json({
+      isLocal, redisAvailable: !!(ok && redis?.isOpen),
+      counts: { redisLen, fileLen, memLen },
+      localFilePath: isLocal ? LOCAL_LEDGER_FILE : null,
+    });
+  }
+
   /* ────────────────────────────────────────────────────────────
      FOLLOWERS / SOCIAL
   ───────────────────────────────────────────────────────────── */
@@ -832,50 +848,81 @@ export default async function handler(req, res) {
   }
 
   /* ────────────────────────────────────────────────────────────
-     SLOT → prize-log (WITH DEBUGGING)
+     SLOT → winners only (no spin history)
   ───────────────────────────────────────────────────────────── */
-  if (action === "prize-log" && (req.method === "POST" || req.method === "GET")) {
-    console.log("// DEBUG: Received request for prize-log.");
-    await ensureRedisConnected();
-    const { windowKey } = await getWindowInfo();
 
-    const body = req.body && typeof req.body === "object" ? req.body : {};
-    console.log("// DEBUG: Request body received:", JSON.stringify(body));
+if (action === "prize-log" && (req.method === "POST" || req.method === "GET")) {
+  await ensureRedisConnected();
+  const { windowKey } = await getWindowInfo();
 
-    const name = (body.name || "(anonymous)").toString().slice(0, 80);
-    const targets = Array.isArray(body.targets) ? body.targets.map(String) : [];
-    const explicit = body.jackpot === true || body.jackpot === "true";
+  const u = new URL(req.url || "", `http://${req.headers.host}`);
+  const body = req.body && typeof req.body === "object" ? req.body : {};
 
-    console.log(`// DEBUG: Checking for jackpot. Explicit flag: ${explicit}, Targets: ${targets.join(", ")}`);
-    const isJackpot = detectJackpot(targets, explicit);
-    
-    if (!isJackpot) {
-      console.log("// DEBUG: Not a jackpot. Ignoring.");
-      noCache(res);
-      return res.status(200).json({ success: true, ignored: true, isJackpot: false });
-    }
+  const name = (body.name || u.searchParams.get("name") || "(anonymous)")
+    .toString()
+    .slice(0, 80);
 
-    console.log("// DEBUG: Jackpot detected! Preparing to save winner.");
-    const prizeName = targets[0]?.trim() || "Jackpot";
-    const row = {
-      id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
-      name,
-      prize: `Slot Jackpot — ${prizeName}`,
-      source: "slot",
-      windowKey,
-      ts: new Date().toISOString(),
-    };
-
-    try {
-      console.log("// DEBUG: Appending winner row to ledger:", JSON.stringify(row));
-      await appendWinnerRow(row);
-      noCache(res);
-      return res.status(200).json({ success: true, isJackpot: true, row });
-    } catch (e) {
-      console.error("// DEBUG: prize-log failed during append:", e);
-      return res.status(500).json({ success: false, error: "prize-log failed" });
-    }
+  // targets from body array or comma-separated query
+  let targets = [];
+  if (Array.isArray(body.targets)) targets = body.targets.map(String);
+  else {
+    const qs = u.searchParams.get("targets");
+    if (qs) targets = String(qs).split(",").map((s) => s.trim());
   }
+
+  // jackpot detection (explicit flag OR triple OR keyword)
+  const explicit =
+    body.jackpot === true ||
+    body.jackpot === "true" ||
+    String(u.searchParams.get("jackpot") || "").toLowerCase() === "true";
+
+  const isJackpot = detectJackpot(targets, explicit);
+  if (!isJackpot) {
+    noCache(res);
+    return res.status(200).json({ success: true, ignored: true, isJackpot: false });
+  }
+
+  const prizeName = targets[0]?.trim() || "Jackpot";
+  const row = {
+    id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
+    name,
+    prize: `Slot Jackpot — ${prizeName}`,
+    source: "slot",
+    windowKey,
+    ts: new Date().toISOString(),
+  };
+
+  try {
+    // 1) Normal path: list
+    await appendWinnerRow(row);
+
+    // 2) **NEW**: KV backup (merge+cap at 400)
+    try {
+      const ok = await ensureRedisConnected();
+      if (ok && redis?.isOpen) {
+        const kvKey = "raffle:winners:kv";
+        let arr = [];
+        try {
+          const raw = await redis.get(kvKey);
+          if (raw) arr = JSON.parse(raw);
+          if (!Array.isArray(arr)) arr = [];
+        } catch {}
+        arr.push(row);
+        if (arr.length > 400) arr = arr.slice(-400);
+        await redis.set(kvKey, JSON.stringify(arr));
+      }
+    } catch (e) {
+      // ignore; we still have list/mem/file
+    }
+
+    noCache(res);
+    return res.status(200).json({ success: true, isJackpot: true, row });
+  } catch (e) {
+    console.error("prize-log failed:", e);
+    return res.status(500).json({ success: false, error: "prize-log failed" });
+  }
+}
+
 
   /* ───── UNKNOWN ───── */
   return res.status(400).json({ error: "Invalid action or method" });
