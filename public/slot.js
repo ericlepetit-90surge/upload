@@ -21,11 +21,11 @@
 
   // Jackpot instructions
   const JACKPOT_TEXT = {
-    "T-Shirt":     "WOW, well done! Take a screenshot and show it to us during the break or after the show to get your tee!",
+    "T-Shirt":     "WOW, Come see us at the break or after the show to get your t-shirt!",
     "Free Drink":  "This one is on us — show it to the bartender!",
-    "Sticker":     "Help yourself!",
+    "Sticker":     "FInd the box and help yourself!",
     "Extra entry": "Awesome, you got yourself an extra raffle entry to win a 90 Surge t-shirt!",
-    "VIP Seat":    "Bah, come to the front of the stage! Now you're a VIP!",
+    "VIP Seat":    "Come closer to the stage! Now you're a VIP! :)",
   };
 
   // ---------- Utils ----------
