@@ -9,10 +9,10 @@
 
   // Weighted symbols (no empties)
   const SYMBOLS = [
-    { label: "T-Shirt",     weight: 0.5 },
-    { label: "Free Drink",  weight: 0.8 },
-    { label: "Sticker",     weight: 3 },
-    { label: "Extra entry", weight: 1.5 },
+    { label: "T-Shirt",     weight: 0.15 },
+   // { label: "Free Drink",  weight: 0.8 },
+    { label: "Sticker",     weight: 1 },
+    { label: "Extra entry", weight: 0.5 },
     { label: "VIP Seat",    weight: 1 },
   ];
 

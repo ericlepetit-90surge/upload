@@ -54,34 +54,8 @@
     try {
       json = await res.json();
     } catch (e) {}
-    if (!res.ok)
-      throw new Error(json?.error || `Request failed (${res.status})`);
+    if (!res.ok) throw new Error(json?.error || `Request failed (${res.status})`);
     return json;
-  }
-
-  // ──────────────────────────────────────────────────────────────
-  // Fallback jackpot logger + last-spin memory
-  // ──────────────────────────────────────────────────────────────
-  let __lastSpinTargets = [];
-  let __lastJackpotLoggedAt = 0;
-
-  async function logJackpotFallback() {
-    const now = Date.now();
-    if (now - __lastJackpotLoggedAt < 2500) return; // throttle to avoid doubles
-    __lastJackpotLoggedAt = now;
-
-    const name = getName() || "(anonymous)";
-    const targets = Array.isArray(__lastSpinTargets) ? __lastSpinTargets : [];
-    try {
-      await postJSON("/api/admin?action=prize-log", {
-        name,
-        targets,
-        jackpot: true,
-      });
-      console.debug("[jackpot] fallback prize-log posted");
-    } catch (e) {
-      console.warn("[jackpot] fallback prize-log failed:", e?.message || e);
-    }
   }
 
   // ──────────────────────────────────────────────────────────────
@@ -95,16 +69,10 @@
       if (out?.already) {
         console.debug(`[entry] already for ${source}`);
         refreshEntryStats().catch(() => {});
-        if (source === "jackpot") {
-          logJackpotFallback().catch(() => {});
-        }
         return { ok: true, already: true };
       }
       console.debug(`[entry] recorded for ${source}`);
       refreshEntryStats().catch(() => {});
-      if (source === "jackpot") {
-        logJackpotFallback().catch(() => {});
-      }
       return { ok: true, already: false };
     } catch (e) {
       console.error(`[entry] failed ${source}:`, e?.message || e);
@@ -133,9 +101,7 @@
   // Social mark (does NOT create entries)
   // ──────────────────────────────────────────────────────────────
   async function markFollow(platform) {
-    const url = `/api/admin?action=mark-follow&platform=${encodeURIComponent(
-      platform
-    )}`;
+    const url = `/api/admin?action=mark-follow&platform=${encodeURIComponent(platform)}`;
     const res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -143,29 +109,19 @@
     });
     if (!res.ok) {
       let msg = "mark-follow failed";
-      try {
-        msg = (await res.json()).error || msg;
-      } catch {}
+      try { msg = (await res.json()).error || msg; } catch {}
       throw new Error(msg);
     }
   }
 
   function markFollowBeacon(platform) {
-    const url = `/api/admin?action=mark-follow&platform=${encodeURIComponent(
-      platform
-    )}`;
-    const blob = new Blob([JSON.stringify({ platform })], {
-      type: "application/json",
-    });
+    const url = `/api/admin?action=mark-follow&platform=${encodeURIComponent(platform)}`;
+    const blob = new Blob([JSON.stringify({ platform })], { type: "application/json" });
     if (navigator.sendBeacon) {
       navigator.sendBeacon(url, blob);
     } else {
-      fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: blob,
-        keepalive: true,
-      }).catch(() => {});
+      fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: blob, keepalive: true })
+        .catch(() => {});
     }
   }
 
@@ -173,52 +129,101 @@
   // Followers counts
   // ──────────────────────────────────────────────────────────────
   async function refreshFollowers() {
-    const fbEl = $("#fb-followers"),
-      igEl = $("#ig-followers");
+    const fbEl = $("#fb-followers"), igEl = $("#ig-followers");
     try {
-      const res = await fetch("/api/admin?action=followers", {
-        cache: "no-store",
-      });
+      const res = await fetch("/api/admin?action=followers", { cache: "no-store" });
       const j = await res.json().catch(() => ({}));
       const fb = Number(j?.facebook ?? 0);
       const ig = Number(j?.instagram ?? 0);
-      if (fbEl)
-        fbEl.textContent = Number.isFinite(fb) ? fb.toLocaleString() : "—";
-      if (igEl)
-        igEl.textContent = Number.isFinite(ig) ? ig.toLocaleString() : "—";
-    } catch {
+      if (fbEl) fbEl.textContent = Number.isFinite(fb) ? fb.toLocaleString() : "—";
+      if (igEl) igEl.textContent = Number.isFinite(ig) ? ig.toLocaleString() : "—";
+    } catch (e) {
       if (fbEl) fbEl.textContent = "—";
       if (igEl) igEl.textContent = "—";
     }
   }
 
   // ──────────────────────────────────────────────────────────────
-  // Prize/spin logging — winners only (fix: sendBeacon as JSON POST)
+  // Prize helpers + jackpot logging
   // ──────────────────────────────────────────────────────────────
+  const KNOWN_PRIZES = new Set([
+    "Sticker","Cherry","Banana","Lemon","Bar","Seven","7",
+    "Diamond","Star","Bell","Grape","Orange",
+    "T-Shirt","Hoodie","Cap","Mug","Keychain","Socks","Gift Card","Giftcard",
+    "Jackpot" // allowed in data, but we won't choose it as a fallback
+  ]);
+
+  const EMOJI_MAP = new Map([
+    ["🍒","Cherry"],["🍌","Banana"],["🍋","Lemon"],["⭐","Star"],
+    ["💎","Diamond"],["🔔","Bell"],["🍇","Grape"],["🍊","Orange"],
+    ["7","Seven"]
+  ]);
+
+  function toTitle(s) {
+    return String(s || "").replace(/\w\S*/g, t => t[0].toUpperCase() + t.slice(1).toLowerCase());
+  }
+
+  function stringifyTarget(t) {
+    if (t == null) return "";
+    if (typeof t === "string") return t.trim();
+    if (typeof t === "object") {
+      // prefer human labels; fall back to emoji/symbol; else stringify
+      return (
+        t.text || t.label || t.name || t.title || t.prize ||
+        t.emoji || t.symbol || t.value || String(t)
+      ).toString().trim();
+    }
+    return String(t).trim();
+  }
+
+  function coercePrizeLabel(raw) {
+    let s = (raw || "").toString().trim();
+    if (!s) return "";
+    if (EMOJI_MAP.has(s)) s = EMOJI_MAP.get(s); // map emoji
+    // normalize common variants
+    s = s.replace(/\btee\s*-?\s*shirt\b/i, "T-Shirt");
+    if (/shirt/i.test(s)) s = "T-Shirt";
+    if (/sticker/i.test(s)) s = "Sticker";
+    if (/vip/i.test(s)) s = "VIP Seat";
+    if (/extra/i.test(s)) s = "Extra Entry";
+    s = toTitle(s);
+    return s;
+  }
+
+  function isConfidentPrize(s) {
+    const x = coercePrizeLabel(s);
+    if (!x) return false;
+    // must be known or look like a clean label/emoji (avoid random words like "Help")
+    return KNOWN_PRIZES.has(x) || /[\p{Extended_Pictographic}\w]{2,}/u.test(x);
+  }
+
+  // Keep last resolved targets in memory for any fallbacks
+  let __lastSpinTargets = [];
+
+  // jackpots only; beacon GET first, then POST fallback
   async function logSpin(targets, jackpot) {
-    if (!jackpot) return; // winners only
-
+    if (!jackpot) return;
     const name = getName() || "(anonymous)";
-    const payload = {
-      name,
-      targets: Array.isArray(targets) ? targets : [],
-      jackpot: true,
-    };
+    const safeTargets = (Array.isArray(targets) ? targets : []).map(coercePrizeLabel).filter(Boolean);
 
-    // This function sends the jackpot data to the /api/admin?action=prize-log endpoint
+    // Try beacon GET (survives tab hiccups / navigation)
     let sent = false;
     try {
+      const params = new URLSearchParams({
+        name,
+        jackpot: "true",
+        targets: safeTargets.join(","),
+      });
+      const url = `/api/admin?action=prize-log&${params}`;
       if ("sendBeacon" in navigator) {
-        const blob = new Blob([JSON.stringify(payload)], {
-          type: "application/json",
-        });
-        sent = navigator.sendBeacon("/api/admin?action=prize-log", blob);
+        sent = navigator.sendBeacon(url, new Blob([""], { type: "text/plain" }));
       }
     } catch {}
 
+    // Fallback POST (visible in Network)
     if (!sent) {
       try {
-        await postJSON("/api/admin?action=prize-log", payload);
+        await postJSON("/api/admin?action=prize-log", { name, targets: safeTargets, jackpot: true });
       } catch (e) {
         console.warn("logSpin POST failed:", e?.message || e);
       }
@@ -230,14 +235,11 @@
   // ──────────────────────────────────────────────────────────────
   function ensureEntryStatsUI() {
     if (!$("#entry-stats")) {
-      console.warn(
-        "[entry-stats] #entry-stats container not found. Add the static markup to your HTML."
-      );
+      console.warn("[entry-stats] #entry-stats container not found. Add the static markup to your HTML.");
     }
   }
 
-  let prevYour = 0,
-    prevTotal = 0;
+  let prevYour = 0, prevTotal = 0;
 
   function bump(el) {
     if (!el) return;
@@ -256,9 +258,7 @@
 
     // Prefer per-IP/server truth:
     try {
-      const res = await fetch("/api/admin?action=my-entries", {
-        cache: "no-store",
-      });
+      const res = await fetch("/api/admin?action=my-entries", { cache: "no-store" });
       if (res.ok) {
         const j = await res.json();
         const mine = Number(j?.mine ?? 0);
@@ -266,29 +266,23 @@
 
         if (totalEl) {
           const old = prevTotal;
-          totalEl.textContent = Number.isFinite(total)
-            ? total.toLocaleString()
-            : "—";
+          totalEl.textContent = Number.isFinite(total) ? total.toLocaleString() : "—";
           if (total > old) bump(totalEl);
           prevTotal = total;
         }
         if (yourEl) {
           const old = prevYour;
-          yourEl.textContent = Number.isFinite(mine)
-            ? mine.toLocaleString()
-            : "0";
+          yourEl.textContent = Number.isFinite(mine) ? mine.toLocaleString() : "0";
           if (mine > old) bump(yourEl);
           prevYour = mine;
         }
         return; // done
       }
-    } catch {}
+    } catch (e) {}
 
     // Fallback: compute total from /entries and ignore "your"
     try {
-      const res = await fetch("/api/admin?action=entries", {
-        cache: "no-store",
-      });
+      const res = await fetch("/api/admin?action=entries", { cache: "no-store" });
       const j = await res.json().catch(() => ({ entries: [], count: 0 }));
       const total = Number(j?.count || 0);
 
@@ -299,7 +293,7 @@
         prevTotal = total;
       }
       if (yourEl) yourEl.textContent = prevYour.toString();
-    } catch {
+    } catch (e) {
       if (totalEl) totalEl.textContent = "—";
       if (yourEl) yourEl.textContent = "0";
     }
@@ -313,17 +307,11 @@
   }
 
   // ──────────────────────────────────────────────────────────────
-  // Deep-link helpers: open ONLY the app on mobile; web on desktop
+  // Deep-link helpers: app scheme + timed web fallback on mobile; tab on desktop
   // ──────────────────────────────────────────────────────────────
-  function isAndroid() {
-    return /\bAndroid\b/i.test(navigator.userAgent);
-  }
-  function isIOS() {
-    return /\b(iPhone|iPad|iPod)\b/i.test(navigator.userAgent);
-  }
-  function isMobile() {
-    return isAndroid() || isIOS();
-  }
+  function isAndroid() { return /\bAndroid\b/i.test(navigator.userAgent); }
+  function isIOS()     { return /\b(iPhone|iPad|iPod)\b/i.test(navigator.userAgent); }
+  function isMobile()  { return isAndroid() || isIOS(); }
 
   function appLink(platform) {
     if (platform === "ig") {
@@ -339,39 +327,40 @@
     }
   }
 
-  function openSocialOnly(platform) {
+  function openSocialSmart(platform) {
     const { scheme, web } = appLink(platform);
 
     if (isMobile()) {
+      // Try app; if not handled, fallback to web in ~1.2s
+      let fallbackTimer = setTimeout(() => {
+        try { window.location.href = web; } catch {}
+      }, 1200);
+
       try {
         if (isAndroid()) {
           const iframe = document.createElement("iframe");
           iframe.style.display = "none";
           iframe.src = scheme;
           document.body.appendChild(iframe);
-          setTimeout(() => {
-            try {
-              document.body.removeChild(iframe);
-            } catch {}
-          }, 2000);
+          setTimeout(() => { try { document.body.removeChild(iframe); } catch {} }, 2000);
         } else {
-          window.location.href = scheme;
+          window.location.href = scheme; // iOS
         }
       } catch {}
+
+      setTimeout(() => { try { clearTimeout(fallbackTimer); } catch {} }, 3500);
       return;
     }
 
-    try {
-      window.open(web, "_blank", "noopener,noreferrer");
-    } catch {}
+    // Desktop → site in new tab
+    try { window.open(web, "_blank", "noopener,noreferrer"); } catch {}
   }
 
   // ──────────────────────────────────────────────────────────────
   // Harden follow buttons (single-fire; no cross-platform double)
   // ──────────────────────────────────────────────────────────────
   let globalFollowLock = false; // blocks cross-platform double firing
-  let fbBtn = null,
-    igBtn = null;
+  let fbBtn = null, igBtn = null;
 
   function wipeInlineAndListeners(btn) {
     if (!btn) return null;
@@ -384,23 +373,26 @@
 
   async function handleFollow(platform, btn) {
     if (!requireName()) return;
-
-    if (globalFollowLock) return;
+    if (globalFollowLock) return; // hard block for any second button
     globalFollowLock = true;
 
+    // disable both buttons briefly
     if (fbBtn) fbBtn.disabled = true;
     if (igBtn) igBtn.disabled = true;
 
     try {
       if (isMobile()) {
-        markFollowBeacon(platform);
-        submitEntryOnceBeacon(platform);
-        openSocialOnly(platform);
+        // Queue tracking with beacons first (so it persists through navigation)
+        try { markFollowBeacon(platform); } catch {}
+        try { submitEntryOnceBeacon(platform); } catch {}
+        // Then deep-link (with timed https fallback)
+        openSocialSmart(platform);
       } else {
+        // Desktop: open site immediately (sync) then async logging
         try {
           const url = platform === "fb" ? FACEBOOK_URL : INSTAGRAM_URL;
           if (url) window.open(url, "_blank", "noopener");
-        } catch {}
+        } catch (e) {}
         await markFollow(platform);
         await submitEntryOnce(platform);
       }
@@ -416,106 +408,71 @@
   }
 
   // 1) Rewrite any existing intent:// anchors to safe https + tag them
-  document.addEventListener(
-    "DOMContentLoaded",
-    () => {
-      document.querySelectorAll('a[href^="intent://"]').forEach((a) => {
-        const href = a.getAttribute("href") || "";
-        const isFb = /facebook|katana|\/profile\//i.test(href);
-        a.setAttribute(
-          "href",
-          isFb
-            ? "https://facebook.com/90Surge"
-            : "https://instagram.com/90_Surge"
-        );
-        a.classList.add(isFb ? "follow-btn-fb" : "follow-btn-ig");
-      });
-    },
-    { once: true }
-  );
+  document.addEventListener("DOMContentLoaded", () => {
+    document.querySelectorAll('a[href^="intent://"]').forEach(a => {
+      const href = a.getAttribute("href") || "";
+      const isFb = /facebook|katana|\/profile\//i.test(href);
+      a.setAttribute("href", isFb ? "https://facebook.com/90Surge" : "https://instagram.com/90_Surge");
+      a.classList.add(isFb ? "follow-btn-fb" : "follow-btn-ig");
+    });
+  }, { once: true });
 
-  // 2) Catch any remaining intent:// clicks just in case and reroute
-  document.addEventListener(
-    "click",
-    (e) => {
-      const a = e.target.closest('a[href^="intent://"]');
-      if (!a) return;
-      e.preventDefault();
-      e.stopImmediatePropagation();
-      const isFb = /facebook|katana|\/profile\//i.test(
-        a.getAttribute("href") || ""
-      );
-      const platform = isFb ? "fb" : "ig";
-      try {
-        markFollowBeacon(platform);
-      } catch {}
-      try {
-        submitEntryOnceBeacon(platform);
-      } catch {}
-      openSocialOnly(platform);
-    },
-    true
-  );
+  // 2) Catch any remaining intent:// clicks and reroute
+  document.addEventListener("click", (e) => {
+    const a = e.target.closest('a[href^="intent://"]');
+    if (!a) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    const isFb = /facebook|katana|\/profile\//i.test(a.getAttribute("href") || "");
+    const platform = isFb ? "fb" : "ig";
+    try { markFollowBeacon(platform); } catch {}
+    try { submitEntryOnceBeacon(platform); } catch {}
+    openSocialSmart(platform);
+  }, true);
 
-  // 3) Make wireFollowButtons also pick up plain <a> links to fb/ig
+  // 3) Wire follow buttons and plain anchors to fb/ig
   function wireFollowButtons() {
+    // Tag plain anchors first
+    document.querySelectorAll('a[href*="facebook.com"]').forEach(a => a.classList.add("follow-btn-fb"));
+    document.querySelectorAll('a[href*="instagram.com"]').forEach(a => a.classList.add("follow-btn-ig"));
+
+    // (re)select after tagging
     let fb0 = document.querySelector(".follow-btn-fb");
     let ig0 = document.querySelector(".follow-btn-ig");
 
-    document
-      .querySelectorAll('a[href*="facebook.com"]')
-      .forEach((a) => a.classList.add("follow-btn-fb"));
-    document
-      .querySelectorAll('a[href*="instagram.com"]')
-      .forEach((a) => a.classList.add("follow-btn-ig"));
-
-    fb0 = document.querySelector(".follow-btn-fb");
-    ig0 = document.querySelector(".follow-btn-ig");
-
+    // wipe & rebind
     fbBtn = wipeInlineAndListeners(fb0);
     igBtn = wipeInlineAndListeners(ig0);
 
-    if (fbBtn)
-      fbBtn.addEventListener(
-        "pointerup",
-        (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          e.stopImmediatePropagation();
-          handleFollow("fb", fbBtn);
-        },
-        { capture: true }
-      );
+    if (fbBtn) {
+      fbBtn.addEventListener("pointerup", (e) => {
+        e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
+        handleFollow("fb", fbBtn);
+      }, { capture: true });
+      fbBtn.addEventListener("click", (e) => {
+        e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
+        handleFollow("fb", fbBtn);
+      }, { capture: true });
+    }
 
-    if (igBtn)
-      igBtn.addEventListener(
-        "pointerup",
-        (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          e.stopImmediatePropagation();
-          handleFollow("ig", igBtn);
-        },
-        { capture: true }
-      );
+    if (igBtn) {
+      igBtn.addEventListener("pointerup", (e) => {
+        e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
+        handleFollow("ig", igBtn);
+      }, { capture: true });
+      igBtn.addEventListener("click", (e) => {
+        e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
+        handleFollow("ig", igBtn);
+      }, { capture: true });
+    }
 
     // Back-compat for any old HTML onclicks
-    window.openFacebook = (ev) => {
-      ev?.preventDefault?.();
-      return fbBtn
-        ? fbBtn.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }))
-        : false;
-    };
-    window.openInstagram = (ev) => {
-      ev?.preventDefault?.();
-      return igBtn
-        ? igBtn.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }))
-        : false;
-    };
+    window.openFacebook  = (ev) => { ev?.preventDefault?.(); return fbBtn ? fbBtn.dispatchEvent(new PointerEvent("pointerup", { bubbles: true })) : false; };
+    window.openInstagram = (ev) => { ev?.preventDefault?.(); return igBtn ? igBtn.dispatchEvent(new PointerEvent("pointerup", { bubbles: true })) : false; };
   }
 
   // ──────────────────────────────────────────────────────────────
-  // Slot hookup (jackpot => extra entry)
+  // Slot hookup (jackpot => extra entry) + universal hooks
   // ──────────────────────────────────────────────────────────────
   function initSlot() {
     if (typeof window.initSlotMachine !== "function") {
@@ -525,41 +482,45 @@
 
     const handleResult = async (result) => {
       try {
-        const targets = Array.isArray(result?.targets) ? result.targets : [];
-        __lastSpinTargets = targets.slice(); // remember for fallback
+        // 1) Collect targets from engine (objects → labels)
+        const targetsRaw = Array.isArray(result?.targets) ? result.targets : [];
+        const targets = targetsRaw.map((t) => coercePrizeLabel(stringifyTarget(t))).filter(Boolean);
 
-        const lcase = targets.map((t) => String(t).toLowerCase());
+        // 2) If engine exposes a single prize, use it to fill
+        if (!targets.length && result?.prize) {
+          const p = coercePrizeLabel(stringifyTarget(result.prize));
+          if (p) targets.push(p, p, p);
+        }
 
-        // Prefer any truthy engine flag; then triple-match; then text fallback
+        // 3) Save for any message-based fallback
+        __lastSpinTargets = targets.slice();
+
+        // 4) Jackpot detection (trust engine flag OR triple-same OR textual hint)
+        const lcase = targets.map((t) => t.toLowerCase());
         const hitJackpot =
-          !!(
-            result?.jackpot ||
-            result?.isJackpot ||
-            result?.align ||
-            result?.win
-          ) ||
-          (targets.length >= 3 && new Set(lcase.slice(0, 3)).size === 1) ||
-          /jackpot/i.test(String(targets.join(" ")));
+          !!(result?.jackpot || result?.isJackpot || result?.align || result?.win) ||
+          (lcase.length >= 3 && new Set(lcase.slice(0, 3)).size === 1) ||
+          /jackpot/i.test(String(result?.message || result?.text || targets.join(" ")));
 
-        // Always log (server only records winners)
+        // 5) Log winners only (server ignores non-jackpots anyway)
         await logSpin(targets, hitJackpot);
 
-        // Give extra entry only on real jackpots (and ensure ledger row exists)
+        // 6) Extra entry only on real jackpots
         if (hitJackpot && getName()) {
           await submitEntryOnce("jackpot"); // server dedupes by IP per window
-          logJackpotFallback().catch(() => {});
         }
       } catch (err) {
         console.warn("[slot] handleResult error:", err?.message || err);
       }
     };
 
+    // Cover multiple callback names the engine might use
     const opts = {
-      onResult: handleResult,
-      onStop: handleResult,
-      onSpinEnd: handleResult,
+      onResult:   handleResult,
+      onStop:     handleResult,
+      onSpinEnd:  handleResult,
       onComplete: handleResult,
-      onFinish: handleResult,
+      onFinish:   handleResult,
     };
 
     try {
@@ -568,11 +529,77 @@
       console.warn("[slot] initSlotMachine threw:", e?.message || e);
     }
 
-    window.addEventListener(
-      "slot:result",
-      (e) => handleResult(e?.detail || e),
-      { passive: true }
-    );
+    // Also listen to a potential custom event
+    window.addEventListener("slot:result", (e) => handleResult(e?.detail || e), { passive: true });
+  }
+
+  // Backup logger: observe the UI JACKPOT message and log if needed
+  function observeJackpotMessage() {
+    const el = document.querySelector("#slot-result, .slot-result, [data-slot-result]");
+    if (!el) return;
+
+    let lastText = "";
+    let lastSentAt = 0;
+
+    function extractPrizeFromText(text) {
+      // 1) “Quoted” or "quoted"
+      let m = text.match(/["“]([^"”]+)["”]/);
+      if (m && isConfidentPrize(m[1])) return coercePrizeLabel(m[1]);
+
+      // 2) [Bracketed]
+      m = text.match(/\[([^\]]+)\]/);
+      if (m && isConfidentPrize(m[1])) return coercePrizeLabel(m[1]);
+
+      // 3) NAME x3 / ×3
+      m = text.match(/hit\s+([A-Za-z0-9 _-]{2,30})\s*(?:×|x)\s*3/i);
+      if (m && isConfidentPrize(m[1])) return coercePrizeLabel(m[1]);
+
+      // 4) Triple identical emoji
+      try {
+        const em = Array.from(text.matchAll(/(\p{Extended_Pictographic}|\p{Emoji_Presentation})\s*\1\s*\1/gu));
+        if (em.length) {
+          const mapped = coercePrizeLabel(em[0][1]);
+          if (isConfidentPrize(mapped)) return mapped;
+        }
+      } catch {}
+
+      // 5) Look for a known prize word anywhere (avoid random words like Help)
+      for (const k of KNOWN_PRIZES) {
+        if (k.toLowerCase() !== "jackpot" && new RegExp(`\\b${k}\\b`, "i").test(text)) return k;
+      }
+
+      return ""; // refuse weak guesses
+    }
+
+    const maybeLogFromMessage = () => {
+      const text = (el.textContent || "").trim();
+      if (!text || text === lastText) return;
+      lastText = text;
+
+      if (!/JACKPOT!/i.test(text)) return;
+
+      const now = Date.now();
+      if (now - lastSentAt < 600) return; // tiny throttle
+      lastSentAt = now;
+
+      // Prefer last engine-provided targets if they look like a triple
+      let prize = "";
+      if (__lastSpinTargets.length >= 3) {
+        const [a,b,c] = __lastSpinTargets.slice(0,3);
+        if (a && a === b && b === c) prize = a;
+      }
+      // Otherwise parse from the text (strict)
+      if (!prize) prize = extractPrizeFromText(text);
+      if (!prize) return; // give up rather than logging "Help"
+
+      const name = getName() || "(anonymous)";
+      postJSON("/api/admin?action=prize-log", { name, targets: [prize, prize, prize], jackpot: true })
+        .then(() => console.debug("[slot] jackpot logged via message observer:", prize))
+        .catch(() => {});
+    };
+
+    const obs = new MutationObserver(maybeLogFromMessage);
+    obs.observe(el, { childList: true, characterData: true, subtree: true });
   }
 
   // ──────────────────────────────────────────────────────────────
@@ -584,29 +611,22 @@
   function setHeadlineText(name) {
     const text = name && name.trim() ? name : "90 Surge";
     HEADLINE_SELECTORS.forEach((sel) => {
-      document.querySelectorAll(sel).forEach((el) => {
-        el.textContent = text;
-      });
+      document.querySelectorAll(sel).forEach((el) => { el.textContent = text; });
     });
   }
 
   function readCfgCache() {
-    try {
-      return JSON.parse(sessionStorage.getItem(CFG_CACHE_KEY) || "null");
-    } catch {
-      return null;
-    }
+    try { return JSON.parse(sessionStorage.getItem(CFG_CACHE_KEY) || "null"); }
+    catch { return null; }
   }
   function writeCfgCache(cfg) {
-    try {
-      sessionStorage.setItem(CFG_CACHE_KEY, JSON.stringify(cfg));
-    } catch {}
+    try { sessionStorage.setItem(CFG_CACHE_KEY, JSON.stringify(cfg)); } catch {}
   }
 
   async function fetchConfigFresh() {
     const res = await fetch(`/api/admin?action=config&_=${Date.now()}`, {
       cache: "no-store",
-      headers: { "Cache-Control": "no-store", Pragma: "no-cache" },
+      headers: { "Cache-Control": "no-store", "Pragma": "no-cache" },
     });
     if (!res.ok) throw new Error(`config fetch failed: ${res.status}`);
     return await res.json();
@@ -618,87 +638,54 @@
 
     try {
       const fresh = await fetchConfigFresh();
-      if (
-        !cached ||
-        fresh.version !== cached.version ||
-        fresh.showName !== cached.showName
-      ) {
+      if (!cached || fresh.version !== cached.version || fresh.showName !== cached.showName) {
         writeCfgCache(fresh);
         setHeadlineText(fresh.showName);
       }
     } catch (e) {
+      // leave whatever headline is currently shown
       console.debug("[config] headline refresh skipped:", e?.message || e);
     }
   }
 
   // ──────────────────────────────────────────────────────────────
-  // Winner UI (modal + banner)
+  // Winner UI (modal + banner) — auto-fire + live update
   // ──────────────────────────────────────────────────────────────
   const SHOWN_WINNER_KEY = "shownWinnerName";
   let lastWinner = null;
 
   function winnerBannerEl() {
-    return (
-      document.querySelector(".raffle.raffle-title.blink") ||
-      document.querySelector("[data-winner-banner]")
-    );
-  }
-
-  function formatWinnerMessage(name) {
-    const n = (name || "").trim();
-    return n ? `Woohooo! Tonight's winner is ${n}!` : "";
-  }
-
-  function initWinnerBannerDefault() {
-    const el = winnerBannerEl();
-    if (!el) return;
-    if (!el.getAttribute("data-default")) {
-      el.setAttribute("data-default", el.textContent || "Free T-shirt raffle!");
-    }
-  }
-  function initWinnerWatchers() {
-    initWinnerBannerDefault();
-    fetchWinnerOnce()
-      .then((name) => {
-        maybeDisplayWinner(name);
-      })
-      .catch(() => {});
+    return document.querySelector(".raffle.raffle-title.blink") || document.querySelector("[data-winner-banner]");
   }
 
   function setWinnerBanner(name) {
     const el = winnerBannerEl();
     if (!el) return;
+
     if (!el.getAttribute("data-default")) {
       el.setAttribute("data-default", el.textContent || "Free T-shirt raffle!");
     }
+
     if (name) {
       el.textContent = `Woohooo! Tonight's winner is ${name}!`;
       el.classList.add("has-winner");
     } else {
-      const fallback =
-        el.getAttribute("data-default") || "Free T-shirt raffle!";
+      const fallback = el.getAttribute("data-default") || "Free T-shirt raffle!";
       el.textContent = fallback;
       el.classList.remove("has-winner");
     }
   }
 
   function showWinnerModal(name) {
-    const modal =
-      document.getElementById("winner-modal") ||
-      document.querySelector(".winner-modal");
-    const nameSpans = modal
-      ? modal.querySelectorAll(".winner-name, [data-winner-name]")
-      : null;
+    const modal = document.getElementById("winner-modal") || document.querySelector(".winner-modal");
+    const nameSpans = modal ? modal.querySelectorAll(".winner-name, [data-winner-name]") : null;
 
-    if (nameSpans && nameSpans.length)
-      nameSpans.forEach((n) => (n.textContent = name));
+    if (nameSpans && nameSpans.length) nameSpans.forEach((n) => (n.textContent = name));
     if (modal) {
       modal.classList.remove("hidden");
       modal.removeAttribute("aria-hidden");
 
-      const close = modal.querySelector(
-        ".winner-close, [data-close], .modal-close"
-      );
+      const close = modal.querySelector(".winner-close, [data-close], .modal-close");
       const overlay = modal.querySelector(".modal-overlay, [data-overlay]");
       const hide = () => {
         modal.classList.add("hidden");
@@ -712,9 +699,7 @@
   }
 
   async function fetchWinnerOnce() {
-    const res = await fetch("/api/admin?action=winner&_=" + Date.now(), {
-      cache: "no-store",
-    });
+    const res = await fetch("/api/admin?action=winner&_=" + Date.now(), { cache: "no-store" });
     if (!res.ok) return null;
     const j = await res.json().catch(() => ({}));
     return j?.winner?.name || null;
@@ -728,6 +713,8 @@
       return;
     }
     setWinnerBanner(name);
+
+    // Show once per unique winner per browser
     const already = localStorage.getItem(SHOWN_WINNER_KEY);
     if (already !== name) {
       localStorage.setItem(SHOWN_WINNER_KEY, name);
@@ -740,9 +727,7 @@
     const T = 4000;
     async function tick() {
       try {
-        const r = await fetch("/api/admin?action=winner", {
-          cache: "no-store",
-        });
+        const r = await fetch("/api/admin?action=winner", { cache: "no-store" });
         const j = await r.json().catch(() => ({}));
         const name = j?.winner?.name || null;
         maybeDisplayWinner(name);
@@ -753,10 +738,12 @@
   }
 
   function initWinnerRealtime() {
+    // If SSE not configured, just poll.
     if (!WINNER_SSE_URL || !("EventSource" in window)) {
       startWinnerPolling();
       return;
     }
+
     try {
       const es = new EventSource(WINNER_SSE_URL);
       let pollingTimer = null;
@@ -777,9 +764,7 @@
       };
 
       es.onerror = () => {
-        try {
-          es.close();
-        } catch {}
+        try { es.close(); } catch {}
         if (!pollingTimer) pollingTimer = startWinnerPolling();
       };
     } catch {
@@ -788,212 +773,13 @@
   }
 
   // ──────────────────────────────────────────────────────────────
-  // Jackpot message sniffer (DOM-based logging)
-  // ──────────────────────────────────────────────────────────────
-  (function () {
-    // Tweak these if your UI uses different selectors/words
-    const CANDIDATE_SELECTORS = [
-      "[data-slot-message]",
-      ".slot-message",
-      "#slot-message",
-      ".jackpot-message",
-      ".slot-banner",
-      ".slot-result",
-      ".result",
-      ".message",
-    ];
-    const JACKPOT_REGEX =
-      /\b(jackpot|triple|three[\s-]*of[\s-]*a[\s-]*kind|3\s*(?:in\s*a\s*row|x)|big\s*win|you\s+won)\b/i;
-    const PRIZE_GUESS_LIST = [
-      "Sticker",
-      "Cherry",
-      "Lemon",
-      "Star",
-      "Bell",
-      "Bar",
-      "Seven",
-      "Clover",
-      "Wild",
-    ];
-
-    let lastSig = "";
-    let lastTs = 0;
-
-    function textOf(el) {
-      return (el?.textContent || "").replace(/\s+/g, " ").trim();
-    }
-
-    function isVisible(el) {
-      if (!el) return false;
-      const s = getComputedStyle(el);
-      if (
-        s.display === "none" ||
-        s.visibility === "hidden" ||
-        s.opacity === "0"
-      )
-        return false;
-      const rect = el.getBoundingClientRect();
-      return rect.width > 0 && rect.height > 0;
-    }
-
-    function extractPrizeFromText(msg) {
-      if (!msg) return null;
-
-      // Common "— Prize" or ": Prize" shapes
-      const m1 = msg.match(/[—–-:]\s*([A-Za-z][\w\s]{1,24})\s*$/);
-      if (m1 && m1[1]) return m1[1].trim();
-
-      // Look for known prize words
-      for (const p of PRIZE_GUESS_LIST) {
-        const re = new RegExp(`\\b${p}\\b`, "i");
-        if (re.test(msg)) return p;
-      }
-
-      // Fallback: first capitalized token (best-effort)
-      const m2 = msg.match(/\b([A-Z][a-zA-Z]{2,})\b/);
-      return m2 ? m2[1] : null;
-    }
-
-    async function sendJackpotLog(prizeText, rawMsg) {
-      const name =
-        (typeof getName === "function" && getName()) || "(anonymous)";
-      const prize = (prizeText || "").trim();
-      const targets = prize ? [prize, prize, prize] : [rawMsg || "Jackpot"];
-
-      // Prefer your existing logSpin if present
-      if (typeof logSpin === "function") {
-        try {
-          await logSpin(targets, true);
-          return;
-        } catch {}
-      }
-
-      // Otherwise POST JSON, with beacon GET fallback
-      try {
-        await fetch("/api/admin?action=prize-log", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name, targets, jackpot: true }),
-        });
-      } catch {
-        try {
-          const params = new URLSearchParams({
-            name,
-            jackpot: "true",
-            targets: targets.join(","),
-          });
-          const url = `/api/admin?action=prize-log&${params}`;
-          if ("sendBeacon" in navigator) {
-            navigator.sendBeacon(url, new Blob([""], { type: "text/plain" }));
-          } else {
-            fetch(url).catch(() => {});
-          }
-        } catch {}
-      }
-
-      // Award the extra raffle entry (server dedupes per IP/window)
-      try {
-        if (
-          typeof submitEntryOnce === "function" &&
-          typeof getName === "function" &&
-          getName()
-        ) {
-          await submitEntryOnce("jackpot");
-        }
-      } catch {}
-    }
-
-    function maybeLogFromMessage(msg) {
-      if (!msg) return;
-      if (!JACKPOT_REGEX.test(msg)) return; // not a jackpot-ish message
-      const sig = msg.toLowerCase().trim();
-      const now = Date.now();
-      if (sig === lastSig && now - lastTs < 6000) return; // dedupe ~6s
-
-      lastSig = sig;
-      lastTs = now;
-
-      const prize = extractPrizeFromText(msg);
-      sendJackpotLog(prize, msg);
-    }
-
-    function scanOnce(root) {
-      // 1) direct known nodes
-      for (const sel of CANDIDATE_SELECTORS) {
-        document.querySelectorAll(sel).forEach((el) => {
-          if (!isVisible(el)) return;
-          maybeLogFromMessage(textOf(el));
-        });
-      }
-      // 2) any visible descendant under slot-root with jackpot-ish text
-      const container =
-        root || document.querySelector("#slot-root") || document.body;
-      if (!container) return;
-      const walker = document.createTreeWalker(
-        container,
-        NodeFilter.SHOW_ELEMENT,
-        null
-      );
-      while (walker.nextNode()) {
-        const el = walker.currentNode;
-        if (!isVisible(el)) continue;
-        const t = textOf(el);
-        if (JACKPOT_REGEX.test(t)) {
-          maybeLogFromMessage(t);
-        }
-      }
-    }
-
-    // Public init
-    window.initJackpotMessageSniffer = function initJackpotMessageSniffer() {
-      const root = document.querySelector("#slot-root") || document.body;
-      if (!root) return;
-
-      // Initial scan (handles messages already on screen)
-      scanOnce(root);
-
-      // Observe for future changes
-      const obs = new MutationObserver(() => {
-        // throttle slightly – many nodes change at once
-        clearTimeout(obs._t);
-        obs._t = setTimeout(() => scanOnce(root), 50);
-      });
-
-      obs.observe(root, {
-        childList: true,
-        subtree: true,
-        characterData: true,
-        attributes: true,
-      });
-      // also watch common message nodes if they exist outside #slot-root
-      CANDIDATE_SELECTORS.forEach((sel) => {
-        const n = document.querySelector(sel);
-        if (n && n !== root) {
-          obs.observe(n, {
-            childList: true,
-            subtree: true,
-            characterData: true,
-            attributes: true,
-          });
-        }
-      });
-
-      // for debugging in console
-      window.__jackpotSniffer = {
-        force: (msg) => maybeLogFromMessage(String(msg || "")),
-        rescan: () => scanOnce(root),
-      };
-    };
-  })();
-
-  // ──────────────────────────────────────────────────────────────
   // Boot
   // ──────────────────────────────────────────────────────────────
   function boot() {
     initNamePersistence();
     ensureEntryStatsUI();
     wireFollowButtons();
-    initJackpotMessageSniffer();
+
     refreshFollowers();
     setInterval(refreshFollowers, 60_000);
 
@@ -1002,13 +788,25 @@
     refreshEntryStats();
     setInterval(refreshEntryStats, 15_000);
 
+    // headline init/refresh — only affects headline text
     initConfigHeadline();
     document.addEventListener("visibilitychange", () => {
       if (document.visibilityState === "visible") initConfigHeadline();
     });
 
-    initWinnerWatchers();
+    // winner modal + banner (auto-fire + live)
+    (function initWinnerBannerDefault() {
+      const el = document.querySelector(".raffle.raffle-title.blink") || document.querySelector("[data-winner-banner]");
+      if (el && !el.getAttribute("data-default")) {
+        el.setAttribute("data-default", el.textContent || "Free T-shirt raffle!");
+      }
+    })();
+    fetchWinnerOnce().then((name) => { maybeDisplayWinner(name); }).catch(() => {});
 
+    // jackpot message observer (safety net)
+    observeJackpotMessage();
+
+    // slot hooks
     initSlot();
   }
 
