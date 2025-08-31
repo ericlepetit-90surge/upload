@@ -374,23 +374,19 @@ export default async function handler(req, res) {
             ]),
             timeout(10000),
           ]);
-          return res
-            .status(200)
-            .json({
-              showName,
-              startTime,
-              endTime,
-              version: Number(version || 0),
-            });
-        }
-        return res
-          .status(200)
-          .json({
-            showName: "90 Surge",
-            startTime: null,
-            endTime: null,
-            version: 0,
+          return res.status(200).json({
+            showName,
+            startTime,
+            endTime,
+            version: Number(version || 0),
           });
+        }
+        return res.status(200).json({
+          showName: "90 Surge",
+          startTime: null,
+          endTime: null,
+          version: 0,
+        });
       } catch (err) {
         console.error("❌ config GET:", err);
         return res.status(500).json({ error: "Failed to load config" });
@@ -562,46 +558,45 @@ export default async function handler(req, res) {
   }
 
   if (action === "my-entries" && req.method === "GET") {
-  const ok = await ensureRedisConnected();
-  if (!ok) {
+    const ok = await ensureRedisConnected();
+    if (!ok) {
+      return res.status(200).json({
+        mine: 0,
+        total: 0,
+        sources: { fb: false, ig: false, jackpot: false },
+      });
+    }
+
+    const { windowKey } = await getWindowInfo();
+    const ip =
+      req.headers["x-forwarded-for"]?.split(",")[0]?.trim() ||
+      req.socket.remoteAddress ||
+      "unknown";
+
+    const setFb = `raffle:entered:${windowKey}:fb`;
+    const setIg = `raffle:entered:${windowKey}:ig`;
+    const listKey = `raffle:entries:${windowKey}`;
+    const jpKey = `raffle:jackpotCount:${windowKey}:${ip}`;
+
+    const [fb, ig, total, jpCountRaw] = await Promise.all([
+      redis.sIsMember(setFb, ip),
+      redis.sIsMember(setIg, ip),
+      redis.lLen(listKey).catch(() => 0),
+      redis.get(jpKey).catch(() => "0"),
+    ]);
+
+    let jpCount = Number(jpCountRaw || 0);
+    if (!Number.isFinite(jpCount) || jpCount < 0) jpCount = 0;
+
+    const mine = (fb ? 1 : 0) + (ig ? 1 : 0) + jpCount;
+
     return res.status(200).json({
-      mine: 0,
-      total: 0,
-      sources: { fb: false, ig: false, jackpot: false },
+      mine,
+      total: Number(total || 0),
+      sources: { fb: !!fb, ig: !!ig, jackpot: jpCount > 0 },
+      jackpotCount: jpCount, // extra field; UI can ignore if unused
     });
   }
-
-  const { windowKey } = await getWindowInfo();
-  const ip =
-    req.headers["x-forwarded-for"]?.split(",")[0]?.trim() ||
-    req.socket.remoteAddress ||
-    "unknown";
-
-  const setFb = `raffle:entered:${windowKey}:fb`;
-  const setIg = `raffle:entered:${windowKey}:ig`;
-  const listKey = `raffle:entries:${windowKey}`;
-  const jpKey  = `raffle:jackpotCount:${windowKey}:${ip}`;
-
-  const [fb, ig, total, jpCountRaw] = await Promise.all([
-    redis.sIsMember(setFb, ip),
-    redis.sIsMember(setIg, ip),
-    redis.lLen(listKey).catch(() => 0),
-    redis.get(jpKey).catch(() => "0"),
-  ]);
-
-  let jpCount = Number(jpCountRaw || 0);
-  if (!Number.isFinite(jpCount) || jpCount < 0) jpCount = 0;
-
-  const mine = (fb ? 1 : 0) + (ig ? 1 : 0) + jpCount;
-
-  return res.status(200).json({
-    mine,
-    total: Number(total || 0),
-    sources: { fb: !!fb, ig: !!ig, jackpot: jpCount > 0 },
-    jackpotCount: jpCount, // extra field; UI can ignore if unused
-  });
-}
-
 
   if (action === "entries-summary" && req.method === "GET") {
     const ok = await ensureRedisConnected();
@@ -627,129 +622,121 @@ export default async function handler(req, res) {
   }
 
   /* ────────────────────────────────────────────────────────────
-     RESET EVERYTHING (entries + winners + social)
-  ───────────────────────────────────────────────────────────── */
-  if (action === "reset-entries" && req.method === "POST") {
-    if (!isAdmin(req)) return res.status(403).json({ error: "Forbidden" });
+   RESET EVERYTHING (entries + winners + social)
+───────────────────────────────────────────────────────────── */
+if (action === "reset-entries" && req.method === "POST") {
+  if (!isAdmin(req)) return res.status(403).json({ error: "Forbidden" });
 
-    const ok = await ensureRedisConnected();
-    if (!ok || !redis?.isOpen) {
-      MEM.winners = [];
-      MEM.currentWinner = null;
-      if (isLocal)
-        try {
-          fs.unlinkSync(LOCAL_LEDGER_FILE);
-        } catch {}
-      return res
-        .status(200)
-        .json({
-          success: true,
-          windowKey: "(mem)",
-          deletedKeys: 0,
-          remaining: { social: [], raffleEntered: [] },
-        });
-    }
-
-    async function delKey(k) {
-      try {
-        return await redis.unlink(k);
-      } catch {
-        try {
-          return await redis.del(k);
-        } catch {
-          return 0;
-        }
-      }
-    }
-
+  // If Redis isn't ready, just clear the in-memory mirrors and return success
+  const ok = await ensureRedisConnected();
+  if (!ok || !redis?.isOpen) {
     try {
-      const { windowKey } = await getWindowInfo();
-
-      const listKey = `raffle:entries:${windowKey}`;
-      const dedupes = await scanAll(`raffle:entered:${windowKey}:*`);
-      const bonuses = await scanAll(`raffle:bonus:${windowKey}:*`);
-      
-      if (source === "jackpot") {
-    const entry = {
-      id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
-      name,
-      ip,
-      source,
-      createdTime: new Date().toISOString(),
-    };
-
-    const jpKey = `raffle:jackpotCount:${windowKey}:${ip}`;
-
-    await redis
-      .multi()
-      .rPush(listKey, JSON.stringify(entry))
-      .expire(listKey, ttlSeconds)
-      .incr(jpKey)
-      .expire(jpKey, ttlSeconds)
-      .exec();
-
-    return res.status(200).json({ success: true, entry, jackpot: true });
-  }
-
-      const winnersKey = "raffle:winners:all";
-      const winnerKey = "raffle_winner";
-
-      const socialIpsScoped = `social:ips:${windowKey}`;
-      const socialStates = await scanAll(`social:${windowKey}:*`);
-      const socialLocks = await scanAll(`social:lock:${windowKey}:*`);
-      const socialIpsLegacy = "social:ips";
-
-      const toDelete = Array.from(
-        new Set([
-          listKey,
-          winnersKey,
-          winnerKey,
-          socialIpsScoped,
-          socialIpsLegacy,
-          ...dedupes,
-          ...bonuses,
-          ...socialStates,
-          ...socialLocks,
-        ])
-      );
-
-      let deleted = 0;
-      for (const k of toDelete) deleted += await delKey(k);
-
       MEM.winners = [];
       MEM.currentWinner = null;
-      if (isLocal)
-        try {
-          fs.unlinkSync(LOCAL_LEDGER_FILE);
-        } catch {}
-
-      const remainingSocial = await scanAll(`social:${windowKey}:*`);
-      const remainingRaffleEntered = await scanAll(
-        `raffle:entered:${windowKey}:*`
-      );
-
-      return res
-        .status(200)
-        .json({
-          success: true,
-          windowKey,
-          deletedKeys: deleted,
-          remaining: {
-            social: remainingSocial,
-            raffleEntered: remainingRaffleEntered,
-          },
-        });
-    } catch (e) {
-      console.error("❌ reset-entries failed:", e);
-      return res
-        .status(500)
-        .json({
-          success: false,
-          error: "Reset entries failed",
-          details: e?.message || String(e),
-        });
-    }
+    } catch {}
+    return res.status(200).json({
+      success: true,
+      windowKey: "(mem)",
+      deletedKeys: 0,
+      remaining: { social: [], raffleEntered: [], jackpots: [] },
+      _note: "Redis not ready; cleared memory mirror only",
+    });
   }
+
+  // Safe helpers
+  const safeScan = async (pattern) => {
+    try {
+      if (!redis?.scanIterator) return [];
+      const out = [];
+      for await (const k of redis.scanIterator({ MATCH: pattern, COUNT: 1000 })) {
+        if (typeof k === "string" && k) out.push(k);
+      }
+      return out;
+    } catch (e) {
+      console.warn("scan failed", pattern, e?.message || e);
+      return [];
+    }
+  };
+
+  const delKey = async (k) => {
+    if (!k || typeof k !== "string") return 0;
+    try {
+      // UNLINK is non-blocking if supported
+      return (await redis.unlink(k)) || 0;
+    } catch {
+      try { return (await redis.del(k)) || 0; } catch { return 0; }
+    }
+  };
+
+  try {
+    const { windowKey } = await getWindowInfo();
+
+    // Window-scoped keys
+    const listKey = `raffle:entries:${windowKey}`;
+    const dedupes = await safeScan(`raffle:entered:${windowKey}:*`);
+    const bonuses = await safeScan(`raffle:bonus:${windowKey}:*`); // keep if you ever used it
+    const socialIpsScoped = `social:ips:${windowKey}`;
+    const socialStates = await safeScan(`social:${windowKey}:*`);
+    const socialLocks = await safeScan(`social:lock:${windowKey}:*`);
+
+    // NEW: unlimited jackpots counter per IP
+    const jpCounts = await safeScan(`raffle:jackpotCount:${windowKey}:*`);
+
+    // Global-ish keys
+    const winnersKey = "raffle:winners:all";
+    const winnerKey = "raffle_winner";
+    const socialIpsLegacy = "social:ips";
+
+    // Build unique deletion set
+    const toDelete = Array.from(new Set([
+      listKey,
+      winnersKey,
+      winnerKey,
+      socialIpsScoped,
+      socialIpsLegacy,
+      ...dedupes,
+      ...bonuses,
+      ...socialStates,
+      ...socialLocks,
+      ...jpCounts,     // ← include new counters
+    ]));
+
+    let deleted = 0;
+    for (const k of toDelete) {
+      deleted += await delKey(k);
+    }
+
+    // Clear memory mirrors too
+    MEM.winners = [];
+    MEM.currentWinner = null;
+
+    // For sanity, show what (if anything) remains for this window
+    const [remainingSocial, remainingEntered, remainingJp] = await Promise.all([
+      safeScan(`social:${windowKey}:*`),
+      safeScan(`raffle:entered:${windowKey}:*`),
+      safeScan(`raffle:jackpotCount:${windowKey}:*`),
+    ]);
+
+    return res.status(200).json({
+      success: true,
+      windowKey,
+      deletedKeys: deleted,
+      remaining: {
+        social: remainingSocial,
+        raffleEntered: remainingEntered,
+        jackpots: remainingJp,
+      },
+    });
+  } catch (e) {
+    console.error("❌ reset-entries failed:", e?.message || e, e?.stack || "");
+    return res.status(500).json({
+      success: false,
+      error: "Reset entries failed",
+      details: e?.message || String(e),
+    });
+  }
+}
+
 
   // ────────────────────────────────────────────────────────────
   // Social status (per-window aggregate for Admin UI)
@@ -894,25 +881,73 @@ export default async function handler(req, res) {
     }
   }
 
-  if (action === "reset-winner" && req.method === "POST") {
-    if (!isAdmin(req)) return res.status(403).json({ error: "Forbidden" });
-    await ensureRedisConnected();
-    try {
-      if (redis?.isOpen) await redis.del("raffle_winner");
-      MEM.currentWinner = null;
+  /* ────────────────────────────────────────────────────────────
+   RESET CURRENT WINNER (+ optionally clear Winners Ledger)
+───────────────────────────────────────────────────────────── */
+if (action === "reset-winner" && req.method === "POST") {
+  if (!isAdmin(req)) return res.status(403).json({ error: "Forbidden" });
+
+  const u = new URL(req.url || "", `http://${req.headers.host}`);
+
+  // By default we CLEAR the winners ledger too.
+  // You can override by calling ?keepLedger=true or body: { clearLedger: false }
+  const keepLedgerQP = /^true|1|yes$/i.test(u.searchParams.get("keepLedger") || "");
+  const clearLedgerBody =
+    typeof req.body?.clearLedger === "boolean" ? req.body.clearLedger : undefined;
+  const clearLedger = clearLedgerBody !== undefined ? clearLedgerBody : !keepLedgerQP;
+
+  await ensureRedisConnected();
+
+  try {
+    // Clear the “current winner” key everywhere
+    if (redis?.isOpen) await redis.del("raffle_winner");
+    MEM.currentWinner = null;
+
+    // Optionally clear the Winners Ledger as well
+    let ledgerCleared = false;
+    if (clearLedger) {
       try {
-        await fetch("https://winner-sse-server.onrender.com/reset", {
-          method: "POST",
-        });
-      } catch {}
-      return res.json({ success: true });
-    } catch (err) {
-      console.error("❌ reset-winner:", err);
-      return res
-        .status(500)
-        .json({ success: false, error: "Failed to reset winner" });
+        if (redis?.isOpen) {
+          await redis.del("raffle:winners:all");
+        }
+        MEM.winners = [];
+
+        // If you’re running locally and keep a file fallback, wipe it too
+        try {
+          const localFilePath = path.join(process.cwd(), ".data", "winners-local.json");
+          if (fs.existsSync(localFilePath)) {
+            fs.writeFileSync(localFilePath, "[]");
+          }
+        } catch {}
+
+        ledgerCleared = true;
+      } catch (e) {
+        console.warn("reset-winner: clearing ledger failed:", e?.message || e);
+      }
     }
+
+    // Optional: broadcast reset for any SSE client you have
+    try {
+      await fetch("https://winner-sse-server.onrender.com/reset", { method: "POST" });
+    } catch {}
+
+    return res.json({
+      success: true,
+      ledgerCleared,
+      note: ledgerCleared
+        ? "Current winner and Winners Ledger cleared."
+        : "Current winner cleared. Ledger kept.",
+    });
+  } catch (err) {
+    console.error("❌ reset-winner:", err);
+    return res.status(500).json({
+      success: false,
+      error: "Failed to reset winner",
+      details: err?.message || String(err),
+    });
   }
+}
+
 
   /* ────────────────────────────────────────────────────────────
      WINNERS LEDGER (manual + list)
@@ -1002,12 +1037,10 @@ export default async function handler(req, res) {
       );
       const fbJson = await fbRes.json().catch(() => ({}));
       const igJson = await igRes.json().catch(() => ({}));
-      return res
-        .status(200)
-        .json({
-          facebook: Number(fbJson?.fan_count || 0),
-          instagram: Number(igJson?.followers_count || 0),
-        });
+      return res.status(200).json({
+        facebook: Number(fbJson?.fan_count || 0),
+        instagram: Number(igJson?.followers_count || 0),
+      });
     } catch (err) {
       console.error("❌ followers:", err?.message || err);
       return res.status(200).json({ facebook: 0, instagram: 0 });
