@@ -564,6 +564,7 @@ export default async function handler(req, res) {
         mine: 0,
         total: 0,
         sources: { fb: false, ig: false, jackpot: false },
+        bonus: 0,
       });
     }
 
@@ -575,26 +576,26 @@ export default async function handler(req, res) {
 
     const setFb = `raffle:entered:${windowKey}:fb`;
     const setIg = `raffle:entered:${windowKey}:ig`;
+    const setJp = `raffle:entered:${windowKey}:jackpot`;
+    const bonusKey = `raffle:bonus:${windowKey}:${ip}`;
     const listKey = `raffle:entries:${windowKey}`;
-    const jpKey = `raffle:jackpotCount:${windowKey}:${ip}`;
 
-    const [fb, ig, total, jpCountRaw] = await Promise.all([
+    const [fb, ig, jp, total, bonusRaw] = await Promise.all([
       redis.sIsMember(setFb, ip),
       redis.sIsMember(setIg, ip),
+      redis.sIsMember(setJp, ip),
       redis.lLen(listKey).catch(() => 0),
-      redis.get(jpKey).catch(() => "0"),
+      redis.get(bonusKey).catch(() => "0"),
     ]);
 
-    let jpCount = Number(jpCountRaw || 0);
-    if (!Number.isFinite(jpCount) || jpCount < 0) jpCount = 0;
-
-    const mine = (fb ? 1 : 0) + (ig ? 1 : 0) + jpCount;
+    const bonus = Number(bonusRaw || 0) || 0;
+    const mine = (fb ? 1 : 0) + (ig ? 1 : 0) + (jp ? 1 : 0) + bonus;
 
     return res.status(200).json({
       mine,
       total: Number(total || 0),
-      sources: { fb: !!fb, ig: !!ig, jackpot: jpCount > 0 },
-      jackpotCount: jpCount, // extra field; UI can ignore if unused
+      sources: { fb: !!fb, ig: !!ig, jackpot: !!jp },
+      bonus,
     });
   }
 
@@ -624,119 +625,132 @@ export default async function handler(req, res) {
   /* ────────────────────────────────────────────────────────────
    RESET EVERYTHING (entries + winners + social)
 ───────────────────────────────────────────────────────────── */
-if (action === "reset-entries" && req.method === "POST") {
-  if (!isAdmin(req)) return res.status(403).json({ error: "Forbidden" });
+  if (action === "reset-entries" && req.method === "POST") {
+    if (!isAdmin(req)) return res.status(403).json({ error: "Forbidden" });
 
-  // If Redis isn't ready, just clear the in-memory mirrors and return success
-  const ok = await ensureRedisConnected();
-  if (!ok || !redis?.isOpen) {
+    // If Redis isn't ready, just clear the in-memory mirrors and return success
+    const ok = await ensureRedisConnected();
+    if (!ok || !redis?.isOpen) {
+      try {
+        MEM.winners = [];
+        MEM.currentWinner = null;
+      } catch {}
+      return res.status(200).json({
+        success: true,
+        windowKey: "(mem)",
+        deletedKeys: 0,
+        remaining: { social: [], raffleEntered: [], jackpots: [] },
+        _note: "Redis not ready; cleared memory mirror only",
+      });
+    }
+
+    // Safe helpers
+    const safeScan = async (pattern) => {
+      try {
+        if (!redis?.scanIterator) return [];
+        const out = [];
+        for await (const k of redis.scanIterator({
+          MATCH: pattern,
+          COUNT: 1000,
+        })) {
+          if (typeof k === "string" && k) out.push(k);
+        }
+        return out;
+      } catch (e) {
+        console.warn("scan failed", pattern, e?.message || e);
+        return [];
+      }
+    };
+
+    const delKey = async (k) => {
+      if (!k || typeof k !== "string") return 0;
+      try {
+        // UNLINK is non-blocking if supported
+        return (await redis.unlink(k)) || 0;
+      } catch {
+        try {
+          return (await redis.del(k)) || 0;
+        } catch {
+          return 0;
+        }
+      }
+    };
+
     try {
+      const { windowKey } = await getWindowInfo();
+
+      // Window-scoped keys
+      const listKey = `raffle:entries:${windowKey}`;
+      const dedupes = await safeScan(`raffle:entered:${windowKey}:*`);
+      const bonuses = await safeScan(`raffle:bonus:${windowKey}:*`); // keep if you ever used it
+      const socialIpsScoped = `social:ips:${windowKey}`;
+      const socialStates = await safeScan(`social:${windowKey}:*`);
+      const socialLocks = await safeScan(`social:lock:${windowKey}:*`);
+
+      // NEW: unlimited jackpots counter per IP
+      const jpCounts = await safeScan(`raffle:jackpotCount:${windowKey}:*`);
+
+      // Global-ish keys
+      const winnersKey = "raffle:winners:all";
+      const winnerKey = "raffle_winner";
+      const socialIpsLegacy = "social:ips";
+
+      // Build unique deletion set
+      const toDelete = Array.from(
+        new Set([
+          listKey,
+          winnersKey,
+          winnerKey,
+          socialIpsScoped,
+          socialIpsLegacy,
+          ...dedupes,
+          ...bonuses,
+          ...socialStates,
+          ...socialLocks,
+          ...jpCounts, // ← include new counters
+        ])
+      );
+
+      let deleted = 0;
+      for (const k of toDelete) {
+        deleted += await delKey(k);
+      }
+
+      // Clear memory mirrors too
       MEM.winners = [];
       MEM.currentWinner = null;
-    } catch {}
-    return res.status(200).json({
-      success: true,
-      windowKey: "(mem)",
-      deletedKeys: 0,
-      remaining: { social: [], raffleEntered: [], jackpots: [] },
-      _note: "Redis not ready; cleared memory mirror only",
-    });
-  }
 
-  // Safe helpers
-  const safeScan = async (pattern) => {
-    try {
-      if (!redis?.scanIterator) return [];
-      const out = [];
-      for await (const k of redis.scanIterator({ MATCH: pattern, COUNT: 1000 })) {
-        if (typeof k === "string" && k) out.push(k);
-      }
-      return out;
+      // For sanity, show what (if anything) remains for this window
+      const [remainingSocial, remainingEntered, remainingJp] =
+        await Promise.all([
+          safeScan(`social:${windowKey}:*`),
+          safeScan(`raffle:entered:${windowKey}:*`),
+          safeScan(`raffle:jackpotCount:${windowKey}:*`),
+        ]);
+
+      return res.status(200).json({
+        success: true,
+        windowKey,
+        deletedKeys: deleted,
+        remaining: {
+          social: remainingSocial,
+          raffleEntered: remainingEntered,
+          jackpots: remainingJp,
+        },
+      });
     } catch (e) {
-      console.warn("scan failed", pattern, e?.message || e);
-      return [];
+      console.error(
+        "❌ reset-entries failed:",
+        e?.message || e,
+        e?.stack || ""
+      );
+      return res.status(500).json({
+        success: false,
+        error: "Reset entries failed",
+        details: e?.message || String(e),
+      });
     }
-  };
-
-  const delKey = async (k) => {
-    if (!k || typeof k !== "string") return 0;
-    try {
-      // UNLINK is non-blocking if supported
-      return (await redis.unlink(k)) || 0;
-    } catch {
-      try { return (await redis.del(k)) || 0; } catch { return 0; }
-    }
-  };
-
-  try {
-    const { windowKey } = await getWindowInfo();
-
-    // Window-scoped keys
-    const listKey = `raffle:entries:${windowKey}`;
-    const dedupes = await safeScan(`raffle:entered:${windowKey}:*`);
-    const bonuses = await safeScan(`raffle:bonus:${windowKey}:*`); // keep if you ever used it
-    const socialIpsScoped = `social:ips:${windowKey}`;
-    const socialStates = await safeScan(`social:${windowKey}:*`);
-    const socialLocks = await safeScan(`social:lock:${windowKey}:*`);
-
-    // NEW: unlimited jackpots counter per IP
-    const jpCounts = await safeScan(`raffle:jackpotCount:${windowKey}:*`);
-
-    // Global-ish keys
-    const winnersKey = "raffle:winners:all";
-    const winnerKey = "raffle_winner";
-    const socialIpsLegacy = "social:ips";
-
-    // Build unique deletion set
-    const toDelete = Array.from(new Set([
-      listKey,
-      winnersKey,
-      winnerKey,
-      socialIpsScoped,
-      socialIpsLegacy,
-      ...dedupes,
-      ...bonuses,
-      ...socialStates,
-      ...socialLocks,
-      ...jpCounts,     // ← include new counters
-    ]));
-
-    let deleted = 0;
-    for (const k of toDelete) {
-      deleted += await delKey(k);
-    }
-
-    // Clear memory mirrors too
-    MEM.winners = [];
-    MEM.currentWinner = null;
-
-    // For sanity, show what (if anything) remains for this window
-    const [remainingSocial, remainingEntered, remainingJp] = await Promise.all([
-      safeScan(`social:${windowKey}:*`),
-      safeScan(`raffle:entered:${windowKey}:*`),
-      safeScan(`raffle:jackpotCount:${windowKey}:*`),
-    ]);
-
-    return res.status(200).json({
-      success: true,
-      windowKey,
-      deletedKeys: deleted,
-      remaining: {
-        social: remainingSocial,
-        raffleEntered: remainingEntered,
-        jackpots: remainingJp,
-      },
-    });
-  } catch (e) {
-    console.error("❌ reset-entries failed:", e?.message || e, e?.stack || "");
-    return res.status(500).json({
-      success: false,
-      error: "Reset entries failed",
-      details: e?.message || String(e),
-    });
   }
-}
-
 
   // ────────────────────────────────────────────────────────────
   // Social status (per-window aggregate for Admin UI)
@@ -884,70 +898,83 @@ if (action === "reset-entries" && req.method === "POST") {
   /* ────────────────────────────────────────────────────────────
    RESET CURRENT WINNER (+ optionally clear Winners Ledger)
 ───────────────────────────────────────────────────────────── */
-if (action === "reset-winner" && req.method === "POST") {
-  if (!isAdmin(req)) return res.status(403).json({ error: "Forbidden" });
+  if (action === "reset-winner" && req.method === "POST") {
+    if (!isAdmin(req)) return res.status(403).json({ error: "Forbidden" });
 
-  const u = new URL(req.url || "", `http://${req.headers.host}`);
+    const u = new URL(req.url || "", `http://${req.headers.host}`);
 
-  // By default we CLEAR the winners ledger too.
-  // You can override by calling ?keepLedger=true or body: { clearLedger: false }
-  const keepLedgerQP = /^true|1|yes$/i.test(u.searchParams.get("keepLedger") || "");
-  const clearLedgerBody =
-    typeof req.body?.clearLedger === "boolean" ? req.body.clearLedger : undefined;
-  const clearLedger = clearLedgerBody !== undefined ? clearLedgerBody : !keepLedgerQP;
+    // By default we CLEAR the winners ledger too.
+    // You can override by calling ?keepLedger=true or body: { clearLedger: false }
+    const keepLedgerQP = /^true|1|yes$/i.test(
+      u.searchParams.get("keepLedger") || ""
+    );
+    const clearLedgerBody =
+      typeof req.body?.clearLedger === "boolean"
+        ? req.body.clearLedger
+        : undefined;
+    const clearLedger =
+      clearLedgerBody !== undefined ? clearLedgerBody : !keepLedgerQP;
 
-  await ensureRedisConnected();
+    await ensureRedisConnected();
 
-  try {
-    // Clear the “current winner” key everywhere
-    if (redis?.isOpen) await redis.del("raffle_winner");
-    MEM.currentWinner = null;
-
-    // Optionally clear the Winners Ledger as well
-    let ledgerCleared = false;
-    if (clearLedger) {
-      try {
-        if (redis?.isOpen) {
-          await redis.del("raffle:winners:all");
-        }
-        MEM.winners = [];
-
-        // If you’re running locally and keep a file fallback, wipe it too
-        try {
-          const localFilePath = path.join(process.cwd(), ".data", "winners-local.json");
-          if (fs.existsSync(localFilePath)) {
-            fs.writeFileSync(localFilePath, "[]");
-          }
-        } catch {}
-
-        ledgerCleared = true;
-      } catch (e) {
-        console.warn("reset-winner: clearing ledger failed:", e?.message || e);
-      }
-    }
-
-    // Optional: broadcast reset for any SSE client you have
     try {
-      await fetch("https://winner-sse-server.onrender.com/reset", { method: "POST" });
-    } catch {}
+      // Clear the “current winner” key everywhere
+      if (redis?.isOpen) await redis.del("raffle_winner");
+      MEM.currentWinner = null;
 
-    return res.json({
-      success: true,
-      ledgerCleared,
-      note: ledgerCleared
-        ? "Current winner and Winners Ledger cleared."
-        : "Current winner cleared. Ledger kept.",
-    });
-  } catch (err) {
-    console.error("❌ reset-winner:", err);
-    return res.status(500).json({
-      success: false,
-      error: "Failed to reset winner",
-      details: err?.message || String(err),
-    });
+      // Optionally clear the Winners Ledger as well
+      let ledgerCleared = false;
+      if (clearLedger) {
+        try {
+          if (redis?.isOpen) {
+            await redis.del("raffle:winners:all");
+          }
+          MEM.winners = [];
+
+          // If you’re running locally and keep a file fallback, wipe it too
+          try {
+            const localFilePath = path.join(
+              process.cwd(),
+              ".data",
+              "winners-local.json"
+            );
+            if (fs.existsSync(localFilePath)) {
+              fs.writeFileSync(localFilePath, "[]");
+            }
+          } catch {}
+
+          ledgerCleared = true;
+        } catch (e) {
+          console.warn(
+            "reset-winner: clearing ledger failed:",
+            e?.message || e
+          );
+        }
+      }
+
+      // Optional: broadcast reset for any SSE client you have
+      try {
+        await fetch("https://winner-sse-server.onrender.com/reset", {
+          method: "POST",
+        });
+      } catch {}
+
+      return res.json({
+        success: true,
+        ledgerCleared,
+        note: ledgerCleared
+          ? "Current winner and Winners Ledger cleared."
+          : "Current winner cleared. Ledger kept.",
+      });
+    } catch (err) {
+      console.error("❌ reset-winner:", err);
+      return res.status(500).json({
+        success: false,
+        error: "Failed to reset winner",
+        details: err?.message || String(err),
+      });
+    }
   }
-}
-
 
   /* ────────────────────────────────────────────────────────────
      WINNERS LEDGER (manual + list)
@@ -1233,6 +1260,47 @@ if (action === "reset-winner" && req.method === "POST") {
         .status(500)
         .json({ success: false, error: "prize-log failed" });
     }
+  }
+
+  // ────────────────────────────────────────────────────────────
+  // BONUS ENTRY (non-deduped) — used for "Extra Entry" jackpots
+  // ────────────────────────────────────────────────────────────
+  if (action === "bonus-entry" && req.method === "POST") {
+    const ok = await ensureRedisConnected();
+    if (!ok || !redis?.isOpen) {
+      return res.status(503).json({ error: "Redis not ready" });
+    }
+
+    const nameRaw = (req.body?.name || "").trim();
+    if (!nameRaw) return res.status(400).json({ error: "Missing name" });
+    const name = nameRaw.slice(0, 80);
+
+    const ip =
+      req.headers["x-forwarded-for"]?.split(",")[0]?.trim() ||
+      req.socket.remoteAddress ||
+      "unknown";
+
+    const { windowKey, ttlSeconds } = await getWindowInfo();
+    const listKey = `raffle:entries:${windowKey}`;
+    const bonusKey = `raffle:bonus:${windowKey}:${ip}`;
+
+    const entry = {
+      id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
+      name,
+      ip,
+      source: "jackpot-bonus",
+      createdTime: new Date().toISOString(),
+    };
+
+    await redis
+      .multi()
+      .rPush(listKey, JSON.stringify(entry))
+      .expire(listKey, ttlSeconds)
+      .incr(bonusKey)
+      .expire(bonusKey, ttlSeconds)
+      .exec();
+
+    return res.status(200).json({ success: true, entry });
   }
 
   /* ───── UNKNOWN ───── */

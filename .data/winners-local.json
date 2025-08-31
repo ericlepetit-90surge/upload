@@ -14,5 +14,45 @@
     "source": "slot",
     "windowKey": "2025-07-27T04:00:00.000Z|2025-09-17T03:59:59.999Z",
     "ts": "2025-08-31T22:06:27.120Z"
+  },
+  {
+    "id": "1756679086347_4wx6t2a5tn4",
+    "name": "Eric @@",
+    "prize": "Sticker",
+    "source": "slot",
+    "windowKey": "2025-07-27T04:00:00.000Z|2025-09-17T03:59:59.999Z",
+    "ts": "2025-08-31T22:24:46.347Z"
+  },
+  {
+    "id": "1756679981919_xzvcilvpmeg",
+    "name": "Eric @@asdasad",
+    "prize": "Sticker",
+    "source": "slot",
+    "windowKey": "2025-07-27T04:00:00.000Z|2025-09-17T03:59:59.999Z",
+    "ts": "2025-08-31T22:39:41.919Z"
+  },
+  {
+    "id": "1756679994241_wbki2fkv3ur",
+    "name": "Eric @@asdasad",
+    "prize": "VIP Seat",
+    "source": "slot",
+    "windowKey": "2025-07-27T04:00:00.000Z|2025-09-17T03:59:59.999Z",
+    "ts": "2025-08-31T22:39:54.241Z"
+  },
+  {
+    "id": "1756679996309_8o0306kh2eo",
+    "name": "Eric @@asdasad",
+    "prize": "VIP Seat",
+    "source": "slot",
+    "windowKey": "2025-07-27T04:00:00.000Z|2025-09-17T03:59:59.999Z",
+    "ts": "2025-08-31T22:39:56.309Z"
+  },
+  {
+    "id": "1756680003466_o5zu8ncojdk",
+    "name": "Eric @@asdasad",
+    "prize": "Sticker",
+    "source": "slot",
+    "windowKey": "2025-07-27T04:00:00.000Z|2025-09-17T03:59:59.999Z",
+    "ts": "2025-08-31T22:40:03.466Z"
   }
 ]

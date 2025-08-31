@@ -247,12 +247,11 @@ button:disabled {
 .followers-wrapper {
   display: flex;
   gap: .5rem;
-  flex-wrap: wrap;
   justify-content: center;
   align-items: center;
   margin: .5rem 0;
 }
-.follower-block { display: flex; align-items: center; gap: .4rem; font-size: 1rem; }
+.follower-block { display: flex; align-items: center; gap: .2rem; font-size: 1rem; }
 
 /* ===========================
    Progress + Messages
@@ -573,8 +572,6 @@ progress { height: 10px; border-radius: 5px; width: 100%; }
 .slot-card{
   width:100%;
   background:var(--card);
-  border:1px solid rgba(255,255,255,.08);
-  border-radius:14px;
   margin:16px auto;
   color:var(--text);
   box-shadow:0 8px 18px rgba(0,0,0,.25);

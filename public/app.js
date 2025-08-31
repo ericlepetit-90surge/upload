@@ -694,10 +694,43 @@
         // 5) Log winners only (server ignores non-jackpots anyway)
         await logSpin(targets, hitJackpot);
 
-        // 6) Extra entry only on real jackpots
-        if (hitJackpot && getName()) {
-          await submitEntryOnce("jackpot"); // server dedupes by IP per window
+        // Identify primary prize (if it's a real triple)
+        const primaryPrize =
+          targets.length >= 3 &&
+          targets[0] &&
+          targets[0] === targets[1] &&
+          targets[1] === targets[2]
+            ? targets[0]
+            : "";
+
+        // Small guard so engine + observer can’t double-award within a second
+        window.__lastBonusAwardAt ??= 0;
+        const canAwardBonus = () => {
+          const now = Date.now();
+          if (now - window.__lastBonusAwardAt < 1000) return false;
+          window.__lastBonusAwardAt = now;
+          return true;
+        };
+
+        if (hitJackpot) {
+          // Standard 1-per-window jackpot ticket (deduped)
+          if (getName()) await submitEntryOnce("jackpot");
+
+          // Extra Entry jackpot → add a non-deduped bonus
+          if (primaryPrize === "Extra Entry" && getName() && canAwardBonus()) {
+            try {
+              await postJSON("/api/admin?action=bonus-entry", {
+                name: getName(),
+                targets,
+              });
+              refreshEntryStats().catch(() => {});
+            } catch (e) {
+              console.warn("[slot] bonus-entry failed:", e?.message || e);
+            }
+          }
         }
+
+      
       } catch (err) {
         console.warn("[slot] handleResult error:", err?.message || err);
       }
@@ -733,12 +766,14 @@
     );
     if (!el) return;
 
-    // no text-sameness suppression; only tiny throttle to avoid double DOM fires
+    // tiny throttle to avoid double DOM fires
     let lastSentAt = 0;
 
     function extractPrizeFromText(text) {
       // Focus only on the part after “JACKPOT!”
-      const focus = String(text || "").split(/JACKPOT!?/i).pop();
+      const focus = String(text || "")
+        .split(/JACKPOT!?/i)
+        .pop();
 
       // 1) “Quoted” or "quoted"
       let m = focus.match(/["“]([^"”]+)["”]/);
@@ -781,7 +816,6 @@
     const maybeLogFromMessage = () => {
       const text = (el.textContent || "").trim();
       if (!text) return;
-
       if (!/JACKPOT!/i.test(text)) return;
 
       const now = Date.now();
@@ -799,15 +833,33 @@
       if (!prize) return; // give up rather than logging "Help"
 
       const name = getName() || "(anonymous)";
+      const nowTs = Date.now();
+
+      // Log the jackpot in the winners ledger
       postJSON("/api/admin?action=prize-log", {
         name,
         targets: [prize, prize, prize],
         jackpot: true,
-        ts: Date.now(), // include timestamp
+        ts: nowTs,
       })
-        .then(() =>
-          console.debug("[slot] jackpot logged via message observer:", prize)
-        )
+        .then(() => {
+          console.debug("[slot] jackpot logged via message observer:", prize);
+
+          // If the parsed prize is Extra Entry, award bonus (guarded) — put INSIDE this function
+          if (prize === "Extra Entry" && getName()) {
+            window.__lastBonusAwardAt ??= 0;
+            const t = Date.now();
+            if (t - window.__lastBonusAwardAt > 1000) {
+              window.__lastBonusAwardAt = t;
+              postJSON("/api/admin?action=bonus-entry", {
+                name: getName(),
+                targets: [prize, prize, prize],
+              })
+                .then(() => refreshEntryStats().catch(() => {}))
+                .catch(() => {});
+            }
+          }
+        })
         .catch(() => {});
     };
 

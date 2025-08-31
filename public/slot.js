@@ -9,15 +9,15 @@
 
   // Weighted symbols (no empties)
   const SYMBOLS = [
-    { label: "T-Shirt",     weight: 0.15 },
+    { label: "T-Shirt",     weight: 0.05 },
    // { label: "Free Drink",  weight: 0.8 },
-    { label: "Sticker",     weight: 1 },
-    { label: "Extra entry", weight: 0.5 },
-    { label: "VIP Seat",    weight: 1 },
+    { label: "Sticker",     weight: 0.5 },
+    { label: "Extra entry", weight: 0.6 },
+    { label: "VIP Seat",    weight: 0.3 },
   ];
 
   // % of spins that force an aligned jackpot (all 3 the same)
-  const CHANCE_ALIGN = 0.28;
+  const CHANCE_ALIGN = 0.18;
 
   // Jackpot instructions
   const JACKPOT_TEXT = {
