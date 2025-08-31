@@ -7,6 +7,14 @@
   const FB_HANDLE = "90Surge";
   const IG_USERNAME = "90_Surge";
 
+  // Provide your numeric FB Page ID via either:
+  //   window.__FB_PAGE_ID = "1234567890"
+  // or <html data-fb-page-id="1234567890">
+  const FB_PAGE_ID =
+    (typeof window !== "undefined" && window.__FB_PAGE_ID) ||
+    document.documentElement.getAttribute("data-fb-page-id") ||
+    "";
+
   const NAME_KEY = "raffle_display_name";
   const $ = (s, r = document) => r.querySelector(s);
 
@@ -54,7 +62,8 @@
     try {
       json = await res.json();
     } catch (e) {}
-    if (!res.ok) throw new Error(json?.error || `Request failed (${res.status})`);
+    if (!res.ok)
+      throw new Error(json?.error || `Request failed (${res.status})`);
     return json;
   }
 
@@ -101,7 +110,9 @@
   // Social mark (does NOT create entries)
   // ──────────────────────────────────────────────────────────────
   async function markFollow(platform) {
-    const url = `/api/admin?action=mark-follow&platform=${encodeURIComponent(platform)}`;
+    const url = `/api/admin?action=mark-follow&platform=${encodeURIComponent(
+      platform
+    )}`;
     const res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -109,13 +120,17 @@
     });
     if (!res.ok) {
       let msg = "mark-follow failed";
-      try { msg = (await res.json()).error || msg; } catch {}
+      try {
+        msg = (await res.json()).error || msg;
+      } catch {}
       throw new Error(msg);
     }
   }
 
   function markFollowBeacon(platform) {
-    const url = `/api/admin?action=mark-follow&platform=${encodeURIComponent(platform)}`;
+    const url = `/api/admin?action=mark-follow&platform=${encodeURIComponent(
+      platform
+    )}`;
     const blob = new Blob([JSON.stringify({ platform })], {
       type: "application/json",
     });
@@ -135,14 +150,19 @@
   // Followers counts
   // ──────────────────────────────────────────────────────────────
   async function refreshFollowers() {
-    const fbEl = $("#fb-followers"), igEl = $("#ig-followers");
+    const fbEl = $("#fb-followers"),
+      igEl = $("#ig-followers");
     try {
-      const res = await fetch("/api/admin?action=followers", { cache: "no-store" });
+      const res = await fetch("/api/admin?action=followers", {
+        cache: "no-store",
+      });
       const j = await res.json().catch(() => ({}));
       const fb = Number(j?.facebook ?? 0);
       const ig = Number(j?.instagram ?? 0);
-      if (fbEl) fbEl.textContent = Number.isFinite(fb) ? fb.toLocaleString() : "—";
-      if (igEl) igEl.textContent = Number.isFinite(ig) ? ig.toLocaleString() : "—";
+      if (fbEl)
+        fbEl.textContent = Number.isFinite(fb) ? fb.toLocaleString() : "—";
+      if (igEl)
+        igEl.textContent = Number.isFinite(ig) ? ig.toLocaleString() : "—";
     } catch (e) {
       if (fbEl) fbEl.textContent = "—";
       if (igEl) igEl.textContent = "—";
@@ -161,7 +181,11 @@
   ]);
 
   // Only consider these in the weak/fallback scan for the observer
-  const OBSERVER_FALLBACK_PRIZES = new Set(["Sticker", "VIP Seat", "Extra Entry"]);
+  const OBSERVER_FALLBACK_PRIZES = new Set([
+    "Sticker",
+    "VIP Seat",
+    "Extra Entry",
+  ]);
 
   const EMOJI_MAP = new Map([
     ["🍒", "Cherry"],
@@ -176,7 +200,10 @@
   ]);
 
   function toTitle(s) {
-    return String(s || "").replace(/\w\S*/g, (t) => t[0].toUpperCase() + t.slice(1).toLowerCase());
+    return String(s || "").replace(
+      /\w\S*/g,
+      (t) => t[0].toUpperCase() + t.slice(1).toLowerCase()
+    );
   }
 
   function stringifyTarget(t) {
@@ -185,8 +212,18 @@
     if (typeof t === "object") {
       // prefer human labels; fall back to emoji/symbol; else stringify
       return (
-        t.text || t.label || t.name || t.title || t.prize || t.emoji || t.symbol || t.value || String(t)
-      ).toString().trim();
+        t.text ||
+        t.label ||
+        t.name ||
+        t.title ||
+        t.prize ||
+        t.emoji ||
+        t.symbol ||
+        t.value ||
+        String(t)
+      )
+        .toString()
+        .trim();
     }
     return String(t).trim();
   }
@@ -217,40 +254,40 @@
   // Keep last resolved targets in memory for any fallbacks
   let __lastSpinTargets = [];
 
-  // jackpots only; beacon GET first, then POST fallback
+  // jackpots only; beacon GET first, then POST fallback (with timestamp)
   async function logSpin(targets, jackpot) {
     if (!jackpot) return;
     const name = getName() || "(anonymous)";
     const safeTargets = (Array.isArray(targets) ? targets : [])
       .map(coercePrizeLabel)
       .filter(Boolean);
-
-    // NEW: attach a timestamp so each spin is uniquely represented
     const ts = Date.now();
 
-    // Try beacon GET (survives tab hiccups / navigation)
+    // Try beacon GET
     let sent = false;
     try {
       const params = new URLSearchParams({
         name,
         jackpot: "true",
         targets: safeTargets.join(","),
-        ts: String(ts), // <— added
+        ts: String(ts),
       });
       const url = `/api/admin?action=prize-log&${params}`;
       if ("sendBeacon" in navigator) {
-        sent = navigator.sendBeacon(url, new Blob([""], { type: "text/plain" }));
+        sent = navigator.sendBeacon(
+          url,
+          new Blob([""], { type: "text/plain" })
+        );
       }
     } catch {}
 
-    // Fallback POST (visible in Network)
     if (!sent) {
       try {
         await postJSON("/api/admin?action=prize-log", {
           name,
           targets: safeTargets,
           jackpot: true,
-          ts, // <— added
+          ts,
         });
       } catch (e) {
         console.warn("logSpin POST failed:", e?.message || e);
@@ -259,15 +296,18 @@
   }
 
   // ──────────────────────────────────────────────────────────────
-  // Entry Stats (Your entries + Total entries) — expects static markup
+  // Entry Stats (Your entries + Total entries)
   // ──────────────────────────────────────────────────────────────
   function ensureEntryStatsUI() {
     if (!$("#entry-stats")) {
-      console.warn("[entry-stats] #entry-stats container not found. Add the static markup to your HTML.");
+      console.warn(
+        "[entry-stats] #entry-stats container not found. Add the static markup to your HTML."
+      );
     }
   }
 
-  let prevYour = 0, prevTotal = 0;
+  let prevYour = 0,
+    prevTotal = 0;
 
   function bump(el) {
     if (!el) return;
@@ -286,7 +326,9 @@
 
     // Prefer per-IP/server truth:
     try {
-      const res = await fetch("/api/admin?action=my-entries", { cache: "no-store" });
+      const res = await fetch("/api/admin?action=my-entries", {
+        cache: "no-store",
+      });
       if (res.ok) {
         const j = await res.json();
         const mine = Number(j?.mine ?? 0);
@@ -294,13 +336,17 @@
 
         if (totalEl) {
           const old = prevTotal;
-          totalEl.textContent = Number.isFinite(total) ? total.toLocaleString() : "—";
+          totalEl.textContent = Number.isFinite(total)
+            ? total.toLocaleString()
+            : "—";
           if (total > old) bump(totalEl);
           prevTotal = total;
         }
         if (yourEl) {
           const old = prevYour;
-          yourEl.textContent = Number.isFinite(mine) ? mine.toLocaleString() : "0";
+          yourEl.textContent = Number.isFinite(mine)
+            ? mine.toLocaleString()
+            : "0";
           if (mine > old) bump(yourEl);
           prevYour = mine;
         }
@@ -310,7 +356,9 @@
 
     // Fallback: compute total from /entries and ignore "your"
     try {
-      const res = await fetch("/api/admin?action=entries", { cache: "no-store" });
+      const res = await fetch("/api/admin?action=entries", {
+        cache: "no-store",
+      });
       const j = await res.json().catch(() => ({ entries: [], count: 0 }));
       const total = Number(j?.count || 0);
 
@@ -335,37 +383,66 @@
   }
 
   // ──────────────────────────────────────────────────────────────
-  // Deep-link helpers: native app ONLY on mobile; website on desktop
+  // Device helpers + robust FB deep links (native-only)
   // ──────────────────────────────────────────────────────────────
-  function isAndroid() { return /\bAndroid\b/i.test(navigator.userAgent); }
-  function isIOS() { return /\b(iPhone|iPad|iPod)\b/i.test(navigator.userAgent); }
-  function isMobile() { return isAndroid() || isIOS(); }
-
-  function appLink(platform) {
-    if (platform === "ig") {
-      return { scheme: `instagram://user?username=${IG_USERNAME}`, web: INSTAGRAM_URL };
-    } else {
-      return { scheme: `fb://facewebmodal/f?href=${encodeURIComponent(FACEBOOK_URL)}`, web: FACEBOOK_URL };
-    }
+  function isAndroid() {
+    return /\bAndroid\b/i.test(navigator.userAgent);
+  }
+  function isIOS() {
+    return /\b(iPhone|iPad|iPod)\b/i.test(navigator.userAgent);
+  }
+  function isMobile() {
+    return isAndroid() || isIOS();
   }
 
-  // Try to open the native app ONLY. If we detect the page going to background,
-  // we assume the app launched. Only then do we log follow + entry via beacons.
-  // If the app doesn't launch (no visibility change within timeout), we do nothing.
+  function getAppSchemes(platform) {
+    if (platform === "ig") {
+      return [`instagram://user?username=${IG_USERNAME}`];
+    }
+    // Facebook
+    const schemes = [];
+    const id = (FB_PAGE_ID || "").trim();
+
+    if (id) {
+      if (isIOS()) {
+        // Most reliable on iOS: profile by numeric id, then page id variants
+        schemes.push(`fb://profile/${id}`);
+        schemes.push(`fb://page/?id=${id}`);
+        schemes.push(`fb://page/${id}`);
+      } else {
+        // Android tends to prefer page/<id>; try a couple variants
+        schemes.push(`fb://page/${id}`);
+        schemes.push(`fb://profile/${id}`);
+        schemes.push(`fb://page/?id=${id}`);
+      }
+    } else {
+      // No numeric id provided — fall back to app internal facewebmodal link
+      schemes.push(
+        `fb://facewebmodal/f?href=${encodeURIComponent(FACEBOOK_URL)}`
+      );
+    }
+    return schemes;
+  }
+
+  // Try to open the native app ONLY. We attempt multiple candidate schemes.
+  // We only log a follow if the page goes to background (app actually opened).
   function openAppAndTrack(platform, { timeout = 1800 } = {}) {
     return new Promise((resolve) => {
-      const { scheme } = appLink(platform);
-
+      const schemes = getAppSchemes(platform);
       let done = false;
       let iframe = null;
+      let attemptIdx = 0;
 
       const cleanup = () => {
         document.removeEventListener("visibilitychange", onVis, true);
         window.removeEventListener("pagehide", onHidden, true);
         window.removeEventListener("blur", onBlur, true);
         clearTimeout(timer);
+        clearTimeout(stepper);
         if (iframe && iframe.parentNode) {
-          try { document.body.removeChild(iframe); } catch {}
+          try {
+            document.body.removeChild(iframe);
+          } catch {}
         }
       };
 
@@ -373,8 +450,12 @@
         if (done) return;
         done = true;
         // Count only when we *actually* background → app likely opened
-        try { markFollowBeacon(platform); } catch {}
-        try { submitEntryOnceBeacon(platform); } catch {}
+        try {
+          markFollowBeacon(platform);
+        } catch {}
+        try {
+          submitEntryOnceBeacon(platform);
+        } catch {}
         cleanup();
         resolve(true);
       };
@@ -388,26 +469,49 @@
         setTimeout(onHidden, 0);
       };
 
-      document.addEventListener("visibilitychange", onVis, { once: true, capture: true });
-      window.addEventListener("pagehide", onHidden, { once: true, capture: true });
+      document.addEventListener("visibilitychange", onVis, {
+        once: true,
+        capture: true,
+      });
+      window.addEventListener("pagehide", onHidden, {
+        once: true,
+        capture: true,
+      });
       window.addEventListener("blur", onBlur, { once: true, capture: true });
 
-      // Attempt to open the native app — NO web fallback on mobile
-      try {
-        if (isAndroid()) {
-          iframe = document.createElement("iframe");
-          iframe.style.display = "none";
-          iframe.src = scheme;
-          document.body.appendChild(iframe);
-        } else {
-          // iOS
-          window.location.href = scheme;
+      const tryOne = (url) => {
+        try {
+          if (isAndroid()) {
+            iframe = document.createElement("iframe");
+            iframe.style.display = "none";
+            iframe.src = url;
+            document.body.appendChild(iframe);
+            setTimeout(() => {
+              try {
+                if (iframe && iframe.parentNode)
+                  document.body.removeChild(iframe);
+              } catch {}
+            }, 2000);
+          } else {
+            window.location.href = url; // iOS
+          }
+        } catch {}
+      };
+
+      // Step through candidates every ~600ms until timeout or backgrounding
+      const step = () => {
+        if (done || attemptIdx >= schemes.length) return;
+        tryOne(schemes[attemptIdx++]);
+        if (!done && attemptIdx < schemes.length) {
+          stepper = setTimeout(step, 600);
         }
-      } catch {}
+      };
+
+      let stepper = setTimeout(step, 0);
 
       const timer = setTimeout(() => {
-        if (done) return;      // app launched
-        done = true;           // app likely NOT installed → don't count follow
+        if (done) return; // app launched
+        done = true; // app likely NOT installed → don't count follow
         cleanup();
         resolve(false);
       }, timeout);
@@ -418,7 +522,8 @@
   // Harden follow buttons (single-fire; no cross-platform double)
   // ──────────────────────────────────────────────────────────────
   let globalFollowLock = false; // blocks cross-platform double firing
-  let fbBtn = null, igBtn = null;
+  let fbBtn = null,
+    igBtn = null;
 
   function wipeInlineAndListeners(btn) {
     if (!btn) return null;
@@ -463,31 +568,50 @@
   }
 
   // 1) Rewrite any existing intent:// anchors to safe https + tag them
-  document.addEventListener("DOMContentLoaded", () => {
-    document.querySelectorAll('a[href^="intent://"]').forEach((a) => {
-      const href = a.getAttribute("href") || "";
-      const isFb = /facebook|katana|\/profile\//i.test(href);
-      a.setAttribute("href", isFb ? "https://facebook.com/90Surge" : "https://instagram.com/90_Surge");
-      a.classList.add(isFb ? "follow-btn-fb" : "follow-btn-ig");
-    });
-  }, { once: true });
+  document.addEventListener(
+    "DOMContentLoaded",
+    () => {
+      document.querySelectorAll('a[href^="intent://"]').forEach((a) => {
+        const href = a.getAttribute("href") || "";
+        const isFb = /facebook|katana|\/profile\//i.test(href);
+        a.setAttribute(
+          "href",
+          isFb
+            ? "https://facebook.com/90Surge"
+            : "https://instagram.com/90_Surge"
+        );
+        a.classList.add(isFb ? "follow-btn-fb" : "follow-btn-ig");
+      });
+    },
+    { once: true }
+  );
 
   // 2) Catch any remaining intent:// clicks and route through our controlled flow
-  document.addEventListener("click", (e) => {
-    const a = e.target.closest('a[href^="intent://"]');
-    if (!a) return;
-    e.preventDefault();
-    e.stopImmediatePropagation();
-    const isFb = /facebook|katana|\/profile\//i.test(a.getAttribute("href") || "");
-    const platform = isFb ? "fb" : "ig";
-    handleFollow(platform, isFb ? fbBtn : igBtn);
-  }, true);
+  document.addEventListener(
+    "click",
+    (e) => {
+      const a = e.target.closest('a[href^="intent://"]');
+      if (!a) return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      const isFb = /facebook|katana|\/profile\//i.test(
+        a.getAttribute("href") || ""
+      );
+      const platform = isFb ? "fb" : "ig";
+      handleFollow(platform, isFb ? fbBtn : igBtn);
+    },
+    true
+  );
 
   // 3) Wire follow buttons and plain anchors to fb/ig
   function wireFollowButtons() {
     // Tag plain anchors first
-    document.querySelectorAll('a[href*="facebook.com"]').forEach((a) => a.classList.add("follow-btn-fb"));
-    document.querySelectorAll('a[href*="instagram.com"]').forEach((a) => a.classList.add("follow-btn-ig"));
+    document
+      .querySelectorAll('a[href*="facebook.com"]')
+      .forEach((a) => a.classList.add("follow-btn-fb"));
+    document
+      .querySelectorAll('a[href*="instagram.com"]')
+      .forEach((a) => a.classList.add("follow-btn-ig"));
 
     // (re)select after tagging
     let fb0 = document.querySelector(".follow-btn-fb");
@@ -515,11 +639,15 @@
     // Back-compat for any old HTML onclicks
     window.openFacebook = (ev) => {
       ev?.preventDefault?.();
-      return fbBtn ? fbBtn.dispatchEvent(new PointerEvent("pointerup", { bubbles: true })) : false;
+      return fbBtn
+        ? fbBtn.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }))
+        : false;
     };
     window.openInstagram = (ev) => {
       ev?.preventDefault?.();
-      return igBtn ? igBtn.dispatchEvent(new PointerEvent("pointerup", { bubbles: true })) : false;
+      return igBtn
+        ? igBtn.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }))
+        : false;
     };
   }
 
@@ -536,7 +664,9 @@
       try {
         // 1) Collect targets from engine (objects → labels)
         const targetsRaw = Array.isArray(result?.targets) ? result.targets : [];
-        const targets = targetsRaw.map((t) => coercePrizeLabel(stringifyTarget(t))).filter(Boolean);
+        const targets = targetsRaw
+          .map((t) => coercePrizeLabel(stringifyTarget(t)))
+          .filter(Boolean);
 
         // 2) If engine exposes a single prize, use it to fill
         if (!targets.length && result?.prize) {
@@ -550,9 +680,16 @@
         // 4) Jackpot detection (trust engine flag OR triple-same OR textual hint)
         const lcase = targets.map((t) => t.toLowerCase());
         const hitJackpot =
-          !!(result?.jackpot || result?.isJackpot || result?.align || result?.win) ||
+          !!(
+            result?.jackpot ||
+            result?.isJackpot ||
+            result?.align ||
+            result?.win
+          ) ||
           (lcase.length >= 3 && new Set(lcase.slice(0, 3)).size === 1) ||
-          /jackpot/i.test(String(result?.message || result?.text || targets.join(" ")));
+          /jackpot/i.test(
+            String(result?.message || result?.text || targets.join(" "))
+          );
 
         // 5) Log winners only (server ignores non-jackpots anyway)
         await logSpin(targets, hitJackpot);
@@ -582,17 +719,21 @@
     }
 
     // Also listen to a potential custom event
-    window.addEventListener("slot:result", (e) => handleResult(e?.detail || e), { passive: true });
+    window.addEventListener(
+      "slot:result",
+      (e) => handleResult(e?.detail || e),
+      { passive: true }
+    );
   }
 
   // Backup logger: observe the UI JACKPOT message and log if needed
   function observeJackpotMessage() {
-    const el = document.querySelector("#slot-result, .slot-result, [data-slot-result]");
+    const el = document.querySelector(
+      "#slot-result, .slot-result, [data-slot-result]"
+    );
     if (!el) return;
 
-    // NOTE: we removed the "same text" suppression so identical messages on
-    // successive spins still log. We keep only a small time-based throttle to
-    // avoid duplicate DOM mutations from the same spin.
+    // no text-sameness suppression; only tiny throttle to avoid double DOM fires
     let lastSentAt = 0;
 
     function extractPrizeFromText(text) {
@@ -614,7 +755,9 @@
       // 4) Triple identical emoji
       try {
         const em = Array.from(
-          focus.matchAll(/(\p{Extended_Pictographic}|\p{Emoji_Presentation})\s*\1\s*\1/gu)
+          focus.matchAll(
+            /(\p{Extended_Pictographic}|\p{Emoji_Presentation})\s*\1\s*\1/gu
+          )
         );
         if (em.length) {
           const mapped = coercePrizeLabel(em[0][1]);
@@ -642,7 +785,7 @@
       if (!/JACKPOT!/i.test(text)) return;
 
       const now = Date.now();
-      if (now - lastSentAt < 600) return; // tiny throttle to avoid double-fire on same spin
+      if (now - lastSentAt < 600) return; // tiny throttle
       lastSentAt = now;
 
       // Prefer last engine-provided targets if they look like a triple
@@ -660,9 +803,11 @@
         name,
         targets: [prize, prize, prize],
         jackpot: true,
-        ts: Date.now(), // include timestamp here too
+        ts: Date.now(), // include timestamp
       })
-        .then(() => console.debug("[slot] jackpot logged via message observer:", prize))
+        .then(() =>
+          console.debug("[slot] jackpot logged via message observer:", prize)
+        )
         .catch(() => {});
     };
 
@@ -679,16 +824,23 @@
   function setHeadlineText(name) {
     const text = name && name.trim() ? name : "90 Surge";
     HEADLINE_SELECTORS.forEach((sel) => {
-      document.querySelectorAll(sel).forEach((el) => { el.textContent = text; });
+      document.querySelectorAll(sel).forEach((el) => {
+        el.textContent = text;
+      });
     });
   }
 
   function readCfgCache() {
-    try { return JSON.parse(sessionStorage.getItem(CFG_CACHE_KEY) || "null"); }
-    catch { return null; }
+    try {
+      return JSON.parse(sessionStorage.getItem(CFG_CACHE_KEY) || "null");
+    } catch {
+      return null;
+    }
   }
   function writeCfgCache(cfg) {
-    try { sessionStorage.setItem(CFG_CACHE_KEY, JSON.stringify(cfg)); } catch {}
+    try {
+      sessionStorage.setItem(CFG_CACHE_KEY, JSON.stringify(cfg));
+    } catch {}
   }
 
   async function fetchConfigFresh() {
@@ -706,7 +858,11 @@
 
     try {
       const fresh = await fetchConfigFresh();
-      if (!cached || fresh.version !== cached.version || fresh.showName !== cached.showName) {
+      if (
+        !cached ||
+        fresh.version !== cached.version ||
+        fresh.showName !== cached.showName
+      ) {
         writeCfgCache(fresh);
         setHeadlineText(fresh.showName);
       }
@@ -741,22 +897,30 @@
       el.textContent = `Woohooo! Tonight's winner is ${name}!`;
       el.classList.add("has-winner");
     } else {
-      const fallback = el.getAttribute("data-default") || "Free T-shirt raffle!";
+      const fallback =
+        el.getAttribute("data-default") || "Free T-shirt raffle!";
       el.textContent = fallback;
       el.classList.remove("has-winner");
     }
   }
 
   function showWinnerModal(name) {
-    const modal = document.getElementById("winner-modal") || document.querySelector(".winner-modal");
-    const nameSpans = modal ? modal.querySelectorAll(".winner-name, [data-winner-name]") : null;
+    const modal =
+      document.getElementById("winner-modal") ||
+      document.querySelector(".winner-modal");
+    const nameSpans = modal
+      ? modal.querySelectorAll(".winner-name, [data-winner-name]")
+      : null;
 
-    if (nameSpans && nameSpans.length) nameSpans.forEach((n) => (n.textContent = name));
+    if (nameSpans && nameSpans.length)
+      nameSpans.forEach((n) => (n.textContent = name));
     if (modal) {
       modal.classList.remove("hidden");
       modal.removeAttribute("aria-hidden");
 
-      const close = modal.querySelector(".winner-close, [data-close], .modal-close");
+      const close = modal.querySelector(
+        ".winner-close, [data-close], .modal-close"
+      );
       const overlay = modal.querySelector(".modal-overlay, [data-overlay]");
       const hide = () => {
         modal.classList.add("hidden");
@@ -770,7 +934,9 @@
   }
 
   async function fetchWinnerOnce() {
-    const res = await fetch("/api/admin?action=winner&_=" + Date.now(), { cache: "no-store" });
+    const res = await fetch("/api/admin?action=winner&_=" + Date.now(), {
+      cache: "no-store",
+    });
     if (!res.ok) return null;
     const j = await res.json().catch(() => ({}));
     return j?.winner?.name || null;
@@ -798,7 +964,9 @@
     const T = 4000;
     async function tick() {
       try {
-        const r = await fetch("/api/admin?action=winner", { cache: "no-store" });
+        const r = await fetch("/api/admin?action=winner", {
+          cache: "no-store",
+        });
         const j = await r.json().catch(() => ({}));
         const name = j?.winner?.name || null;
         maybeDisplayWinner(name);
@@ -835,7 +1003,9 @@
       };
 
       es.onerror = () => {
-        try { es.close(); } catch {}
+        try {
+          es.close();
+        } catch {}
         if (!pollingTimer) pollingTimer = startWinnerPolling();
       };
     } catch {
@@ -871,10 +1041,17 @@
         document.querySelector(".raffle.raffle-title.blink") ||
         document.querySelector("[data-winner-banner]");
       if (el && !el.getAttribute("data-default")) {
-        el.setAttribute("data-default", el.textContent || "Free T-shirt raffle!");
+        el.setAttribute(
+          "data-default",
+          el.textContent || "Free T-shirt raffle!"
+        );
       }
     })();
-    fetchWinnerOnce().then((name) => { maybeDisplayWinner(name); }).catch(() => {});
+    fetchWinnerOnce()
+      .then((name) => {
+        maybeDisplayWinner(name);
+      })
+      .catch(() => {});
 
     // jackpot message observer (safety net)
     observeJackpotMessage();
