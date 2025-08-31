@@ -437,17 +437,6 @@ progress { height: 10px; border-radius: 5px; width: 100%; }
   display: flex; justify-content: flex-end; /* use 'center' to center it */
 }
 
-/* Slot Machine widget (scoped styles) */
-.slot-card {
-  max-width: 520px;
-  margin: 16px auto;
-  background: #17181c;
-  color: #eef2ff;
-  border: 1px solid rgba(255,255,255,.08);
-  border-radius: 14px;
-  padding: 10px;
-  box-shadow: 0 6px 20px rgba(0,0,0,.25);
-}
 
 .slot-header {
   display: flex;
@@ -586,7 +575,6 @@ progress { height: 10px; border-radius: 5px; width: 100%; }
   background:var(--card);
   border:1px solid rgba(255,255,255,.08);
   border-radius:14px;
-  padding:18px;
   margin:16px auto;
   color:var(--text);
   box-shadow:0 8px 18px rgba(0,0,0,.25);
@@ -598,9 +586,8 @@ progress { height: 10px; border-radius: 5px; width: 100%; }
   display:flex;
   justify-content:center;
   gap:var(--reel-gap);
-  padding:12px;
-  background:#0c0d11;
-  border:1px solid rgba(255,255,255,.06);
+  background:#153b47;
+  border:5px solid rgba(255,255,255,.06);
   border-radius:12px;
   position:relative;
 }
@@ -666,5 +653,5 @@ progress { height: 10px; border-radius: 5px; width: 100%; }
 }
 .slot-spin[disabled]{ opacity:.6; cursor:not-allowed; box-shadow:none; }
 
-.slot-left{ color:var(--muted); font-weight:700; }
+.slot-left{ color:var(--muted); font-weight:700; text-align: center;}
 .slot-result{ margin-top:12px; text-align:center; font-weight:900; color:var(--good); min-height:1.6em; }
