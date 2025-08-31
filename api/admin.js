@@ -860,7 +860,7 @@ export default async function handler(req, res) {
     const row = {
       id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
       name,
-      prize: `Slot Jackpot — ${prizeName}`,
+      prize: `${prizeName}`,
       source: "slot",
       windowKey,
       ts: new Date().toISOString(),

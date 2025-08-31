@@ -886,7 +886,7 @@ if (action === "prize-log" && (req.method === "POST" || req.method === "GET")) {
   const row = {
     id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
     name,
-    prize: `Slot Jackpot — ${prizeName}`,
+    prize: `${prizeName}`,
     source: "slot",
     windowKey,
     ts: new Date().toISOString(),

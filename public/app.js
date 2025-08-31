@@ -116,12 +116,18 @@
 
   function markFollowBeacon(platform) {
     const url = `/api/admin?action=mark-follow&platform=${encodeURIComponent(platform)}`;
-    const blob = new Blob([JSON.stringify({ platform })], { type: "application/json" });
+    const blob = new Blob([JSON.stringify({ platform })], {
+      type: "application/json",
+    });
     if (navigator.sendBeacon) {
       navigator.sendBeacon(url, blob);
     } else {
-      fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: blob, keepalive: true })
-        .catch(() => {});
+      fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: blob,
+        keepalive: true,
+      }).catch(() => {});
     }
   }
 
@@ -147,20 +153,30 @@
   // Prize helpers + jackpot logging
   // ──────────────────────────────────────────────────────────────
   const KNOWN_PRIZES = new Set([
-    "Sticker","Cherry","Banana","Lemon","Bar","Seven","7",
-    "Diamond","Star","Bell","Grape","Orange",
-    "T-Shirt","Hoodie","Cap","Mug","Keychain","Socks","Gift Card","Giftcard",
-    "Jackpot" // allowed in data, but we won't choose it as a fallback
+    "Sticker",
+    "T-Shirt",
+    "VIP Seat",
+    "Extra Entry",
+    "Jackpot", // allowed in data, but we won't choose it as a fallback
   ]);
 
+  // Only consider these in the weak/fallback scan for the observer
+  const OBSERVER_FALLBACK_PRIZES = new Set(["Sticker", "VIP Seat", "Extra Entry"]);
+
   const EMOJI_MAP = new Map([
-    ["🍒","Cherry"],["🍌","Banana"],["🍋","Lemon"],["⭐","Star"],
-    ["💎","Diamond"],["🔔","Bell"],["🍇","Grape"],["🍊","Orange"],
-    ["7","Seven"]
+    ["🍒", "Cherry"],
+    ["🍌", "Banana"],
+    ["🍋", "Lemon"],
+    ["⭐", "Star"],
+    ["💎", "Diamond"],
+    ["🔔", "Bell"],
+    ["🍇", "Grape"],
+    ["🍊", "Orange"],
+    ["7", "Seven"],
   ]);
 
   function toTitle(s) {
-    return String(s || "").replace(/\w\S*/g, t => t[0].toUpperCase() + t.slice(1).toLowerCase());
+    return String(s || "").replace(/\w\S*/g, (t) => t[0].toUpperCase() + t.slice(1).toLowerCase());
   }
 
   function stringifyTarget(t) {
@@ -169,8 +185,7 @@
     if (typeof t === "object") {
       // prefer human labels; fall back to emoji/symbol; else stringify
       return (
-        t.text || t.label || t.name || t.title || t.prize ||
-        t.emoji || t.symbol || t.value || String(t)
+        t.text || t.label || t.name || t.title || t.prize || t.emoji || t.symbol || t.value || String(t)
       ).toString().trim();
     }
     return String(t).trim();
@@ -184,9 +199,11 @@
     s = s.replace(/\btee\s*-?\s*shirt\b/i, "T-Shirt");
     if (/shirt/i.test(s)) s = "T-Shirt";
     if (/sticker/i.test(s)) s = "Sticker";
-    if (/vip/i.test(s)) s = "VIP Seat";
     if (/extra/i.test(s)) s = "Extra Entry";
+    if (/^vip(\s*seat|s)?$/i.test(s)) s = "VIP Seat";
+
     s = toTitle(s);
+    s = s.replace(/\bVip\b/g, "VIP");
     return s;
   }
 
@@ -204,7 +221,12 @@
   async function logSpin(targets, jackpot) {
     if (!jackpot) return;
     const name = getName() || "(anonymous)";
-    const safeTargets = (Array.isArray(targets) ? targets : []).map(coercePrizeLabel).filter(Boolean);
+    const safeTargets = (Array.isArray(targets) ? targets : [])
+      .map(coercePrizeLabel)
+      .filter(Boolean);
+
+    // NEW: attach a timestamp so each spin is uniquely represented
+    const ts = Date.now();
 
     // Try beacon GET (survives tab hiccups / navigation)
     let sent = false;
@@ -213,6 +235,7 @@
         name,
         jackpot: "true",
         targets: safeTargets.join(","),
+        ts: String(ts), // <— added
       });
       const url = `/api/admin?action=prize-log&${params}`;
       if ("sendBeacon" in navigator) {
@@ -223,7 +246,12 @@
     // Fallback POST (visible in Network)
     if (!sent) {
       try {
-        await postJSON("/api/admin?action=prize-log", { name, targets: safeTargets, jackpot: true });
+        await postJSON("/api/admin?action=prize-log", {
+          name,
+          targets: safeTargets,
+          jackpot: true,
+          ts, // <— added
+        });
       } catch (e) {
         console.warn("logSpin POST failed:", e?.message || e);
       }
@@ -307,53 +335,83 @@
   }
 
   // ──────────────────────────────────────────────────────────────
-  // Deep-link helpers: app scheme + timed web fallback on mobile; tab on desktop
+  // Deep-link helpers: native app ONLY on mobile; website on desktop
   // ──────────────────────────────────────────────────────────────
   function isAndroid() { return /\bAndroid\b/i.test(navigator.userAgent); }
-  function isIOS()     { return /\b(iPhone|iPad|iPod)\b/i.test(navigator.userAgent); }
-  function isMobile()  { return isAndroid() || isIOS(); }
+  function isIOS() { return /\b(iPhone|iPad|iPod)\b/i.test(navigator.userAgent); }
+  function isMobile() { return isAndroid() || isIOS(); }
 
   function appLink(platform) {
     if (platform === "ig") {
-      return {
-        scheme: `instagram://user?username=${IG_USERNAME}`,
-        web: INSTAGRAM_URL,
-      };
+      return { scheme: `instagram://user?username=${IG_USERNAME}`, web: INSTAGRAM_URL };
     } else {
-      return {
-        scheme: `fb://facewebmodal/f?href=${encodeURIComponent(FACEBOOK_URL)}`,
-        web: FACEBOOK_URL,
-      };
+      return { scheme: `fb://facewebmodal/f?href=${encodeURIComponent(FACEBOOK_URL)}`, web: FACEBOOK_URL };
     }
   }
 
-  function openSocialSmart(platform) {
-    const { scheme, web } = appLink(platform);
+  // Try to open the native app ONLY. If we detect the page going to background,
+  // we assume the app launched. Only then do we log follow + entry via beacons.
+  // If the app doesn't launch (no visibility change within timeout), we do nothing.
+  function openAppAndTrack(platform, { timeout = 1800 } = {}) {
+    return new Promise((resolve) => {
+      const { scheme } = appLink(platform);
 
-    if (isMobile()) {
-      // Try app; if not handled, fallback to web in ~1.2s
-      let fallbackTimer = setTimeout(() => {
-        try { window.location.href = web; } catch {}
-      }, 1200);
+      let done = false;
+      let iframe = null;
 
+      const cleanup = () => {
+        document.removeEventListener("visibilitychange", onVis, true);
+        window.removeEventListener("pagehide", onHidden, true);
+        window.removeEventListener("blur", onBlur, true);
+        clearTimeout(timer);
+        if (iframe && iframe.parentNode) {
+          try { document.body.removeChild(iframe); } catch {}
+        }
+      };
+
+      const onHidden = () => {
+        if (done) return;
+        done = true;
+        // Count only when we *actually* background → app likely opened
+        try { markFollowBeacon(platform); } catch {}
+        try { submitEntryOnceBeacon(platform); } catch {}
+        cleanup();
+        resolve(true);
+      };
+
+      const onVis = () => {
+        if (document.visibilityState === "hidden") onHidden();
+      };
+
+      const onBlur = () => {
+        // iOS often blurs tab when handing off to app
+        setTimeout(onHidden, 0);
+      };
+
+      document.addEventListener("visibilitychange", onVis, { once: true, capture: true });
+      window.addEventListener("pagehide", onHidden, { once: true, capture: true });
+      window.addEventListener("blur", onBlur, { once: true, capture: true });
+
+      // Attempt to open the native app — NO web fallback on mobile
       try {
         if (isAndroid()) {
-          const iframe = document.createElement("iframe");
+          iframe = document.createElement("iframe");
           iframe.style.display = "none";
           iframe.src = scheme;
           document.body.appendChild(iframe);
-          setTimeout(() => { try { document.body.removeChild(iframe); } catch {} }, 2000);
         } else {
-          window.location.href = scheme; // iOS
+          // iOS
+          window.location.href = scheme;
         }
       } catch {}
 
-      setTimeout(() => { try { clearTimeout(fallbackTimer); } catch {} }, 3500);
-      return;
-    }
-
-    // Desktop → site in new tab
-    try { window.open(web, "_blank", "noopener,noreferrer"); } catch {}
+      const timer = setTimeout(() => {
+        if (done) return;      // app launched
+        done = true;           // app likely NOT installed → don't count follow
+        cleanup();
+        resolve(false);
+      }, timeout);
+    });
   }
 
   // ──────────────────────────────────────────────────────────────
@@ -382,11 +440,8 @@
 
     try {
       if (isMobile()) {
-        // Queue tracking with beacons first (so it persists through navigation)
-        try { markFollowBeacon(platform); } catch {}
-        try { submitEntryOnceBeacon(platform); } catch {}
-        // Then deep-link (with timed https fallback)
-        openSocialSmart(platform);
+        // Mobile: open native app only; count follow ONLY if app launch detected
+        await openAppAndTrack(platform);
       } else {
         // Desktop: open site immediately (sync) then async logging
         try {
@@ -409,7 +464,7 @@
 
   // 1) Rewrite any existing intent:// anchors to safe https + tag them
   document.addEventListener("DOMContentLoaded", () => {
-    document.querySelectorAll('a[href^="intent://"]').forEach(a => {
+    document.querySelectorAll('a[href^="intent://"]').forEach((a) => {
       const href = a.getAttribute("href") || "";
       const isFb = /facebook|katana|\/profile\//i.test(href);
       a.setAttribute("href", isFb ? "https://facebook.com/90Surge" : "https://instagram.com/90_Surge");
@@ -417,7 +472,7 @@
     });
   }, { once: true });
 
-  // 2) Catch any remaining intent:// clicks and reroute
+  // 2) Catch any remaining intent:// clicks and route through our controlled flow
   document.addEventListener("click", (e) => {
     const a = e.target.closest('a[href^="intent://"]');
     if (!a) return;
@@ -425,16 +480,14 @@
     e.stopImmediatePropagation();
     const isFb = /facebook|katana|\/profile\//i.test(a.getAttribute("href") || "");
     const platform = isFb ? "fb" : "ig";
-    try { markFollowBeacon(platform); } catch {}
-    try { submitEntryOnceBeacon(platform); } catch {}
-    openSocialSmart(platform);
+    handleFollow(platform, isFb ? fbBtn : igBtn);
   }, true);
 
   // 3) Wire follow buttons and plain anchors to fb/ig
   function wireFollowButtons() {
     // Tag plain anchors first
-    document.querySelectorAll('a[href*="facebook.com"]').forEach(a => a.classList.add("follow-btn-fb"));
-    document.querySelectorAll('a[href*="instagram.com"]').forEach(a => a.classList.add("follow-btn-ig"));
+    document.querySelectorAll('a[href*="facebook.com"]').forEach((a) => a.classList.add("follow-btn-fb"));
+    document.querySelectorAll('a[href*="instagram.com"]').forEach((a) => a.classList.add("follow-btn-ig"));
 
     // (re)select after tagging
     let fb0 = document.querySelector(".follow-btn-fb");
@@ -444,31 +497,30 @@
     fbBtn = wipeInlineAndListeners(fb0);
     igBtn = wipeInlineAndListeners(ig0);
 
-    if (fbBtn) {
-      fbBtn.addEventListener("pointerup", (e) => {
-        e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
-        handleFollow("fb", fbBtn);
-      }, { capture: true });
-      fbBtn.addEventListener("click", (e) => {
-        e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
-        handleFollow("fb", fbBtn);
-      }, { capture: true });
-    }
+    const bind = (el, platform) => {
+      if (!el) return;
+      const go = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        handleFollow(platform, el);
+      };
+      el.addEventListener("pointerup", go, { capture: true });
+      el.addEventListener("click", go, { capture: true });
+    };
 
-    if (igBtn) {
-      igBtn.addEventListener("pointerup", (e) => {
-        e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
-        handleFollow("ig", igBtn);
-      }, { capture: true });
-      igBtn.addEventListener("click", (e) => {
-        e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
-        handleFollow("ig", igBtn);
-      }, { capture: true });
-    }
+    bind(fbBtn, "fb");
+    bind(igBtn, "ig");
 
     // Back-compat for any old HTML onclicks
-    window.openFacebook  = (ev) => { ev?.preventDefault?.(); return fbBtn ? fbBtn.dispatchEvent(new PointerEvent("pointerup", { bubbles: true })) : false; };
-    window.openInstagram = (ev) => { ev?.preventDefault?.(); return igBtn ? igBtn.dispatchEvent(new PointerEvent("pointerup", { bubbles: true })) : false; };
+    window.openFacebook = (ev) => {
+      ev?.preventDefault?.();
+      return fbBtn ? fbBtn.dispatchEvent(new PointerEvent("pointerup", { bubbles: true })) : false;
+    };
+    window.openInstagram = (ev) => {
+      ev?.preventDefault?.();
+      return igBtn ? igBtn.dispatchEvent(new PointerEvent("pointerup", { bubbles: true })) : false;
+    };
   }
 
   // ──────────────────────────────────────────────────────────────
@@ -516,11 +568,11 @@
 
     // Cover multiple callback names the engine might use
     const opts = {
-      onResult:   handleResult,
-      onStop:     handleResult,
-      onSpinEnd:  handleResult,
+      onResult: handleResult,
+      onStop: handleResult,
+      onSpinEnd: handleResult,
       onComplete: handleResult,
-      onFinish:   handleResult,
+      onFinish: handleResult,
     };
 
     try {
@@ -538,54 +590,65 @@
     const el = document.querySelector("#slot-result, .slot-result, [data-slot-result]");
     if (!el) return;
 
-    let lastText = "";
+    // NOTE: we removed the "same text" suppression so identical messages on
+    // successive spins still log. We keep only a small time-based throttle to
+    // avoid duplicate DOM mutations from the same spin.
     let lastSentAt = 0;
 
     function extractPrizeFromText(text) {
+      // Focus only on the part after “JACKPOT!”
+      const focus = String(text || "").split(/JACKPOT!?/i).pop();
+
       // 1) “Quoted” or "quoted"
-      let m = text.match(/["“]([^"”]+)["”]/);
+      let m = focus.match(/["“]([^"”]+)["”]/);
       if (m && isConfidentPrize(m[1])) return coercePrizeLabel(m[1]);
 
       // 2) [Bracketed]
-      m = text.match(/\[([^\]]+)\]/);
+      m = focus.match(/\[([^\]]+)\]/);
       if (m && isConfidentPrize(m[1])) return coercePrizeLabel(m[1]);
 
       // 3) NAME x3 / ×3
-      m = text.match(/hit\s+([A-Za-z0-9 _-]{2,30})\s*(?:×|x)\s*3/i);
+      m = focus.match(/hit\s+([A-Za-z0-9 _-]{2,30})\s*(?:×|x)\s*3/i);
       if (m && isConfidentPrize(m[1])) return coercePrizeLabel(m[1]);
 
       // 4) Triple identical emoji
       try {
-        const em = Array.from(text.matchAll(/(\p{Extended_Pictographic}|\p{Emoji_Presentation})\s*\1\s*\1/gu));
+        const em = Array.from(
+          focus.matchAll(/(\p{Extended_Pictographic}|\p{Emoji_Presentation})\s*\1\s*\1/gu)
+        );
         if (em.length) {
           const mapped = coercePrizeLabel(em[0][1]);
           if (isConfidentPrize(mapped)) return mapped;
         }
       } catch {}
 
-      // 5) Look for a known prize word anywhere (avoid random words like Help)
-      for (const k of KNOWN_PRIZES) {
-        if (k.toLowerCase() !== "jackpot" && new RegExp(`\\b${k}\\b`, "i").test(text)) return k;
+      // 5) Explicit phrases we expect from the UI text
+      if (/extra\s*entry/i.test(focus)) return "Extra Entry";
+      if (/^|\bvip\b/i.test(focus) && /seat/i.test(focus)) return "VIP Seat";
+      if (/sticker/i.test(focus)) return "Sticker";
+
+      // 6) Weak fallback: only scan the safe allow-list (NEVER T-Shirt here)
+      for (const k of OBSERVER_FALLBACK_PRIZES) {
+        if (new RegExp(`\\b${k}\\b`, "i").test(focus)) return k;
       }
 
-      return ""; // refuse weak guesses
+      return ""; // refuse weak guesses (prevents “Free T-Shirt” leakage)
     }
 
     const maybeLogFromMessage = () => {
       const text = (el.textContent || "").trim();
-      if (!text || text === lastText) return;
-      lastText = text;
+      if (!text) return;
 
       if (!/JACKPOT!/i.test(text)) return;
 
       const now = Date.now();
-      if (now - lastSentAt < 600) return; // tiny throttle
+      if (now - lastSentAt < 600) return; // tiny throttle to avoid double-fire on same spin
       lastSentAt = now;
 
       // Prefer last engine-provided targets if they look like a triple
       let prize = "";
       if (__lastSpinTargets.length >= 3) {
-        const [a,b,c] = __lastSpinTargets.slice(0,3);
+        const [a, b, c] = __lastSpinTargets.slice(0, 3);
         if (a && a === b && b === c) prize = a;
       }
       // Otherwise parse from the text (strict)
@@ -593,7 +656,12 @@
       if (!prize) return; // give up rather than logging "Help"
 
       const name = getName() || "(anonymous)";
-      postJSON("/api/admin?action=prize-log", { name, targets: [prize, prize, prize], jackpot: true })
+      postJSON("/api/admin?action=prize-log", {
+        name,
+        targets: [prize, prize, prize],
+        jackpot: true,
+        ts: Date.now(), // include timestamp here too
+      })
         .then(() => console.debug("[slot] jackpot logged via message observer:", prize))
         .catch(() => {});
     };
@@ -626,7 +694,7 @@
   async function fetchConfigFresh() {
     const res = await fetch(`/api/admin?action=config&_=${Date.now()}`, {
       cache: "no-store",
-      headers: { "Cache-Control": "no-store", "Pragma": "no-cache" },
+      headers: { "Cache-Control": "no-store", Pragma: "no-cache" },
     });
     if (!res.ok) throw new Error(`config fetch failed: ${res.status}`);
     return await res.json();
@@ -655,7 +723,10 @@
   let lastWinner = null;
 
   function winnerBannerEl() {
-    return document.querySelector(".raffle.raffle-title.blink") || document.querySelector("[data-winner-banner]");
+    return (
+      document.querySelector(".raffle.raffle-title.blink") ||
+      document.querySelector("[data-winner-banner]")
+    );
   }
 
   function setWinnerBanner(name) {
@@ -796,7 +867,9 @@
 
     // winner modal + banner (auto-fire + live)
     (function initWinnerBannerDefault() {
-      const el = document.querySelector(".raffle.raffle-title.blink") || document.querySelector("[data-winner-banner]");
+      const el =
+        document.querySelector(".raffle.raffle-title.blink") ||
+        document.querySelector("[data-winner-banner]");
       if (el && !el.getAttribute("data-default")) {
         el.setAttribute("data-default", el.textContent || "Free T-shirt raffle!");
       }
