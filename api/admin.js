@@ -626,216 +626,117 @@ export default async function handler(req, res) {
    RESET EVERYTHING (entries + winners + social)
 ───────────────────────────────────────────────────────────── */
   if (action === "reset-entries" && req.method === "POST") {
-    if (!isAdmin(req)) return res.status(403).json({ error: "Forbidden" });
+  if (!isAdmin(req)) return res.status(403).json({ error: "Forbidden" });
 
-    // If Redis isn't ready, just clear the in-memory mirrors and return success
-    const ok = await ensureRedisConnected();
-    if (!ok || !redis?.isOpen) {
-      try {
-        MEM.winners = [];
-        MEM.currentWinner = null;
-      } catch {}
-      return res.status(200).json({
-        success: true,
-        windowKey: "(mem)",
-        deletedKeys: 0,
-        remaining: { social: [], raffleEntered: [], jackpots: [], votes: [] },
-        _note: "Redis not ready; cleared memory mirror only",
-      });
-    }
-
-    // Safe helpers
-    const safeScan = async (pattern) => {
-      try {
-        if (!redis?.scanIterator) return [];
-        const out = [];
-        for await (const k of redis.scanIterator({
-          MATCH: pattern,
-          COUNT: 1000,
-        })) {
-          if (typeof k === "string" && k) out.push(k);
-        }
-        return out;
-      } catch (e) {
-        console.warn("scan failed", pattern, e?.message || e);
-        return [];
-      }
-    };
-
-    const delKey = async (k) => {
-      if (!k || typeof k !== "string") return 0;
-      try {
-        // UNLINK is non-blocking if supported
-        return (await redis.unlink(k)) || 0;
-      } catch {
-        try {
-          return (await redis.del(k)) || 0;
-        } catch {
-          return 0;
-        }
-      }
-    };
-
-    try {
-      const { windowKey } = await getWindowInfo();
-
-      // ------------------------------
-      // Existing window-scoped keys
-      // ------------------------------
-      const listKey = `raffle:entries:${windowKey}`;
-      const dedupes = await safeScan(`raffle:entered:${windowKey}:*`);
-      const bonuses = await safeScan(`raffle:bonus:${windowKey}:*`); // keep if you ever used it
-      const socialIpsScoped = `social:ips:${windowKey}`;
-      const socialStates = await safeScan(`social:${windowKey}:*`);
-      const socialLocks = await safeScan(`social:lock:${windowKey}:*`);
-      const jpCounts = await safeScan(`raffle:jackpotCount:${windowKey}:*`);
-
-      // Global-ish keys
-      const winnersKey = "raffle:winners:all";
-      const winnerKey = "raffle_winner";
-      const socialIpsLegacy = "social:ips";
-
-      // ------------------------------
-      // NEW: Vote/entry cache cleanup
-      // ------------------------------
-
-      // A) If you ever namespaced votes by window: votes:${windowKey}:*
-      const votesScoped = await safeScan(`votes:${windowKey}:*`);
-
-      // B) Generic per-file vote keys (most common): votes:{fileId}
-      //    We'll try to delete only those that belong to the current window.
-      const genericVoteKeys = await safeScan(`votes:*`);
-      const votesForThisWindow = new Set(votesScoped);
-
-      if (genericVoteKeys.length) {
-        try {
-          // Load uploads and select those tied to the current window
-          // Your uploads list stores JSON per item; adjust property names if needed.
-          const uploadsJson = await redis.lrange("uploads", 0, -1);
-          const fileIds = new Set();
-          for (const s of uploadsJson) {
-            try {
-              const u = JSON.parse(s);
-              // Accept a few possible field names you've used before
-              const belongsToWindow =
-                u?.windowKey === windowKey ||
-                u?.showWindow === windowKey ||
-                u?.window === windowKey ||
-                u?.window_id === windowKey;
-              if (!belongsToWindow) continue;
-
-              const fid = String(
-                u?.fileId ||
-                  u?.driveFileId ||
-                  u?.id ||
-                  u?.fileName ||
-                  u?.key ||
-                  ""
-              ).trim();
-              if (fid) fileIds.add(fid);
-            } catch {}
-          }
-
-          // If we found fileIds for this window, include their votes:{fileId}
-          if (fileIds.size > 0) {
-            for (const k of genericVoteKeys) {
-              // Expect format "votes:{fileId}" (no extra colons)
-              // Safeguard: only keep those with exactly 2 parts and known suffix.
-              const parts = k.split(":");
-              if (parts.length === 2) {
-                const fid = parts[1];
-                if (fileIds.has(fid)) votesForThisWindow.add(k);
-              }
-            }
-          } else {
-            // Fallback: if we couldn't resolve fileIds for the window,
-            // and you want reset to be absolute, uncomment the next line to nuke ALL votes.
-            // genericVoteKeys.forEach(k => votesForThisWindow.add(k));
-          }
-        } catch (e) {
-          console.warn(
-            "uploads scan failed; votes may be partially retained",
-            e?.message || e
-          );
-          // Optional hard reset of all votes if you prefer stronger guarantees:
-          // genericVoteKeys.forEach(k => votesForThisWindow.add(k));
-        }
-      }
-
-      // C) Any cached aggregated entries you might have (optional)
-      const entriesCaches = await safeScan(`entries:*`); // only if you've introduced these
-
-      // Build unique deletion set
-      const toDelete = Array.from(
-        new Set([
-          listKey,
-          winnersKey,
-          winnerKey,
-          socialIpsScoped,
-          socialIpsLegacy,
-          ...dedupes,
-          ...bonuses,
-          ...socialStates,
-          ...socialLocks,
-          ...jpCounts,
-          // NEW
-          ...votesForThisWindow,
-          ...entriesCaches,
-        ])
-      );
-
-      let deleted = 0;
-      for (const k of toDelete) {
-        deleted += await delKey(k);
-      }
-
-      // Clear memory mirrors too
-      MEM.winners = [];
-      MEM.currentWinner = null;
-
-      // For sanity, show what (if anything) remains for this window
-      const [remainingSocial, remainingEntered, remainingJp, remainingVotes] =
-        await Promise.all([
-          safeScan(`social:${windowKey}:*`),
-          safeScan(`raffle:entered:${windowKey}:*`),
-          safeScan(`raffle:jackpotCount:${windowKey}:*`),
-          // Try both scoped and generic vote keys again
-          (async () => {
-            const leftover = new Set(await safeScan(`votes:${windowKey}:*`));
-            const genericLeft = await safeScan(`votes:*`);
-            if (genericLeft.length) {
-              // If we identified fileIds earlier, we can re-check them;
-              // but since we don't retain them here, just list any generic votes left.
-              genericLeft.forEach((k) => leftover.add(k));
-            }
-            return Array.from(leftover);
-          })(),
-        ]);
-
-      return res.status(200).json({
-        success: true,
-        windowKey,
-        deletedKeys: deleted,
-        remaining: {
-          social: remainingSocial,
-          raffleEntered: remainingEntered,
-          jackpots: remainingJp,
-          votes: remainingVotes, // ← helpful to verify they're gone
-        },
-      });
-    } catch (e) {
-      console.error(
-        "❌ reset-entries failed:",
-        e?.message || e,
-        e?.stack || ""
-      );
-      return res.status(500).json({
-        success: false,
-        error: "Reset entries failed",
-        details: e?.message || String(e),
-      });
-    }
+  const ok = await ensureRedisConnected();
+  if (!ok || !redis?.isOpen) {
+    try { MEM.winners = []; MEM.currentWinner = null; } catch {}
+    return res.status(200).json({
+      success: true,
+      windowKey: "(mem)",
+      deletedKeys: 0,
+      remaining: { social: [], raffleEntered: [], jackpots: [], votes: [], entries: [] },
+      _note: "Redis not ready; cleared memory mirror only",
+    });
   }
+
+  const safeScan = async (pattern) => {
+    try {
+      if (!redis?.scanIterator) return [];
+      const out = [];
+      for await (const k of redis.scanIterator({ MATCH: pattern, COUNT: 1000 })) {
+        if (typeof k === "string" && k) out.push(k);
+      }
+      return out;
+    } catch (e) {
+      console.warn("scan failed", pattern, e?.message || e);
+      return [];
+    }
+  };
+
+  const delKey = async (k) => {
+    if (!k || typeof k !== "string") return 0;
+    try { return (await redis.unlink(k)) || 0; }
+    catch { try { return (await redis.del(k)) || 0; } catch { return 0; } }
+  };
+
+  try {
+    const { windowKey } = await getWindowInfo();
+
+    // Window-scoped keys you already reset
+    const listKey = `raffle:entries:${windowKey}`;
+    const dedupes = await safeScan(`raffle:entered:${windowKey}:*`);
+    const bonuses = await safeScan(`raffle:bonus:${windowKey}:*`);
+    const socialIpsScoped = `social:ips:${windowKey}`;
+    const socialStates = await safeScan(`social:${windowKey}:*`);
+    const socialLocks = await safeScan(`social:lock:${windowKey}:*`);
+    const jpCounts = await safeScan(`raffle:jackpotCount:${windowKey}:*`);
+
+    // Global-ish keys you already had
+    const winnersKey = "raffle:winners:all";
+    const winnerKey = "raffle_winner";
+    const socialIpsLegacy = "social:ips";
+
+    // 🔥 NEW: Nuke ALL vote counters & any entry caches
+    // This guarantees the UI cannot add local votes to BASE=1 after a reset.
+    const votesAll = await safeScan(`votes:*`);     // e.g., votes:{fileId}
+    const entriesCaches = await safeScan(`entries:*`); // in case you introduced derived caches
+
+    // Build deletion set
+    const toDelete = Array.from(new Set([
+      listKey,
+      winnersKey,
+      winnerKey,
+      socialIpsScoped,
+      socialIpsLegacy,
+      ...dedupes,
+      ...bonuses,
+      ...socialStates,
+      ...socialLocks,
+      ...jpCounts,
+      // NEW
+      ...votesAll,
+      ...entriesCaches,
+    ]));
+
+    let deleted = 0;
+    for (const k of toDelete) deleted += await delKey(k);
+
+    // Clear memory mirrors too
+    MEM.winners = [];
+    MEM.currentWinner = null;
+
+    // Report what (if anything) remains
+    const [remainingSocial, remainingEntered, remainingJp, remainingVotes, remainingEntries] =
+      await Promise.all([
+        safeScan(`social:${windowKey}:*`),
+        safeScan(`raffle:entered:${windowKey}:*`),
+        safeScan(`raffle:jackpotCount:${windowKey}:*`),
+        safeScan(`votes:*`),
+        safeScan(`entries:*`),
+      ]);
+
+    // Optional: broadcast a reset event if you use SSE/WebSocket
+    // await redis.publish("events", JSON.stringify({ type: "raffle_reset", windowKey }));
+
+    return res.status(200).json({
+      success: true,
+      windowKey,
+      deletedKeys: deleted,
+      remaining: {
+        social: remainingSocial,
+        raffleEntered: remainingEntered,
+        jackpots: remainingJp,
+        votes: remainingVotes,
+        entries: remainingEntries,
+      },
+    });
+  } catch (e) {
+    console.error("❌ reset-entries failed:", e?.message || e, e?.stack || "");
+    return res.status(500).json({ success: false, error: "Reset entries failed", details: e?.message || String(e) });
+  }
+}
+
 
   // ────────────────────────────────────────────────────────────
   // Social status (per-window aggregate for Admin UI)
@@ -899,6 +800,41 @@ export default async function handler(req, res) {
       entries,
     });
   }
+// GET /api/admin?action=my-entries&fileId=<optional>
+if (action === "my-entries" && req.method === "GET") {
+  const ok = await ensureRedisConnected();
+  const BASE = 1;
+  let entries = BASE;
+
+  if (ok && redis?.isOpen) {
+    try {
+      const { windowKey } = await getWindowInfo();
+      const fileId = String(req.query.fileId || "").trim();
+
+      if (fileId) {
+        // Validate this file belongs to the current window before counting its votes
+        const uploadsJson = await redis.lrange("uploads", 0, -1);
+        let belongs = false;
+        for (const s of uploadsJson) {
+          try {
+            const u = JSON.parse(s);
+            const fid = String(u?.fileId || u?.driveFileId || u?.id || u?.fileName || u?.key || "").trim();
+            const w   = (u?.windowKey || u?.showWindow || u?.window || u?.window_id || "").trim();
+            if (fid === fileId && w === windowKey) { belongs = true; break; }
+          } catch {}
+        }
+        if (belongs) {
+          const v = await redis.get(`votes:${fileId}`);
+          entries = BASE + Number(v || 0);
+        }
+      }
+    } catch (e) {
+      console.warn("my-entries fallback", e?.message || e);
+    }
+  }
+
+  return res.status(200).json({ entries });
+}
 
   /* ────────────────────────────────────────────────────────────
      WINNER (current) + PICK + RESET
