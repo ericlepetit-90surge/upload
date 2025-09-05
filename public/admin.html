@@ -90,7 +90,7 @@
               <span id="redis-status" class="status">Status: —</span>
             </div>
             <div class="inline-actions mt-12">
-              <button class="btn danger" id="shutdown-toggle-btn">Shut Down App</button>
+              <button class="btn danger" id="shutdown-btn">Shut Down App</button>
             </div>
           </div>
         </div>
@@ -319,7 +319,7 @@
       try{
         const res = await fetch('/api/admin?action=shutdown-status');
         const { isShutdown } = await res.json();
-        const btn = $('#shutdown-toggle-btn');
+        const btn = $('#shutdown-btn');
         if (btn){
           btn.textContent = isShutdown ? 'Re-enable App' : 'Shut Down App';
           btn.classList.toggle('danger', !isShutdown);
@@ -552,7 +552,7 @@
       } else {
         banner.textContent='Admin'; banner.className='badge admin';
         $('#warm-redis-btn')?.addEventListener('click', warmRedis);
-        $('#shutdown-toggle-btn')?.addEventListener('click', toggleShutdown);
+        $('#shutdown-btn')?.addEventListener('click', toggleShutdown);
         $('#save-config-btn')?.addEventListener('click', saveConfig);
         $('#reset-spins-btn')?.addEventListener('click', resetSpins);
         $('#pick-winner-btn')?.addEventListener('click', pickWinner);

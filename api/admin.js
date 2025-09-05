@@ -138,6 +138,20 @@ function appendLocalLedgerRow(row) {
   writeLocalLedgerSafe(arr);
 }
 
+async function isShutdown() {
+  try {
+    const v = await redis.get("shutdown");
+    return v === "1" || v === "true";
+  } catch { return false; }
+}
+
+// Use your existing isAdmin(req). This extra check enforces super role for shutdown.
+function isSuperAdmin(req) {
+  const auth = (req.headers && (req.headers.authorization || req.headers.Authorization)) || "";
+  return isAdmin(req) && auth.startsWith("Bearer:super:");
+}
+
+
 async function getWindowInfo() {
   let showName = "90 Surge";
   let startTime = null;
@@ -1222,6 +1236,36 @@ if (action === "my-entries" && req.method === "GET") {
     await redis.set("shutdown", newStatus ? "true" : "false");
     return res.status(200).json({ success: true, isShutdown: newStatus });
   }
+
+if (action === "shutdown" && req.method === "POST") {
+  if (!isSuperAdmin(req)) return res.status(403).json({ error: "Forbidden" });
+
+  const ok = await ensureRedisConnected();
+  if (!ok || !redis?.isOpen) {
+    return res.status(503).json({ error: "Redis unavailable" });
+  }
+
+  let body = {};
+  try { body = await readJson(req); } catch {}
+  let { enabled, toggle } = body;
+
+  if (typeof enabled === "undefined") {
+    if (toggle) {
+      const cur = await isShutdown();
+      enabled = !cur;
+    } else {
+      enabled = true; // default to enabling shutdown if not specified
+    }
+  }
+
+  await redis.set("shutdown", enabled ? "1" : "0");
+
+  // (Optional) notify clients via SSE/WebSocket
+  // await redis.publish("events", JSON.stringify({ type: "shutdown_changed", enabled }));
+
+  return res.status(200).json({ ok: true, enabled });
+}
+
 
   /* ────────────────────────────────────────────────────────────
      SLOT → prize-log (WITH DEBUGGING)

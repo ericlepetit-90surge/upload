@@ -923,26 +923,6 @@
       console.debug("[config] headline refresh skipped:", e?.message || e);
     }
   }
-<script>
-(function(){
-  const ENTRIES_EL = document.getElementById("raffle-entries"); // ensure this id exists
-  async function refreshEntries() {
-    try {
-      const fileId = localStorage.getItem("lastUploadFileId") || "";
-      const qs = fileId ? `&fileId=${encodeURIComponent(fileId)}` : "";
-      const res = await fetch(`/api/admin?action=my-entries${qs}`);
-      const data = await res.json();
-      ENTRIES_EL.textContent = String(Number(data.entries || 1));
-    } catch {
-      ENTRIES_EL.textContent = "1";
-    }
-  }
-
-  // Initial load
-  refreshEntries();
-
-})();
-</script>
 
   // ──────────────────────────────────────────────────────────────
   // Winner UI (modal + banner) — auto-fire + live update
