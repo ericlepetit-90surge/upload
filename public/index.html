@@ -57,7 +57,7 @@
         </div>
         <div class="entry-stat">
           <div class="entry-stat-label">Your entries to tonight's raffle</div>
-          <div class="entry-stat-value" id="your-entries-count">0</div>
+          <div class="entry-stat-value" id="raffle-entries">0</div>
         </div>
        
       </div>
@@ -190,24 +190,46 @@
   </script>
   <script>
 (function(){
-  const ENTRIES_EL = document.getElementById("raffle-entries"); // ensure this id exists
-  async function refreshEntries() {
-    try {
-      const fileId = localStorage.getItem("lastUploadFileId") || "";
-      const qs = fileId ? `&fileId=${encodeURIComponent(fileId)}` : "";
-      const res = await fetch(`/api/admin?action=my-entries${qs}`);
-      const data = await res.json();
-      ENTRIES_EL.textContent = String(Number(data.entries || 1));
-    } catch {
-      ENTRIES_EL.textContent = "1";
-    }
+  function $(sel, r=document){ return r.querySelector(sel); }
+  function onReady(fn){
+    if (document.readyState !== "loading") fn();
+    else document.addEventListener("DOMContentLoaded", fn);
   }
 
-  // Initial load
-  refreshEntries();
+  onReady(() => {
+    // Support either id or data-attribute (use whichever you prefer in HTML)
+    const ENTRIES_EL = $("#raffle-entries") || $("[data-raffle-entries]");
+    if (!ENTRIES_EL) return; // This page doesn't have the counter; bail quietly.
 
+    async function refreshEntries(){
+      let entries = 1; // safe default
+      try {
+        const fileId = localStorage.getItem("lastUploadFileId") || "";
+        const qs = fileId ? `&fileId=${encodeURIComponent(fileId)}` : "";
+        const res = await fetch(`/api/admin?action=my-entries${qs}`);
+        if (!res.ok) throw new Error(`status ${res.status}`);
+        const data = await res.json();
+        entries = Number(data.entries || 1);
+      } catch (err) {
+        console.warn("my-entries fetch failed", err);
+      }
+      ENTRIES_EL.textContent = String(entries);
+    }
+
+    // expose so other modules (SSE, buttons) can call it
+    window.refreshEntries = refreshEntries;
+
+    // initial render
+    refreshEntries();
+
+    // Optional: refresh on events or a gentle poll
+    // setInterval(refreshEntries, 15000);
+    // window.voteBus?.on("raffle_reset", refreshEntries);
+    // window.voteBus?.on("vote", refreshEntries);
+  });
 })();
 </script>
+
 </body>
 
 </html>
