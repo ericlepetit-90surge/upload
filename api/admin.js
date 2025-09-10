@@ -212,6 +212,14 @@ async function getWindowInfo() {
   return { showName, startTime, endTime, windowKey, ttlSeconds };
 }
 
+// --- Auto-pick timing: 2h30m after show start ---
+const WINNER_DELAY_MS = 2.5 * 60 * 60 * 1000;
+function computeAutoPickAt(startTimeIso) {
+  if (!startTimeIso) return null;
+  const t = Date.parse(startTimeIso);
+  return Number.isFinite(t) ? t + WINNER_DELAY_MS : null;
+}
+
 /* Winners persistence with robust fallback */
 async function appendWinnerRow(row) {
   // Always mirror in memory
@@ -373,18 +381,20 @@ export default async function handler(req, res) {
             const startTime = cfg.startTime ?? null;
             const endTime = cfg.endTime ?? null;
             const version = Number(cfg.version || 0);
+            const autoPickAt = cfg.autoPickAt || "";
             return res
               .status(200)
-              .json({ showName, startTime, endTime, version });
+              .json({ showName, startTime, endTime, version, autoPickAt });
           } catch {}
         }
         if (redis?.isOpen) {
-          let [showName, startTime, endTime, version] = await Promise.race([
+          let [showName, startTime, endTime, version, autoPickAt] = await Promise.race([
             Promise.all([
               redis.get("showName").catch(() => ""),
               redis.get("startTime").catch(() => ""),
               redis.get("endTime").catch(() => ""),
               redis.get("config:version").catch(() => "0"),
+              redis.get("autoPickAt").catch(() => ""),
             ]),
             timeout(10000),
           ]);
@@ -393,6 +403,7 @@ export default async function handler(req, res) {
             startTime,
             endTime,
             version: Number(version || 0),
+            autoPickAt,
           });
         }
         return res.status(200).json({
@@ -412,6 +423,15 @@ export default async function handler(req, res) {
       try {
         await ensureRedisConnected();
         let version = 0;
+        // compute autoPickAt (+2h30 from startTime) if provided
+        let computedAuto = "";
+        try {
+          if (startTime) {
+            const t = new Date(startTime);
+            if (!isNaN(t)) computedAuto = new Date(t.getTime() + 150*60*1000).toISOString();
+          }
+        } catch {}
+
         if (isLocal) {
           const filePath = path.join(process.cwd(), "config.json");
           let existing = {};
@@ -421,7 +441,7 @@ export default async function handler(req, res) {
           version = Number(existing.version || 0) + 1;
           fs.writeFileSync(
             filePath,
-            JSON.stringify({ showName, startTime, endTime, version }, null, 2)
+            JSON.stringify({ showName, startTime, endTime, version, autoPickAt: computedAuto }, null, 2)
           );
         } else {
           if (!redis?.isOpen)
@@ -430,6 +450,8 @@ export default async function handler(req, res) {
             redis.set("showName", showName || ""),
             redis.set("startTime", startTime || ""),
             redis.set("endTime", endTime || ""),
+            redis.set("autoPickAt", computedAuto || ""),
+            redis.set("autoPickArmed", computedAuto ? "true" : "false"),
           ]);
           version = await redis.incr("config:version");
         }
@@ -438,14 +460,14 @@ export default async function handler(req, res) {
             "sse",
             JSON.stringify({
               type: "config",
-              config: { showName, startTime, endTime, version },
+              config: { showName, startTime, endTime, version, autoPickAt: computedAuto },
             })
           );
         } catch {}
         noCache(res);
         return res
           .status(200)
-          .json({ success: true, showName, startTime, endTime, version });
+          .json({ success: true, showName, startTime, endTime, version, autoPickAt: computedAuto });
       } catch (err) {
         console.error("❌ config POST:", err);
         return res.status(500).json({ error: "Failed to save config" });
@@ -817,7 +839,7 @@ export default async function handler(req, res) {
 // GET /api/admin?action=my-entries&fileId=<optional>
 if (action === "my-entries" && req.method === "GET") {
   const ok = await ensureRedisConnected();
-  const BASE = 1;
+  const BASE = 0;
   let entries = BASE;
 
   if (ok && redis?.isOpen) {
@@ -870,10 +892,90 @@ if (action === "my-entries" && req.method === "GET") {
     }
   }
 
+  // ────────────────────────────────────────────────────────────
+// MAYBE AUTO-PICK (idempotent, time-gated, no admin needed)
+// ────────────────────────────────────────────────────────────
+if ((req.method === "POST" || req.method === "GET") && action === "maybe-auto-pick") {
+  const ok = await ensureRedisConnected();
+  if (!ok || !redis?.isOpen) {
+    return res.status(503).json({ ok: false, error: "Redis not ready" });
+  }
+
+  try {
+    const { windowKey, startTime } = await getWindowInfo();
+    const pickAtMs = computeAutoPickAt(startTime);
+    if (!pickAtMs) {
+      return res.status(200).json({ ok: false, reason: "no_start_time" });
+    }
+    const now = Date.now();
+    if (now < pickAtMs) {
+      return res.status(200).json({ ok: false, reason: "too_early", msLeft: pickAtMs - now });
+    }
+
+    // If a winner already exists, we're done
+    const already = await redis.get("raffle_winner").catch(() => null);
+    if (already) {
+      return res.status(200).json({ ok: true, already: true, winner: JSON.parse(already) });
+    }
+
+    // Lock to avoid races from multiple tabs/devices
+    const lockKey = `autoPick:lock:${windowKey}`;
+    const gotLock = await redis.set(lockKey, String(now), { NX: true, PX: 8000 });
+    if (!gotLock) {
+      return res.status(200).json({ ok: false, reason: "locked" });
+    }
+
+    // Read entries for current window
+    const listKey = `raffle:entries:${windowKey}`;
+    const raw = await redis.lRange(listKey, 0, -1);
+    const entries = raw
+      .map(s => { try { return JSON.parse(s); } catch { return null; } })
+      .filter(Boolean);
+
+    if (!entries.length) {
+      return res.status(200).json({ ok: false, reason: "no_entries" });
+    }
+
+    // Pick one at random
+    const idx = Math.floor(Math.random() * entries.length);
+    const w = entries[idx];
+    const payload = { id: w.id, name: w.name, source: w.source || null };
+
+    await redis.set("raffle_winner", JSON.stringify(payload));
+    MEM.currentWinner = payload.name;
+
+    // Ledger row
+    const row = {
+      id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
+      name: payload.name,
+      prize: "Raffle Winner — T-Shirt",
+      source: "raffle(auto)",
+      windowKey,
+      ts: new Date().toISOString(),
+    };
+    await appendWinnerRow(row);
+
+    // Optional notify (ignore errors)
+    try {
+      await fetch("https://winner-sse-server.onrender.com/broadcast", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ winner: payload.name }),
+      });
+    } catch {}
+
+    return res.status(200).json({ ok: true, autoPicked: true, winner: payload });
+  } catch (e) {
+    console.error("maybe-auto-pick failed:", e?.message || e);
+    return res.status(500).json({ ok: false, error: "auto-pick failed" });
+  }
+}
+
+
   if (action === "pick-winner" && req.method === "POST") {
     await ensureRedisConnected();
     const { role } = req.body || {};
-    if (role !== "admin")
+    if (role !== "admin" && role !== "moderator")
       return res.status(401).json({ error: "Unauthorized" });
 
     try {
@@ -1267,7 +1369,81 @@ if (action === "shutdown" && req.method === "POST") {
 }
 
 
-  /* ────────────────────────────────────────────────────────────
+  
+  if (action === "auto-pick-status" && req.method === "GET") {
+    await ensureRedisConnected();
+    let [autoPickAt, armed, winner] = ["", "false", null];
+    if (redis?.isOpen) {
+      [autoPickAt, armed] = await Promise.all([
+        redis.get("autoPickAt").catch(() => ""),
+        redis.get("autoPickArmed").catch(() => "false"),
+      ]);
+      try {
+        const w = await redis.get("raffle_winner");
+        winner = w ? JSON.parse(w) : null;
+      } catch {}
+    }
+    return res.status(200).json({
+      autoPickAt,
+      armed: armed === "true",
+      now: new Date().toISOString(),
+      alreadyPicked: !!winner,
+      winner,
+    });
+  }
+
+  if (action === "maybe-auto-pick" && req.method === "GET") {
+    await ensureRedisConnected();
+    if (!redis?.isOpen) return res.status(200).json({ ok: false, reason: "redis" });
+
+    const [autoPickAt, armed, winnerRaw] = await Promise.all([
+      redis.get("autoPickAt").catch(() => ""),
+      redis.get("autoPickArmed").catch(() => "false"),
+      redis.get("raffle_winner").catch(() => null),
+    ]);
+
+    const now = Date.now();
+    const ts = autoPickAt ? Date.parse(autoPickAt) : NaN;
+
+    if (winnerRaw) return res.status(200).json({ ok: true, alreadyPicked: true });
+    if (armed !== "true" || !autoPickAt || !Number.isFinite(ts) || now < ts) {
+      return res.status(200).json({ ok: true, pending: true, autoPickAt });
+    }
+
+    const { windowKey } = await getWindowInfo();
+    const listKey = `raffle:entries:${windowKey}`;
+    const raw = await redis.lRange(listKey, 0, -1);
+    const entries = raw.map(s => { try { return JSON.parse(s); } catch { return null; } }).filter(Boolean);
+    if (!entries.length) return res.status(200).json({ ok: false, reason: "no_entries" });
+
+    const idx = Math.floor(Math.random() * entries.length);
+    const choice = entries[idx];
+    const payload = { id: choice.id, name: choice.name, source: choice.source || null };
+
+    await redis.set("raffle_winner", JSON.stringify(payload));
+    MEM.currentWinner = payload.name;
+    await redis.set("autoPickArmed", "false");
+
+    const row = {
+      id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
+      name: payload.name,
+      prize: "Raffle Winner — T-Shirt",
+      source: "raffle (auto)",
+      windowKey,
+      ts: new Date().toISOString(),
+    };
+    await appendWinnerRow(row);
+
+    try {
+      await fetch("https://winner-sse-server.onrender.com/broadcast", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ winner: payload.name }),
+      });
+    } catch {}
+
+    return res.status(200).json({ ok: true, autoPicked: true, winner: payload });
+  }
+/* ────────────────────────────────────────────────────────────
      SLOT → prize-log (WITH DEBUGGING)
   ───────────────────────────────────────────────────────────── */
   if (

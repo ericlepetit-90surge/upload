@@ -110,6 +110,10 @@
                 <input class="input" type="date" id="startDate" />
               </div>
               <div class="field">
+                <label for="startTimeClock">Start Time</label>
+                <input class="input" type="time" id="startTimeClock" step="60" />
+              </div>
+              <div class="field">
                 <label for="endDate">End Date</label>
                 <input class="input" type="date" id="endDate" />
               </div>
@@ -219,7 +223,7 @@
       document.body.appendChild(el); setTimeout(()=>el.remove(),1800);
     }
 
-    // ---------- winners / prize-logs (one block only) ----------
+    // ---------- winners / prize-logs ----------
     function escapeHtml(s){
       return String(s ?? "")
         .replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;")
@@ -253,28 +257,32 @@
         const res = await fetch("/api/admin?action=winner-logs", { cache:"no-store" });
         const j = await res.json().catch(()=>({ rows: [] }));
         renderWinners(Array.isArray(j.rows) ? j.rows : []);
-      }catch{
+      } catch(e){
+        console.error("winner-logs error", e);
         renderWinners([]);
       }
     }
 
-
-
     // ---------- login/logout ----------
     async function handleLogin(){
-      const password = $('#admin-password').value;
-      const res = await fetch('/api/admin?action=login',{
-        method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({ password })
-      });
-      const data = await res.json();
-      if (data.success){
-        localStorage.setItem('role', data.role);
-        localStorage.setItem('authToken', password);
-        if (data.role === 'admin') localStorage.setItem('adminKey', password);
-        location.reload();
-      } else {
-        $('#login-error').textContent = '❌ Incorrect password';
+      try{
+        const password = $('#admin-password').value;
+        const res = await fetch('/api/admin?action=login',{
+          method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({ password })
+        });
+        const data = await res.json().catch(()=>({success:false}));
+        if (data.success){
+          localStorage.setItem('role', data.role);
+          localStorage.setItem('authToken', password);
+          if (data.role === 'admin') localStorage.setItem('adminKey', password);
+          location.reload();
+        } else {
+          $('#login-error').textContent = '❌ Incorrect password';
+        }
+      } catch(e){
+        console.error("login error", e);
+        $('#login-error').textContent = '❌ Login failed';
       }
     }
     function logout(){ localStorage.clear(); location.href = '/admin?ts=' + Date.now(); }
@@ -296,7 +304,8 @@
           `Ping: ${ping ?? '—'}ms  |  Keys: ${keys ?? '—'}  |  ` +
           `Seeded: ${seeded}  |  Last warm: ${when}  |  Hit rate: ${rate}`;
         el.style.color = status==='active' ? 'var(--success)' : 'var(--muted)';
-      }catch(e){
+      } catch(e){
+        console.error("redis-status error", e);
         el.textContent='Status: ❌ Error'; el.style.color='var(--danger)';
       }
     }
@@ -310,8 +319,12 @@
         if (!res.ok) throw new Error();
         const json = await res.json().catch(()=>({}));
         toast('Redis warmed' + (json.pong ? ` (${json.pong})` : ''), 'success');
-      }catch{ toast('Failed to warm Redis','error'); }
-      checkRedisStatus();
+      } catch(e){
+        console.error("warm-redis error", e);
+        toast('Warm failed','error');
+      } finally {
+        checkRedisStatus();
+      }
     }
 
     // ---------- shutdown ----------
@@ -325,7 +338,9 @@
           btn.classList.toggle('danger', !isShutdown);
           btn.classList.toggle('success', isShutdown);
         }
-      }catch(e){ console.error('shutdown status error', e); }
+      } catch(e){
+        console.error("shutdown-status error", e);
+      }
     }
     async function toggleShutdown(){
       try{
@@ -336,11 +351,16 @@
         if (!res.ok) throw new Error('toggle failed');
         await checkShutdownStatusAndLabel();
         toast('App shutdown status updated','success');
-        if ('BroadcastChannel' in window){
-          new BroadcastChannel('surge-admin').postMessage('shutdown-toggled');
-        }
-        localStorage.setItem('shutdownToggle', Date.now());
-      }catch(e){ toast('Failed to update shutdown','error'); }
+        try{
+          if ('BroadcastChannel' in window){
+            new BroadcastChannel('surge-admin').postMessage('shutdown-toggled');
+          }
+        } catch {}
+        localStorage.setItem('shutdownToggle', String(Date.now()));
+      } catch(e){
+        console.error("toggle-shutdown error", e);
+        toast('Toggle failed','error');
+      }
     }
 
     // ---------- reset spins (+5) ----------
@@ -358,10 +378,13 @@
         if (status) status.textContent = `Done (version ${j.version})`;
         toast('Spins reset (+5)','success');
         setTimeout(()=>{ if (status) status.textContent = ''; }, 4000);
-      }catch(e){
+      } catch(e){
+        console.error("reset-spins error", e);
         if (status) status.textContent = 'Failed';
         toast('Reset spins failed','error');
-      }finally{ btn.disabled = false; }
+      } finally {
+        btn.disabled = false;
+      }
     }
 
     // ---------- social status ----------
@@ -383,60 +406,79 @@
             <td>${typeof row.ttlSeconds === 'number' ? row.ttlSeconds : '—'}</td>`;
           tbody.appendChild(tr);
         });
-      }catch(e){
+      } catch(e){
+        console.error("social-status error", e);
         $('#social-totals').textContent = 'Failed to load.';
-        console.error(e);
       }
     }
 
-    // ---------- config (date-only) ----------
+    // ---------- config helpers ----------
     function toDateInputValue(iso){
       if (!iso) return "";
       const d = new Date(iso);
       const yyyy=d.getFullYear(), mm=String(d.getMonth()+1).padStart(2,"0"), dd=String(d.getDate()).padStart(2,"0");
       return `${yyyy}-${mm}-${dd}`;
     }
+    function toTimeInputValue(iso){
+      if (!iso) return "";
+      const d = new Date(iso);
+      const hh=String(d.getHours()).padStart(2,"0"), mm=String(d.getMinutes()).padStart(2,"0");
+      return `${hh}:${mm}`;
+    }
     async function loadConfig(){
-      let cached = null;
-      try{ cached = JSON.parse(sessionStorage.getItem("cfg") || "null"); }catch{}
-      if (cached){
-        $('#showName').value = cached.showName || '';
-        $('#startDate').value = toDateInputValue(cached.startTime);
-        $('#endDate').value = toDateInputValue(cached.endTime);
+      try{
+        let cached = null;
+        try{ cached = JSON.parse(sessionStorage.getItem("cfg") || "null"); }catch{}
+        if (cached){
+          $('#showName').value = cached.showName || '';
+          $('#startDate').value = toDateInputValue(cached.startTime);
+          $('#startTimeClock').value = toTimeInputValue(cached.startTime);
+          $('#endDate').value = toDateInputValue(cached.endTime);
+        }
+        const res = await fetch(`/api/admin?action=config&v=${Date.now()}`, { cache:"no-store" });
+        if (!res.ok) return;
+        const fresh = await res.json();
+        $('#showName').value = fresh.showName || '';
+        $('#startDate').value = toDateInputValue(fresh.startTime);
+        $('#startTimeClock').value = toTimeInputValue(fresh.startTime);
+        $('#endDate').value = toDateInputValue(fresh.endTime);
+        sessionStorage.setItem("cfg", JSON.stringify(fresh));
+      } catch(e){
+        console.error("config load error", e);
       }
-      const res = await fetch(`/api/admin?action=config&v=${Date.now()}`, { cache:"no-store" });
-      if (!res.ok) return;
-      const fresh = await res.json();
-      $('#showName').value = fresh.showName || '';
-      $('#startDate').value = toDateInputValue(fresh.startTime);
-      $('#endDate').value = toDateInputValue(fresh.endTime);
-      sessionStorage.setItem("cfg", JSON.stringify(fresh));
     }
     async function saveConfig(){
       const role = localStorage.getItem('role'); if (role !== 'admin') return;
       const showName = $('#showName').value.trim();
       const startDate = $('#startDate').value; const endDate = $('#endDate').value;
       if (!showName || !startDate || !endDate){ toast('Fill all fields','error'); return; }
-      const start = new Date(`${startDate}T00:00:00`); const end = new Date(`${endDate}T23:59:59.999`);
+      const startClock = $('#startTimeClock').value || '00:00';
+      const start = new Date(`${startDate}T${startClock}:00`);
+      const end = new Date(`${endDate}T23:59:59.999`);
       if (end < start){ toast('End date must be on or after start date','error'); return; }
       const body = { showName, startTime:start.toISOString(), endTime:end.toISOString() };
       try{
         const res = await fetch('/api/admin?action=config',{
           method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)
         });
-        const json = await res.json();
+        const json = await res.json().catch(()=>({}));
         if (res.ok){ toast('Config saved','success'); } else { throw new Error(json.error || 'Save failed'); }
-      }catch(e){ toast('Save failed','error'); }
+      } catch(e){
+        console.error("config save error", e);
+        toast('Save failed','error');
+      }
     }
 
     // ---------- raffle ----------
     async function loadCurrentWinner(){
       try{
         const res = await fetch('/api/admin?action=winner');
-        const data = await res.json();
+        const data = await res.json().catch(()=>({}));
         const w = data?.winner?.name;
         $('#winnerDisplay').textContent = w ? `🎉 Winner: ${w}` : 'No winner yet';
-      }catch{}
+      } catch(e){
+        console.error("winner load error", e);
+      }
     }
 
     async function loadEntries(){
@@ -448,15 +490,18 @@
       let rows = [];
       try{
         const res = await fetch("/api/admin?action=entries-summary", { cache:"no-store" });
-        const data = await res.json();
+        const data = await res.json().catch(()=>({}));
         rows = Array.isArray(data.rows) ? data.rows : [];
-      }catch(err){
+      } catch(e){
+        console.error("entries-summary error", e);
         tbody.innerHTML = `<tr><td colspan="2" style="opacity:.7;">(error loading)</td></tr>`;
-        totals.textContent = "Failed to load entries."; return;
+        totals.textContent = "Failed to load entries.";
+        return;
       }
       if (!rows.length){
         tbody.innerHTML = `<tr><td colspan="2" style="opacity:.7;">(no entries yet)</td></tr>`;
-        totals.textContent = "No entries yet."; return;
+        totals.textContent = "No entries yet.";
+        return;
       }
       const totalNames = rows.length;
       const totalEntries = rows.reduce((sum,r)=>sum+(Number(r.entries)||0),0);
@@ -477,12 +522,15 @@
         const res = await fetch('/api/admin?action=reset-entries',{
           method:'POST', headers:{ Authorization:'Bearer:super:' + (localStorage.getItem('adminKey')||'') }
         });
-        const json = await res.json();
+        const json = await res.json().catch(()=>({}));
         if (!res.ok || !json.success) throw new Error(json.error || 'Failed');
         toast('Entries & logs reset','success');
         $('#winnerDisplay').textContent = 'No winner yet';
         await Promise.all([loadEntries(), loadSocialStatus(), loadWinnerLogs()]);
-      }catch(e){ toast('Failed to reset entries','error'); }
+      } catch(e){
+        console.error("reset-entries error", e);
+        toast('Reset failed','error');
+      }
     }
 
     async function pickWinner(){
@@ -494,9 +542,9 @@
             'Content-Type':'application/json',
             'Authorization':'Bearer:super:' + (localStorage.getItem('adminKey')||'')
           },
-          body:JSON.stringify({ role:'admin' })
+          body:JSON.stringify({ role:(localStorage.getItem('role')||'admin') })
         });
-        const result = await res.json();
+        const result = await res.json().catch(()=>({}));
         if (result?.winner?.name){
           const winnerName = result.winner.name;
           $('#winnerDisplay').textContent = `🎉 Winner: ${winnerName}`;
@@ -505,7 +553,10 @@
         } else {
           toast(result?.error || 'No eligible entries','error');
         }
-      }catch{ toast('Failed to pick winner','error'); }
+      } catch(e){
+        console.error("pick-winner error", e);
+        toast('Pick failed','error');
+      }
     }
 
     async function resetWinner(){
@@ -518,39 +569,42 @@
         if (!apiRes.ok || !apiJson.success) throw new Error(apiJson.error || 'Reset failed');
         $('#winnerDisplay').textContent = 'No winner yet';
         toast('Winner reset','success');
-      }catch(e){ toast('Failed to reset winner','error'); }
+      } catch(e){
+        console.error("reset-winner error", e);
+        toast('Reset failed','error');
+      }
     }
 
     // ---------- bootstrap ----------
     document.addEventListener('DOMContentLoaded', async ()=>{
-      $('#login-btn').addEventListener('click', handleLogin);
-      $('#logout-btn').addEventListener('click', logout);
+      // basic wires
+      $('#login-btn')?.addEventListener('click', handleLogin);
+      $('#logout-btn')?.addEventListener('click', logout);
+      $('#refresh-winners-btn')?.addEventListener('click', loadWinnerLogs);
 
-      // Initial render of winners/spins tables & refresh hooks
-      await loadWinnerLogs();
-      document.getElementById("refresh-winners-btn")?.addEventListener("click", loadWinnerLogs);
-      setInterval(loadWinnerLogs, 10000);
-
+      // role + gating
       const role = localStorage.getItem('role');
       const login = $('#login-section');
       const app = $('#admin-content');
+      const banner = $('#role-banner');
 
       if (!role){
         login.style.display='block'; app.style.display='none';
-        const rb = $('#role-banner'); rb.textContent='Logged out'; rb.className='badge';
+        if (banner){ banner.textContent='Logged out'; banner.className='badge'; }
         $('#logout-btn').style.display='none';
         return;
       }
-
       login.style.display='none'; app.style.display='block'; $('#logout-btn').style.display='inline-flex';
 
-      const banner = $('#role-banner');
       if (role === 'moderator'){
-        banner.textContent='Moderator'; banner.className='badge moderator';
+        if (banner){ banner.textContent='Moderator'; banner.className='badge moderator'; }
         $$('.admin-only-block').forEach(el=> el.style.display='none');
         $$('.admin-only').forEach(el=> el.style.display='none');
+        const pw = $('#pick-winner-btn'); if (pw){ pw.style.display='inline-flex'; pw.disabled=false; pw.classList.remove('admin-only'); }
+        // Allow moderators to click pick
+        $('#pick-winner-btn')?.addEventListener('click', pickWinner);
       } else {
-        banner.textContent='Admin'; banner.className='badge admin';
+        if (banner){ banner.textContent='Admin'; banner.className='badge admin'; }
         $('#warm-redis-btn')?.addEventListener('click', warmRedis);
         $('#shutdown-btn')?.addEventListener('click', toggleShutdown);
         $('#save-config-btn')?.addEventListener('click', saveConfig);
@@ -560,7 +614,9 @@
         $('#reset-winner-btn')?.addEventListener('click', resetWinner);
       }
 
-      // Initial loads
+      // initial loads
+      await loadWinnerLogs();
+      setInterval(loadWinnerLogs, 10000);
       await loadConfig();
       await loadSocialStatus();
       await checkRedisStatus();
@@ -568,7 +624,7 @@
       await loadEntries();
       await loadCurrentWinner();
 
-      // Refreshers
+      // refreshers
       setInterval(loadSocialStatus, 15000);
       setInterval(loadEntries, 10000);
       setInterval(loadCurrentWinner, 15000);

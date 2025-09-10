@@ -652,3 +652,10 @@ progress { height: 10px; border-radius: 5px; width: 100%; }
 
 .slot-left{ color:var(--muted); font-weight:700; text-align: center;}
 .slot-result{ margin-top:12px; text-align:center; font-weight:900; color:var(--good); min-height:1.6em; }
+
+
+.countdown {
+  font-size: 28px;
+  font-weight: bold;
+  color: rgb(224, 92, 180)
+}

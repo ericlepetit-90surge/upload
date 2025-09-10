@@ -45,11 +45,12 @@
         </li>
         <li>
           That's it! Good luck.<br>
-         <h3 class="raffle-rules">
-        <strong>The winner will be announced during our last set. Winner must be present to claim their prize!</strong>
-      </h3> 
         </li>
       </ol>
+      <div id="winner-countdown" class="countdown">
+        Winner picked in: <span id="winner-countdown-text">—</span>. 
+      </div>
+     <span style="font-size:16px">Come back here to find out if you are the lucky winner!</span>
       <div id="entry-stats" class="entry-stats-card">
          <div class="entry-stat">
           <div class="entry-stat-label">Total entries in tonight's raffle</div>
@@ -57,12 +58,14 @@
         </div>
         <div class="entry-stat">
           <div class="entry-stat-label">Your entries to tonight's raffle</div>
-          <div class="entry-stat-value" id="raffle-entries">0</div>
+         <div class="entry-stat-value" id="your-entries-count">0</div>
         </div>
        
       </div>
         
-      <h2 class="raffle raffle-title blink">
+      <h2 class="raffle raffle-title blink">       
+      
+      
         <strong>FEELING LUCKY? <br>SPIN THE SLOTS...</strong>
       </h2>
       <!-- Slot machine mount -->
@@ -129,35 +132,6 @@
       function init() {
         if (typeof window.initSlotMachine === "function") {
           window.initSlotMachine("#slot-root", {
-            onResult: ({ targets, win }) => {
-              // Only award when JACKPOT is the "Extra entry" symbol.
-              if (
-                win &&
-                Array.isArray(targets) &&
-                targets.length === 3 &&
-                targets.every(t => t === "Extra entry")
-              ) {
-                if (
-                  typeof window.canSubmitFor === "function" &&
-                  typeof window.submitEntryOnce === "function" &&
-                  window.canSubmitFor("jackpot")
-                ) {
-                  window.submitEntryOnce("jackpot");
-                } else {
-                  // Nudge: they need a name to claim the +1
-                  const el = document.getElementById("cta-message");
-                  if (el) {
-                    el.style.color = "orange";
-                    el.textContent = "Add your name above to claim your +1";
-                    el.classList.add("show");
-                    setTimeout(() => {
-                      el.textContent = "";
-                      el.classList.remove("show");
-                    }, 2500);
-                  }
-                }
-              }
-            }
           });
         } else {
           console.warn("slot.js loaded but initSlotMachine not found");
@@ -188,47 +162,8 @@
       }
     })();
   </script>
-  <script>
-(function(){
-  function $(sel, r=document){ return r.querySelector(sel); }
-  function onReady(fn){
-    if (document.readyState !== "loading") fn();
-    else document.addEventListener("DOMContentLoaded", fn);
-  }
-
-  onReady(() => {
-    // Support either id or data-attribute (use whichever you prefer in HTML)
-    const ENTRIES_EL = $("#raffle-entries") || $("[data-raffle-entries]");
-    if (!ENTRIES_EL) return; // This page doesn't have the counter; bail quietly.
-
-    async function refreshEntries(){
-      let entries = 1; // safe default
-      try {
-        const fileId = localStorage.getItem("lastUploadFileId") || "";
-        const qs = fileId ? `&fileId=${encodeURIComponent(fileId)}` : "";
-        const res = await fetch(`/api/admin?action=my-entries${qs}`);
-        if (!res.ok) throw new Error(`status ${res.status}`);
-        const data = await res.json();
-        entries = Number(data.entries || 1);
-      } catch (err) {
-        console.warn("my-entries fetch failed", err);
-      }
-      ENTRIES_EL.textContent = String(entries);
-    }
-
-    // expose so other modules (SSE, buttons) can call it
-    window.refreshEntries = refreshEntries;
-
-    // initial render
-    refreshEntries();
-
-    // Optional: refresh on events or a gentle poll
-    // setInterval(refreshEntries, 15000);
-    // window.voteBus?.on("raffle_reset", refreshEntries);
-    // window.voteBus?.on("vote", refreshEntries);
-  });
-})();
-</script>
+  
+  
 
 </body>
 
