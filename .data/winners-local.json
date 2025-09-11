@@ -1,1 +1,58 @@
-[]
+[
+  {
+    "id": "1757557468780_f6ttkleban",
+    "name": "ererer",
+    "prize": "Sticker",
+    "source": "slot",
+    "windowKey": "2025-09-13T01:00:00.000Z|2025-09-17T03:59:59.999Z",
+    "ts": "2025-09-11T02:24:28.780Z"
+  },
+  {
+    "id": "1757557489509_lg5z5goh83",
+    "name": "ererer",
+    "prize": "Extra Entry",
+    "source": "slot",
+    "windowKey": "2025-09-13T01:00:00.000Z|2025-09-17T03:59:59.999Z",
+    "ts": "2025-09-11T02:24:49.509Z"
+  },
+  {
+    "id": "1757557505633_h0ivqienrs7",
+    "name": "ererer",
+    "prize": "Extra Entry",
+    "source": "slot",
+    "windowKey": "2025-09-13T01:00:00.000Z|2025-09-17T03:59:59.999Z",
+    "ts": "2025-09-11T02:25:05.633Z"
+  },
+  {
+    "id": "1757557521349_31xbr1xer0k",
+    "name": "ererer",
+    "prize": "Extra Entry",
+    "source": "slot",
+    "windowKey": "2025-09-13T01:00:00.000Z|2025-09-17T03:59:59.999Z",
+    "ts": "2025-09-11T02:25:21.349Z"
+  },
+  {
+    "id": "1757557563176_ju2riacxcmj",
+    "name": "ererer",
+    "prize": "Extra Entry",
+    "source": "slot",
+    "windowKey": "2025-09-13T01:00:00.000Z|2025-09-17T03:59:59.999Z",
+    "ts": "2025-09-11T02:26:03.176Z"
+  },
+  {
+    "id": "1757557566898_1xh23pwl1f3",
+    "name": "ererer",
+    "prize": "Extra Entry",
+    "source": "slot",
+    "windowKey": "2025-09-13T01:00:00.000Z|2025-09-17T03:59:59.999Z",
+    "ts": "2025-09-11T02:26:06.898Z"
+  },
+  {
+    "id": "1757557575480_jd6qbh4q55o",
+    "name": "ererer",
+    "prize": "Extra Entry",
+    "source": "slot",
+    "windowKey": "2025-09-13T01:00:00.000Z|2025-09-17T03:59:59.999Z",
+    "ts": "2025-09-11T02:26:15.480Z"
+  }
+]

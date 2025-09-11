@@ -503,26 +503,31 @@ export default async function handler(req, res) {
     const listKey = `raffle:entries:${windowKey}`;
 
     if (source === "jackpot") {
-      const entry = {
-        id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
-        name,
-        ip,
-        source,
-        createdTime: new Date().toISOString(),
-      };
+  const entry = {
+    id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
+    name,
+    ip,
+    source,
+    createdTime: new Date().toISOString(),
+  };
 
-      const jpKey = `raffle:jackpotCount:${windowKey}:${ip}`;
+  const jpKey  = `raffle:jackpotCount:${windowKey}:${ip}`;
+  const setKey = `raffle:entered:${windowKey}:jackpot`; // <-- NEW
+  const listKey = `raffle:entries:${windowKey}`;
 
-      await redis
-        .multi()
-        .rPush(listKey, JSON.stringify(entry))
-        .expire(listKey, ttlSeconds)
-        .incr(jpKey)
-        .expire(jpKey, ttlSeconds)
-        .exec();
+  await redis
+    .multi()
+    .sAdd(setKey, ip)                    // <-- mark that this IP has a jackpot entry
+    .expire(setKey, ttlSeconds)
+    .rPush(listKey, JSON.stringify(entry))
+    .expire(listKey, ttlSeconds)
+    .incr(jpKey)
+    .expire(jpKey, ttlSeconds)
+    .exec();
 
-      return res.status(200).json({ success: true, entry, jackpot: true });
-    }
+  return res.status(200).json({ success: true, entry, jackpot: true });
+}
+
     const already = await redis.sIsMember(setKey, ip);
     if (already) {
       try {

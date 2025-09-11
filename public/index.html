@@ -1,15 +1,14 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, viewport-fit=cover" />
   <title>90 Surge - Free T-shirt!</title>
   <script>window.__FB_PAGE_ID = "130023783530481";</script>
   <link rel="stylesheet" href="/public/styles.css" />
+  <script src="/public/slot.js" defer></script>
   <script type="module" src="/public/app.js"></script>
 </head>
-
 <body>
   <form id="raffle-form" method="POST" novalidate>
     <div class="rules">
@@ -120,51 +119,6 @@
     </div>
 
   </form>
-
-  <!-- Robust loader for slot.js: tries /public/slot.js then /slot.js -->
-  <script>
-    (function () {
-      const candidates = [
-        "/public/slot.js?v=1",
-        "/slot.js?v=1"
-      ];
-
-      function init() {
-        if (typeof window.initSlotMachine === "function") {
-          window.initSlotMachine("#slot-root", {
-          });
-        } else {
-          console.warn("slot.js loaded but initSlotMachine not found");
-        }
-      }
-
-      function tryLoad(i) {
-        if (i >= candidates.length) {
-          console.error("slot.js not found at any known path:", candidates);
-          return;
-        }
-        const s = document.createElement("script");
-        s.src = candidates[i];
-        s.defer = true;
-        s.onload = init;
-        s.onerror = () => {
-          console.warn("Failed to load", candidates[i], "— trying next");
-          tryLoad(i + 1);
-        };
-        document.body.appendChild(s);
-      }
-
-      // Kick it off after DOM is ready
-      if (document.readyState === "loading") {
-        document.addEventListener("DOMContentLoaded", () => tryLoad(0));
-      } else {
-        tryLoad(0);
-      }
-    })();
-  </script>
-  
-  
-
 </body>
 
 </html>

@@ -10,16 +10,15 @@
   // Weighted symbols (no empties)
   const SYMBOLS = [
     { label: "T-Shirt",     weight: 0.05 },
-   // { label: "Free Drink",  weight: 0.8 },
-    { label: "Sticker",     weight: 0.5 },
-    { label: "Extra entry", weight: 0.6 },
-    { label: "VIP Seat",    weight: 0.3 },
+    { label: "Sticker",     weight: 0.5  },
+    { label: "Extra entry", weight: 0.6  },
+    { label: "VIP Seat",    weight: 0.3  },
   ];
 
-  // % of spins that force an aligned jackpot (all 3 the same)
+  // % of spins that bias toward an aligned jackpot (all 3 the same)
   const CHANCE_ALIGN = 0.18;
 
-  // Jackpot instructions
+  // Jackpot instructions (UI copy)
   const JACKPOT_TEXT = {
     "T-Shirt":     "WOW, Come see us at the break or after the show to get your t-shirt!",
     "Free Drink":  "This one is on us — show it to the bartender!",
@@ -76,7 +75,7 @@
         localStorage.setItem(`slot:spinsLeft:${todayKey}`, String(maxSpins));
         localStorage.setItem(localKey, String(serverV));
       }
-    } catch (e) {}
+    } catch {}
   }
 
   // Render helper: split multi-word labels into two lines
@@ -132,16 +131,14 @@
   // ---------- Server extra entry (only for JACKPOT "Extra entry") ----------
   async function awardExtraEntry(name) {
     try {
-      const res = await fetch("/api/admin?action=enter", {
+      const res = await fetch("/api/admin?action=bonus-entry", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, source: "jackpot" }),
+        body: JSON.stringify({ name }),
       });
       if (!res.ok) return { awarded: false, already: false };
-      const json = await res.json().catch(() => ({}));
-      if (json.already) return { awarded: false, already: true };
       return { awarded: true, already: false };
-    } catch (e) {
+    } catch {
       return { awarded: false, already: false };
     }
   }
@@ -150,6 +147,12 @@
   function initSlotMachine(rootSelector = "#slot-root", opts = {}) {
     const root = document.querySelector(rootSelector);
     if (!root) { console.warn("initSlotMachine: mount point not found:", rootSelector); return; }
+
+    // If already bound, just swap callbacks and return existing API
+    if (root.__slotApi) {
+      root.__slotApi.setCallbacks(opts);
+      return root.__slotApi;
+    }
 
     const bound = bindMachine(root);
     if (!bound) return;
@@ -202,6 +205,14 @@
       }
     });
 
+    // Hold BOTH callbacks; call them without double-invoking if they’re identical
+    let onResultCb = null, onFinishCb = null;
+    function setCallbacks(o) {
+      onResultCb = typeof o?.onResult === "function" ? o.onResult : null;
+      onFinishCb = typeof o?.onFinish === "function" ? o.onFinish : null;
+    }
+    setCallbacks(opts);
+
     function spinOnce() {
       const spinsLeft = loadSpinsLeft();
       if (spinsLeft <= 0 || btn.disabled) return;
@@ -209,7 +220,7 @@
       btn.disabled = true;
       result.textContent = ""; // clear only at start of a spin
 
-      // This coin flip only biases toward jackpots; it no longer *defines* a win.
+      // Bias toward jackpots; does not *force* detection
       const forceAlign = Math.random() < CHANCE_ALIGN;
       const forcedLabel = forceAlign ? pickWeighted(SYMBOLS) : null;
 
@@ -258,50 +269,78 @@
         renderSpinsLeft(newLeft);
 
         // ✅ Real jackpot detection: actual reel equality (not the bias flag)
-        // Jackpot if all reels show the same symbol, regardless of how we got there
         const isJackpot = targets.length >= 3 && targets.every(t => t === targets[0]);
-        
 
+        // Build UI message + side effects
+        let uiMsg = "";
         if (isJackpot) {
           const label = targets[0];
-          let msg = `🎉 JACKPOT! ${label}`;
+          uiMsg = `🎉 JACKPOT! ${label}`;
           const extra = JACKPOT_TEXT[label] || "";
 
           if (label === "Extra entry") {
             const nameEl = document.querySelector("#user-display-name");
             const name = (nameEl?.value || "").trim();
             if (!name) {
-              msg = `🎉 JACKPOT! Extra entry — Enter your name above to claim your extra raffle entry!`;
+              uiMsg = `🎉 JACKPOT! Extra entry — Enter your name above to claim your extra raffle entry!`;
             } else {
               const { awarded, already } = await awardExtraEntry(name);
-              if (awarded) {
-                msg = `🎉 JACKPOT! Extra entry — ${JACKPOT_TEXT["Extra entry"]}`;
-              } else if (already) {
-                msg = `🎉 JACKPOT! Extra entry — Already counted for this device.`;
-              } else {
-                msg = `🎉 JACKPOT! Extra entry — (Could not record, please try again.)`;
-              }
+              if (awarded)       uiMsg = `🎉 JACKPOT! Extra entry — ${JACKPOT_TEXT["Extra entry"]}`;
+              else if (already)  uiMsg = `🎉 JACKPOT! Extra entry — Already counted for this device.`;
+              else               uiMsg = `🎉 JACKPOT! Extra entry — (Could not record, please try again.)`;
             }
           } else if (extra) {
-            msg = `🎉 JACKPOT! ${label} — ${extra}`;
+            uiMsg = `🎉 JACKPOT! ${label} — ${extra}`;
           }
-          result.textContent = msg;
+          result.textContent = uiMsg;
         } else {
           result.textContent = ""; // keep blank for non-jackpot
         }
 
         btn.disabled = loadSpinsLeft() <= 0;
 
-        // Keep outer app.js logging behavior intact
-        if (typeof opts.onResult === "function") {
-          opts.onResult({ targets, win: isJackpot });
+        // Prepare rich payload for callbacks + event listeners
+        const payload = {
+          targets,                           // ["Sticker","Sticker","Sticker"]
+          prize: isJackpot ? targets[0] : null,
+          jackpot: isJackpot,
+          win: isJackpot,                    // legacy field
+          text: uiMsg,                       // what we wrote to the UI
+          align: isJackpot,                  // legacy alias used by older code
+          time: Date.now()
+        };
+
+        // Callbacks (avoid double-calling the same function)
+        if (onResultCb)  { try { onResultCb(payload); }  catch (e) { console.warn("slot onResult error:", e); } }
+        if (onFinishCb && onFinishCb !== onResultCb) {
+          try { onFinishCb(payload); } catch (e) { console.warn("slot onFinish error:", e); }
         }
+
+        // Broadcast for console/debug tools
+        try {
+          window.dispatchEvent(new CustomEvent("slot:result", { detail: payload }));
+        } catch {}
+
       }, settleMs);
     }
 
+    // Wire button
     btn.addEventListener("click", spinOnce);
-    return { spin: spinOnce };
+
+    // Public API (allow late-binding of callbacks without reinit)
+    const api = {
+      spin: spinOnce,
+      setCallbacks
+    };
+    Object.defineProperty(root, "__slotApi", { value: api, enumerable: false });
+    return api;
   }
 
   window.initSlotMachine = initSlotMachine;
+
+  // Optional helper for late-binding callback without re-initting
+  window.__slotSetCallback = (opts) => {
+    const root = document.querySelector("#slot-root");
+    if (root && root.__slotApi) root.__slotApi.setCallbacks(opts || {});
+  };
 })();

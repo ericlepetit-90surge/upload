@@ -32,7 +32,7 @@
       sessionStorage.setItem(ROUND_START_KEY, String(ms));
     } catch {}
     autoPickGuard.clear();
-    clearEffectiveStartPin(); // also clear the pin so we can re-pin
+    clearEffectiveStartPin();
   }
 
   // ──────────────────────────────────────────────────────────────
@@ -181,7 +181,7 @@
   }
 
   // ──────────────────────────────────────────────────────────────
-  // Prize helpers + jackpot logging (STRICT, no cross-swaps)
+  // Prize helpers + jackpot logging (STRICT from result only)
   // ──────────────────────────────────────────────────────────────
   const KNOWN_PRIZES = new Set([
     "Sticker",
@@ -203,14 +203,6 @@
     ["7", "Seven"],
   ]);
 
-  function toTitle(s) {
-    return String(s || "").replace(
-      /\w\S*/g,
-      (t) => t[0].toUpperCase() + t.slice(1).toLowerCase()
-    );
-  }
-
-  // Extract the most "prize-ish" text from a token
   function extractTargetText(t) {
     if (t == null) return "";
     if (typeof t === "string") return t.trim();
@@ -237,8 +229,8 @@
     return String(t).trim();
   }
 
-  // Canonicalize a single token coming from a reel cell or single field
-  function canonicalFromSingle(raw) {
+  // Reel token → canonical (safe). Allows 'VIP' as VIP Seat on reels.
+  function canonicalFromReelToken(raw) {
     let s = (raw || "").toString().trim();
     if (!s) return "";
     if (EMOJI_MAP.has(s)) s = EMOJI_MAP.get(s);
@@ -246,49 +238,20 @@
     const lower = s.toLowerCase();
 
     if (/^vip(\s*seat|s)?$/.test(lower) || lower === "vip") return "VIP Seat";
-    if (/^(t-?\s*shirt|tshirt|t\s*shirt|tee\s*shirt|shirt)$/.test(lower))
+    if (/^(t-?\s*shirt|tshirt|t\s*shirt|tee\s*shirt|tee|shirt)$/.test(lower))
       return "T-Shirt";
     if (/^stickers?$/.test(lower)) return "Sticker";
-    if (/^(extra\s*entry|bonus\s*entry|free\s*entry|extra)$/.test(lower))
+    if (/^(extra\s*entry|extra|bonus\s*entry|free\s*entry)$/.test(lower))
       return "Extra Entry";
     if (/^jackpot$/.test(lower)) return "Jackpot";
 
-    // exact-title fallback
-    const title = toTitle(s).replace(/\bVip\b/g, "VIP");
-    return KNOWN_PRIZES.has(title) ? title : "";
+    // Some UIs show "Extra entry" casing:
+    if (lower === "extra entry") return "Extra Entry";
+
+    return ""; // unknown / non-prize symbol
   }
 
-  // Determine prize strictly from the three reel tokens
-  // Determine prize strictly from the three reel tokens (canonicalize first)
-function prizeFromReelTargets(targets) {
-  const raw = Array.isArray(targets) ? targets : [];
-  const labels = raw.map(extractTargetText).filter(Boolean);
-  if (labels.length < 3) return "";
-
-  // Canonicalize each of the first three
-  const canon = labels.slice(0, 3).map(canonicalFromSingle);
-
-  // A valid triple only if all three canonical forms are the same known prize
-  if (canon.every(Boolean) && new Set(canon).size === 1 && KNOWN_PRIZES.has(canon[0])) {
-    return canon[0];
-  }
-  return "";
-}
-
-
-  // Parse only the HEADLINE of the UI text: the words right after "JACKPOT!" and before the dash.
-  function headlinePrizeFromUIText(uiText) {
-    const txt = String(uiText || "");
-    const m = txt.match(/JACKPOT!\s*([^\n—–-]{2,40})/i);
-    if (!m) return "";
-    const head = m[1].trim().replace(/[.!]+$/, "");
-    const canon = canonicalFromSingle(head);
-    return KNOWN_PRIZES.has(canon) ? canon : "";
-  }
-
-  let __lastSpinTargets = []; // definitive [p,p,p] only
-
-  // ensure extra-entry bonus happens once per spin
+  // ensure extra-entry bonus happens once per spin (safety guard; slot.js already handles)
   let __awardedExtraThisSpin = false;
   let __awardResetTimer = null;
   function markExtraAwardedOnce() {
@@ -299,40 +262,29 @@ function prizeFromReelTargets(targets) {
     }, 5000);
   }
 
-  async function logSpin(triple, jackpot) {
+  // Send spin to server (ledger log) — beacon first, then POST
+  async function logSpin(targets, jackpot) {
     if (!jackpot) return;
-    if (!Array.isArray(triple) || triple.length < 3) return;
-    const p = triple[0];
-    if (!p || new Set(triple.slice(0, 3)).size !== 1) return;
-    if (!KNOWN_PRIZES.has(p)) return;
+    if (!Array.isArray(targets) || targets.length < 3) return;
 
     const name = getName() || "(anonymous)";
     const ts = Date.now();
+    const payload = { name, targets, jackpot: true, ts, source: "slot" };
 
-    // try beacon
+    let sent = false;
     try {
-      const params = new URLSearchParams({
-        name,
-        jackpot: "true",
-        targets: triple.join(","),
-        ts: String(ts),
-      });
-      const url = `/api/admin?action=prize-log&${params}`;
-      if (
-        "sendBeacon" in navigator &&
-        navigator.sendBeacon(url, new Blob([""], { type: "text/plain" }))
-      ) {
-        return;
+      if ("sendBeacon" in navigator) {
+        const blob = new Blob([JSON.stringify(payload)], {
+          type: "application/json",
+        });
+        sent = navigator.sendBeacon("/api/admin?action=prize-log", blob);
       }
     } catch {}
-    // fallback POST
+
+    if (sent) return;
+
     try {
-      await postJSON("/api/admin?action=prize-log", {
-        name,
-        targets: triple,
-        jackpot: true,
-        ts,
-      });
+      await postJSON("/api/admin?action=prize-log", payload);
     } catch (e) {
       console.warn("logSpin POST failed:", e?.message || e);
     }
@@ -380,7 +332,12 @@ function prizeFromReelTargets(targets) {
 
         const cfg = cfgMem || readCfgCache();
         const serverStartOk = Number.isFinite(parseStartMs(cfg?.startTime));
-        if (!serverStartOk && total === 0 && !lastWinner && !getRoundStartOverride()) {
+        if (
+          !serverStartOk &&
+          total === 0 &&
+          !lastWinner &&
+          !getRoundStartOverride()
+        ) {
           setRoundStartOverride(Date.now());
         }
 
@@ -564,216 +521,166 @@ function prizeFromReelTargets(targets) {
   }
 
   // ──────────────────────────────────────────────────────────────
-  // Follow buttons — single-click, delegated
+  // Follow buttons — delegated, single click (no double-trigger)
   // ──────────────────────────────────────────────────────────────
   let globalFollowLock = false;
 
-  function wireFollowButtons() {
-    document
-      .querySelectorAll('a[href*="facebook.com"]')
-      .forEach((a) => a.classList.add("follow-btn-fb"));
-    document
-      .querySelectorAll('a[href*="instagram.com"]')
-      .forEach((a) => a.classList.add("follow-btn-ig"));
+  function setDisabled(el, val) {
+    if (!el) return;
+    try {
+      el.disabled = !!val;
+    } catch {}
+    el.classList.toggle("is-disabled", !!val);
+  }
 
-    const onClick = (platform) => (e) => {
-      const sel =
-        platform === "fb"
-          ? '.follow-btn-fb, a[href*="facebook.com"]'
-          : '.follow-btn-ig, a[href*="instagram.com"]';
-      const el = e.target.closest(sel);
-      if (!el) return;
+  async function handleFollow(platform, btn) {
+    if (!requireName()) return;
+    if (globalFollowLock) return;
+    globalFollowLock = true;
 
-      if (!requireName()) {
-        e.preventDefault();
-        e.stopPropagation();
-        return;
-      }
+    setDisabled(btn, true);
 
-      if (globalFollowLock) {
-        e.preventDefault();
-        e.stopPropagation();
-        return;
-      }
-      globalFollowLock = true;
-
-      try {
-        if (!isMobile()) {
-          e.preventDefault();
-          e.stopPropagation();
+    try {
+      if (isMobile()) {
+        await openAppAndTrack(platform);
+      } else {
+        try {
           const url = platform === "fb" ? FACEBOOK_URL : INSTAGRAM_URL;
           if (url) window.open(url, "_blank", "noopener");
-          markFollowBeacon(platform);
-          submitEntryOnceBeacon(platform);
-          setTimeout(() => (globalFollowLock = false), 300);
-        } else {
-          e.preventDefault();
-          e.stopPropagation();
-          openAppAndTrack(platform)
-            .catch(() => {})
-            .finally(() => {
-              setTimeout(() => (globalFollowLock = false), 300);
-            });
-        }
-      } catch {
-        globalFollowLock = false;
+        } catch {}
+        await markFollow(platform);
+        await submitEntryOnce(platform);
       }
-    };
-
-    document.addEventListener("click", onClick("fb"), true);
-    document.addEventListener("click", onClick("ig"), true);
-
-    window.openFacebook = (ev) => {
-      ev?.preventDefault?.();
-      const a = document.querySelector(".follow-btn-fb");
-      if (a) a.click();
-      return false;
-    };
-    window.openInstagram = (ev) => {
-      ev?.preventDefault?.();
-      const a = document.querySelector(".follow-btn-ig");
-      if (a) a.click();
-      return false;
-    };
+    } catch (err) {
+      console.warn(`[follow] ${platform} flow error:`, err?.message || err);
+    } finally {
+      setTimeout(() => {
+        globalFollowLock = false;
+        setDisabled(btn, false);
+      }, 700);
+    }
   }
+
+  // Tag any intent:// anchors and route
+  document.addEventListener(
+    "DOMContentLoaded",
+    () => {
+      document.querySelectorAll('a[href^="intent://"]').forEach((a) => {
+        const href = a.getAttribute("href") || "";
+        const isFb = /facebook|katana|\/profile\//i.test(href);
+        a.setAttribute("href", isFb ? FACEBOOK_URL : INSTAGRAM_URL);
+        a.classList.add(isFb ? "follow-btn-fb" : "follow-btn-ig");
+      });
+    },
+    { once: true }
+  );
+
+  // unified delegated click listener (no pointerup duplication)
+  document.addEventListener(
+    "click",
+    (e) => {
+      const fbSel = '.follow-btn-fb, a[href*="facebook.com"]';
+      const igSel = '.follow-btn-ig, a[href*="instagram.com"]';
+      const a =
+        e.target.closest(fbSel) || e.target.closest(igSel) || null;
+      if (!a) return;
+
+      const isFb =
+        !!e.target.closest(fbSel) ||
+        /facebook|katana|\/profile\//i.test(a.getAttribute("href") || "");
+
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      e.stopPropagation();
+      handleFollow(isFb ? "fb" : "ig", a);
+    },
+    true
+  );
+
+  // Back-compat helpers
+  window.openFacebook = (ev) => {
+    ev?.preventDefault?.();
+    const el =
+      document.querySelector(".follow-btn-fb") ||
+      document.querySelector('a[href*="facebook.com"]');
+    if (el) handleFollow("fb", el);
+    return false;
+  };
+  window.openInstagram = (ev) => {
+    ev?.preventDefault?.();
+    const el =
+      document.querySelector(".follow-btn-ig") ||
+      document.querySelector('a[href*="instagram.com"]');
+    if (el) handleFollow("ig", el);
+    return false;
+  };
 
   // ──────────────────────────────────────────────────────────────
   // Slot hookup (jackpot => extra entry) — authoritative prize detect
   // ──────────────────────────────────────────────────────────────
   function initSlot() {
-    if (typeof window.initSlotMachine !== "function") {
-      console.warn("[slot] initSlotMachine missing; skipping hook");
-      return;
-    }
+    // We’ll handle BOTH: direct callback hookup + listening to the `slot:result` event.
+    // This guarantees we log jackpots even if slot.js initialized earlier without callbacks.
+    let lastHandledStamp = 0;  // from payload.time (preferred)
+    let lastHandledAt = 0;     // time-based debounce fallback
 
     const handleResult = async (result) => {
       try {
-        // Priority: reels x3 → result.prize (single-field) → UI headline
-        let primary = prizeFromReelTargets(result?.targets);
-        if (!primary) primary = canonicalFromSingle(extractTargetText(result?.prize));
-        if (!primary) primary = headlinePrizeFromUIText(result?.message || result?.text);
+        // De-dupe: prefer payload.time from slot.js; fallback to elapsed debounce
+        const stamp = Number(result?.time || 0);
+        if (stamp && stamp === lastHandledStamp) return;
+        if (!stamp) {
+          const now = Date.now();
+          if (now - lastHandledAt < 150) return;
+          lastHandledAt = now;
+        } else {
+          lastHandledStamp = stamp;
+        }
 
-        const hitJackpot =
-          !!(
-            result?.jackpot ||
-            result?.isJackpot ||
-            result?.align ||
-            result?.win
-          ) || !!primary;
+        const rawTargets = Array.isArray(result?.targets) ? result.targets : [];
+        const labels = rawTargets.map(extractTargetText).filter(Boolean);
+        const norm = labels.map(canonicalFromReelToken).filter(Boolean);
 
-        __lastSpinTargets = primary ? [primary, primary, primary] : [];
+        // Require a definite triple from the reels
+        const okTriple =
+          norm.length >= 3 &&
+          norm[0] &&
+          norm[0] === norm[1] &&
+          norm[1] === norm[2] &&
+          KNOWN_PRIZES.has(norm[0]);
 
-        if (hitJackpot && primary) {
-          await logSpin(__lastSpinTargets, true);
+        if (!okTriple) return;
 
-          if (primary === "Extra Entry") {
-            if (getName() && !__awardedExtraThisSpin) {
-              markExtraAwardedOnce();
-              try {
-                await postJSON("/api/admin?action=bonus-entry", {
-                  name: getName(),
-                  targets: __lastSpinTargets,
-                });
-                refreshEntryStats().catch(() => {});
-              } catch (e) {
-                console.warn("[slot] bonus-entry failed:", e?.message || e);
-              }
-            }
-          } else {
-            if (getName()) await submitEntryOnce("jackpot");
-          }
+        const primary = norm[0];
+        const triple = [primary, primary, primary];
+
+        // Always log the jackpot to the Winners Ledger
+        await logSpin(triple, true);
+
+        // Do NOT add an entry here for non–“Extra Entry” jackpots.
+        // Extra Entry is awarded inside slot.js (bonus-entry). We just refresh counts.
+        if (primary === "Extra Entry") {
+          refreshEntryStats().catch(() => {});
         }
       } catch (err) {
         console.warn("[slot] handleResult error:", err?.message || err);
       }
     };
 
-    const opts = {
-      onResult: handleResult,
-      onStop: handleResult,
-      onSpinEnd: handleResult,
-      onComplete: handleResult,
-      onFinish: handleResult,
-    };
-
-    try {
-      window.initSlotMachine("#slot-root", opts);
-    } catch (e) {
-      console.warn("[slot] initSlotMachine threw:", e?.message || e);
+    // If slot.js is already present, attach callback
+    if (typeof window.initSlotMachine === "function") {
+      window.initSlotMachine("#slot-root", { onResult: handleResult });
+    } else {
+      // If not present yet, no worries: we’ll still receive the event below.
+      console.debug("[slot] initSlotMachine not found yet; relying on event listener until available.");
     }
 
-    window.addEventListener(
-      "slot:result",
-      (e) => handleResult(e?.detail || e),
-      { passive: true }
-    );
-
-    // Optional: dump next jackpot RESULT event for debugging
-    window.__dumpNextJackpotEvent = () => {
-      const handler = (e) => {
-        const r = e?.detail || e;
-        const primary =
-          prizeFromReelTargets(r?.targets) ||
-          canonicalFromSingle(extractTargetText(r?.prize)) ||
-          headlinePrizeFromUIText(r?.message || r?.text);
-        const msg = r?.message || r?.text || "";
-        const isJackpot =
-          r?.jackpot || r?.isJackpot || r?.align || r?.win || !!primary;
-        if (!isJackpot) return;
-        console.group("JACKPOT dump (result event)");
-        console.log("result.targets:", r?.targets);
-        console.log("primary (resolved):", primary);
-        console.log("raw prize field:", r?.prize);
-        console.log("raw message/text:", msg);
-        console.log("full result:", r);
-        console.groupEnd();
-        window.removeEventListener("slot:result", handler, true);
-      };
-      window.addEventListener("slot:result", handler, true);
-      console.log("Will dump the next JACKPOT result event…");
-    };
-  }
-
-  // Backup logger — now parses UI HEADLINE when event data is missing
-  function observeJackpotMessage() {
-    const el = document.querySelector(
-      "#slot-result, .slot-result, [data-slot-result]"
-    );
-    if (!el) return;
-
-    let lastSentAt = 0;
-    let lastKey = "";
-
-    const maybeLogFromMessage = () => {
-      const text = (el.textContent || "").trim();
-      if (!text || !/JACKPOT!/i.test(text)) return;
-
-      // Prefer primary from reels (if the event handler already captured)
-      let primary = __lastSpinTargets.length === 3 ? __lastSpinTargets[0] : "";
-
-      // Otherwise, parse only the headline (avoid tail-descriptions like “to win a T-shirt”)
-      if (!primary) primary = headlinePrizeFromUIText(text);
-      if (!primary || !KNOWN_PRIZES.has(primary)) return;
-
-      const triple = [primary, primary, primary];
-      const key = JSON.stringify(triple);
-      const now = Date.now();
-      if (key === lastKey && now - lastSentAt < 800) return; // dedupe
-
-      lastKey = key;
-      lastSentAt = now;
-
-      const name = getName() || "(anonymous)";
-      postJSON("/api/admin?action=prize-log", {
-        name,
-        targets: triple,
-        jackpot: true,
-        ts: Date.now(),
-      }).catch(() => {});
-    };
-
-    const obs = new MutationObserver(maybeLogFromMessage);
-    obs.observe(el, { childList: true, characterData: true, subtree: true });
+    // Always listen for the event as a secondary channel (covers early init cases)
+    window.addEventListener("slot:result", (e) => {
+      const payload = e?.detail || e;
+      if (!payload) return;
+      handleResult(payload);
+    });
   }
 
   // ──────────────────────────────────────────────────────────────
@@ -830,7 +737,7 @@ function prizeFromReelTargets(targets) {
   }
 
   // ──────────────────────────────────────────────────────────────
-  // Winner countdown (auto pick ≈ 2h30 after start) — pin once per round
+  // Winner countdown (auto pick ≈ 2h30 after start) — single source of truth
   // ──────────────────────────────────────────────────────────────
   const WINNER_DELAY_MS = 2.5 * 60 * 60 * 1000;
   let __countdownTimer = null;
@@ -861,26 +768,31 @@ function prizeFromReelTargets(targets) {
     } catch {}
   }
 
-  // PIN **once per version**. On same version, never change the start.
   function getEffectiveStartMs(cfg) {
+    const serverMs = parseStartMs(cfg?.startTime);
+    if (Number.isFinite(serverMs)) {
+      try {
+        sessionStorage.setItem(EFFECTIVE_START_KEY, String(serverMs));
+        sessionStorage.setItem(
+          EFFECTIVE_VER_KEY,
+          String(cfg?.version ?? "nov")
+        );
+      } catch {}
+      return serverMs;
+    }
+
     const ver = String(cfg?.version ?? "nov");
     const cachedVer = sessionStorage.getItem(EFFECTIVE_VER_KEY);
-    const pinnedRaw = sessionStorage.getItem(EFFECTIVE_START_KEY);
-    let pinned = Number(pinnedRaw);
-    if (cachedVer === ver && Number.isFinite(pinned)) return pinned;
-
-    const serverMs = parseStartMs(cfg?.startTime);
-    const clientMs = getRoundStartOverride();
-    const startMs = Number.isFinite(serverMs)
-      ? serverMs
-      : Number.isFinite(clientMs)
-      ? clientMs
-      : Date.now();
-    try {
-      sessionStorage.setItem(EFFECTIVE_START_KEY, String(startMs));
-      sessionStorage.setItem(EFFECTIVE_VER_KEY, ver);
-    } catch {}
-    return startMs;
+    let pinned = Number(sessionStorage.getItem(EFFECTIVE_START_KEY));
+    if (cachedVer !== ver || !Number.isFinite(pinned)) {
+      const clientMs = getRoundStartOverride();
+      pinned = Number.isFinite(clientMs) ? clientMs : Date.now();
+      try {
+        sessionStorage.setItem(EFFECTIVE_START_KEY, String(pinned));
+        sessionStorage.setItem(EFFECTIVE_VER_KEY, ver);
+      } catch {}
+    }
+    return pinned;
   }
 
   function computePickAtFromCfg(cfg) {
@@ -1097,7 +1009,6 @@ function prizeFromReelTargets(targets) {
       lastWinner = null;
       localStorage.removeItem(SHOWN_WINNER_KEY);
       setWinnerBanner(null);
-      setCountdownVisible(true);
       startWinnerCountdown(true);
       return;
     }
@@ -1145,7 +1056,6 @@ function prizeFromReelTargets(targets) {
         try {
           const data = JSON.parse(e.data || "{}");
           if (data?.reset) {
-            clearEffectiveStartPin();
             const cfg = cfgMem || readCfgCache();
             if (!Number.isFinite(parseStartMs(cfg?.startTime))) {
               setRoundStartOverride(Date.now());
@@ -1157,7 +1067,6 @@ function prizeFromReelTargets(targets) {
         } catch {
           const raw = (e?.data ?? "").toString().trim();
           if (/^reset$/i.test(raw)) {
-            clearEffectiveStartPin();
             const cfg = cfgMem || readCfgCache();
             if (!Number.isFinite(parseStartMs(cfg?.startTime))) {
               setRoundStartOverride(Date.now());
@@ -1181,12 +1090,29 @@ function prizeFromReelTargets(targets) {
   }
 
   // ──────────────────────────────────────────────────────────────
+  // HEADLINE CONFIG + CACHE
+  // ──────────────────────────────────────────────────────────────
+  function readCfgCache() {
+    try {
+      return JSON.parse(sessionStorage.getItem(CFG_CACHE_KEY) || "null");
+    } catch {
+      return null;
+    }
+  }
+  function writeCfgCache(cfg) {
+    try {
+      sessionStorage.setItem(CFG_CACHE_KEY, JSON.stringify(cfg));
+    } catch {}
+  }
+
+  // ──────────────────────────────────────────────────────────────
   // Boot
   // ──────────────────────────────────────────────────────────────
   async function boot() {
     initNamePersistence();
     ensureEntryStatsUI();
-    wireFollowButtons();
+    // follow buttons
+    // (delegated listener already attached above)
 
     refreshFollowers();
     setInterval(refreshFollowers, 60_000);
@@ -1203,6 +1129,9 @@ function prizeFromReelTargets(targets) {
     // headline init/refresh
     initConfigHeadline();
 
+    // slot hookup (works whether slot.js loaded before or after)
+    initSlot();
+
     // countdown init/refresh
     startWinnerCountdown(false);
     document.addEventListener("visibilitychange", () => {
@@ -1212,7 +1141,7 @@ function prizeFromReelTargets(targets) {
       }
     });
 
-    // periodic refresh so countdown adopts server changes (but keeps the same pin)
+    // periodic refresh so countdown adopts server changes (no flicker)
     setInterval(() => startWinnerCountdown(true), 10_000);
 
     // winner modal + banner default
@@ -1231,8 +1160,6 @@ function prizeFromReelTargets(targets) {
     fetchWinnerOnce()
       .then(maybeDisplayWinner)
       .catch(() => {});
-    observeJackpotMessage();
-    initSlot();
   }
 
   if (document.readyState === "loading") {
