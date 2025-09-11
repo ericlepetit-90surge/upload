@@ -37,6 +37,35 @@
     clearEffectiveStartPin();
   }
 
+  // Smooth, iOS-safe scroll lock for modals
+  let __scrollY_at_lock = 0;
+
+  function lockScroll() {
+    __scrollY_at_lock =
+      window.scrollY || document.documentElement.scrollTop || 0;
+    document.documentElement.classList.add("modal-open");
+    document.body.classList.add("modal-open");
+    // iOS-friendly freeze:
+    document.body.style.position = "fixed";
+    document.body.style.top = `-${__scrollY_at_lock}px`;
+    document.body.style.width = "100%";
+  }
+
+  function unlockScroll() {
+    document.documentElement.classList.remove("modal-open");
+    document.body.classList.remove("modal-open");
+    // Restore scroll position & layout
+    document.body.style.position = "";
+    document.body.style.top = "";
+    document.body.style.width = "";
+
+    // Force repaint to avoid white-screen bug on iOS
+    try {
+      void document.body.offsetHeight;
+    } catch {}
+    window.scrollTo(0, __scrollY_at_lock || 0);
+  }
+
   // ──────────────────────────────────────────────────────────────
   // Name persistence
   // ──────────────────────────────────────────────────────────────
@@ -402,30 +431,51 @@
     return /\b(iPhone|iPad|iPod)\b/i.test(navigator.userAgent);
   }
 
-  function getAppSchemes(platform) {
-    if (platform === "ig") return [`instagram://user?username=${IG_USERNAME}`];
-    const schemes = [];
-    const id = (FB_PAGE_ID || "").trim();
-    if (id) {
+  function getDeepLinkCandidates(platform) {
+    const fbWeb = FB_PAGE_ID
+      ? `https://facebook.com/${FB_PAGE_ID}`
+      : `https://facebook.com/${FB_HANDLE}`;
+    const igWeb = `https://instagram.com/${IG_USERNAME}`;
+
+    if (platform === "ig") {
       if (isIOS()) {
-        schemes.push(
-          `fb://profile/${id}`,
-          `fb://page/?id=${id}`,
-          `fb://page/${id}`
-        );
+        // iOS → Prefer Universal Link first (usually opens app directly)
+        return [
+          `https://instagram.com/_u/${IG_USERNAME}`,
+          `instagram://user?username=${IG_USERNAME}`,
+          igWeb, // final web fallback
+        ];
       } else {
-        schemes.push(
-          `fb://page/${id}`,
-          `fb://profile/${id}`,
-          `fb://page/?id=${id}`
-        );
+        // Android → Intent first; Chrome usually opens app directly if installed
+        const fallback = encodeURIComponent(igWeb);
+        return [
+          `intent://instagram.com/_u/${IG_USERNAME}` +
+            `#Intent;scheme=https;package=com.instagram.android;` +
+            `S.browser_fallback_url=${fallback};end`,
+          `instagram://user?username=${IG_USERNAME}`,
+          igWeb,
+        ];
       }
     } else {
-      schemes.push(
-        `fb://facewebmodal/f?href=${encodeURIComponent(FACEBOOK_URL)}`
-      );
+      // Facebook
+      if (isIOS()) {
+        return [
+          fbWeb, // Universal Link first
+          FB_PAGE_ID ? `fb://page/${FB_PAGE_ID}` : `fb://profile/${FB_HANDLE}`,
+          fbWeb, // web fallback
+        ];
+      } else {
+        const fbSlug = FB_PAGE_ID || FB_HANDLE;
+        const fallback = encodeURIComponent(fbWeb);
+        return [
+          `intent://facebook.com/${fbSlug}` +
+            `#Intent;scheme=https;package=com.facebook.katana;` +
+            `S.browser_fallback_url=${fallback};end`,
+          FB_PAGE_ID ? `fb://page/${FB_PAGE_ID}` : `fb://profile/${FB_HANDLE}`,
+          fbWeb,
+        ];
+      }
     }
-    return schemes;
   }
 
   function openAppAndTrack(platform, { timeout = 1800 } = {}) {
@@ -611,11 +661,9 @@
     const close = () => {
       modal.classList.add("hidden");
       modal.setAttribute("aria-hidden", "true");
-      document.documentElement.classList.remove("modal-open");
-      document.body.classList.remove("modal-open");
+      unlockScroll();
     };
 
-    // Close on overlay click or any [data-close] button
     modal.addEventListener(
       "click",
       (e) => {
@@ -631,16 +679,34 @@
       true
     );
 
-    // Close on Escape
     document.addEventListener("keydown", (e) => {
-      if (e.key === "Escape" && !modal.classList.contains("hidden")) {
-        close();
-      }
+      if (e.key === "Escape" && !modal.classList.contains("hidden")) close();
     });
 
-    // Expose a safe close API if you need it elsewhere
     modal.__close = close;
     return modal;
+  }
+
+  function showJackpotModal(label, message) {
+    const modal = ensureJackpotModal();
+    if (!modal) {
+      alert(`🎰 JACKPOT!\n${label}\n\n${message || ""}`);
+      return;
+    }
+
+    const prizeEl = document.getElementById("jackpot-prize");
+    const msgEl = document.getElementById("jackpot-message");
+    if (prizeEl) prizeEl.textContent = label || "";
+    if (msgEl) msgEl.textContent = message || "";
+
+    modal.classList.remove("hidden");
+    modal.setAttribute("aria-hidden", "false");
+    lockScroll(); // ← add this
+
+    const okBtn = modal.querySelector("[data-close]");
+    try {
+      okBtn?.focus();
+    } catch {}
   }
 
   function showJackpotModal(label, message) {
@@ -1025,32 +1091,72 @@
     }
   }
 
-  function showWinnerModal(name) {
+  function ensureWinnerModal() {
     const modal =
+      document.getElementById("winnerModal") || // your current HTML id
       document.getElementById("winner-modal") ||
       document.querySelector(".winner-modal");
-    const nameSpans = modal
-      ? modal.querySelectorAll(".winner-name, [data-winner-name]")
-      : null;
+    if (!modal) return null;
+    if (modal.__wired) return modal;
+    modal.__wired = true;
 
-    if (nameSpans && nameSpans.length)
-      nameSpans.forEach((n) => (n.textContent = name));
-    if (modal) {
-      modal.classList.remove("hidden");
-      modal.removeAttribute("aria-hidden");
-      const close = modal.querySelector(
-        ".winner-close, [data-close], .modal-close"
-      );
-      const overlay = modal.querySelector(".modal-overlay, [data-overlay]");
-      const hide = () => {
-        modal.classList.add("hidden");
-        modal.setAttribute("aria-hidden", "true");
-      };
-      if (close) close.addEventListener("click", hide, { once: true });
-      if (overlay) overlay.addEventListener("click", hide, { once: true });
-    } else {
+    const close = () => {
+      modal.classList.add("hidden");
+      modal.setAttribute("aria-hidden", "true");
+      unlockScroll(); // ← important for iOS
+    };
+
+    modal.addEventListener(
+      "click",
+      (e) => {
+        if (
+          e.target.classList.contains("modal-overlay") ||
+          e.target.matches(
+            "[data-close], .btn-modal-close, .winner-close, .modal-close"
+          ) ||
+          e.target.closest?.(
+            "[data-close], .btn-modal-close, .winner-close, .modal-close"
+          )
+        ) {
+          e.preventDefault();
+          close();
+        }
+      },
+      true
+    );
+
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && !modal.classList.contains("hidden")) close();
+    });
+
+    // expose
+    modal.__close = close;
+    return modal;
+  }
+
+  function showWinnerModal(name) {
+    const modal = ensureWinnerModal();
+    if (!modal) {
       alert(`Winner: ${name}`);
+      return;
     }
+
+    const nameSpans = modal.querySelectorAll(
+      ".winner-name, [data-winner-name]"
+    );
+    nameSpans.forEach((n) => (n.textContent = name));
+
+    modal.classList.remove("hidden");
+    modal.setAttribute("aria-hidden", "false");
+    lockScroll(); // ← add this
+
+    // focus primary close button if present
+    const btn = modal.querySelector(
+      "[data-close], .btn-modal-close, .winner-close, .modal-close"
+    );
+    try {
+      btn?.focus();
+    } catch {}
   }
 
   async function fetchWinnerOnce() {
