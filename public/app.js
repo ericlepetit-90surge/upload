@@ -21,7 +21,7 @@
 
   // ── Round-start override (only used when server startTime is missing) ──
   const ROUND_START_KEY = "roundStartAtMs";
-  const autoPickGuard = new Set();
+  const autoPickGuard = new Set(); // holds version keys to avoid duplicate triggers
 
   let __winnerLocked = false;
 
@@ -30,39 +30,28 @@
     return Number.isFinite(v) ? v : null;
   }
   function setRoundStartOverride(ms = Date.now()) {
-    try {
-      sessionStorage.setItem(ROUND_START_KEY, String(ms));
-    } catch {}
+    try { sessionStorage.setItem(ROUND_START_KEY, String(ms)); } catch {}
     autoPickGuard.clear();
     clearEffectiveStartPin();
   }
 
   // Smooth, iOS-safe scroll lock for modals
   let __scrollY_at_lock = 0;
-
   function lockScroll() {
-    __scrollY_at_lock =
-      window.scrollY || document.documentElement.scrollTop || 0;
+    __scrollY_at_lock = window.scrollY || document.documentElement.scrollTop || 0;
     document.documentElement.classList.add("modal-open");
     document.body.classList.add("modal-open");
-    // iOS-friendly freeze:
     document.body.style.position = "fixed";
     document.body.style.top = `-${__scrollY_at_lock}px`;
     document.body.style.width = "100%";
   }
-
   function unlockScroll() {
     document.documentElement.classList.remove("modal-open");
     document.body.classList.remove("modal-open");
-    // Restore scroll position & layout
     document.body.style.position = "";
     document.body.style.top = "";
     document.body.style.width = "";
-
-    // Force repaint to avoid white-screen bug on iOS
-    try {
-      void document.body.offsetHeight;
-    } catch {}
+    try { void document.body.offsetHeight; } catch {}
     window.scrollTo(0, __scrollY_at_lock || 0);
   }
 
@@ -79,7 +68,6 @@
       debounceRefreshStats();
     });
   }
-
   function requireName() {
     const n = getName();
     if (!n) {
@@ -101,11 +89,8 @@
       body: JSON.stringify(body || {}),
     });
     let json = {};
-    try {
-      json = await res.json();
-    } catch {}
-    if (!res.ok)
-      throw new Error(json?.error || `Request failed (${res.status})`);
+    try { json = await res.json(); } catch {}
+    if (!res.ok) throw new Error(json?.error || `Request failed (${res.status})`);
     return json;
   }
 
@@ -118,7 +103,7 @@
     try {
       const out = await postJSON("/api/admin?action=enter", { name, source });
       refreshEntryStats().catch(() => {});
-      if (!__winnerLocked) startWinnerCountdown(true); // guard
+      if (!__winnerLocked) startWinnerCountdown(true);
       if (out?.already) return { ok: true, already: true };
       return { ok: true, already: false };
     } catch (e) {
@@ -126,7 +111,6 @@
       return { ok: false, error: e?.message || "submit failed" };
     }
   }
-
   function submitEntryOnceBeacon(source) {
     const name = getName();
     if (!name) return;
@@ -140,7 +124,7 @@
     }
     setTimeout(() => {
       refreshEntryStats().catch(() => {});
-      if (!__winnerLocked) startWinnerCountdown(true); // guard
+      if (!__winnerLocked) startWinnerCountdown(true);
     }, 600);
   }
 
@@ -151,9 +135,7 @@
   // Social mark
   // ──────────────────────────────────────────────────────────────
   async function markFollow(platform) {
-    const url = `/api/admin?action=mark-follow&platform=${encodeURIComponent(
-      platform
-    )}`;
+    const url = `/api/admin?action=mark-follow&platform=${encodeURIComponent(platform)}`;
     const res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -161,29 +143,17 @@
     });
     if (!res.ok) {
       let msg = "mark-follow failed";
-      try {
-        msg = (await res.json()).error || msg;
-      } catch {}
+      try { msg = (await res.json()).error || msg; } catch {}
       throw new Error(msg);
     }
   }
-
   function markFollowBeacon(platform) {
-    const url = `/api/admin?action=mark-follow&platform=${encodeURIComponent(
-      platform
-    )}`;
-    const blob = new Blob([JSON.stringify({ platform })], {
-      type: "application/json",
-    });
+    const url = `/api/admin?action=mark-follow&platform=${encodeURIComponent(platform)}`;
+    const blob = new Blob([JSON.stringify({ platform })], { type: "application/json" });
     if (navigator.sendBeacon) {
       navigator.sendBeacon(url, blob);
     } else {
-      fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: blob,
-        keepalive: true,
-      }).catch(() => {});
+      fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: blob, keepalive: true }).catch(() => {});
     }
   }
 
@@ -191,19 +161,14 @@
   // Followers counts
   // ──────────────────────────────────────────────────────────────
   async function refreshFollowers() {
-    const fbEl = $("#fb-followers"),
-      igEl = $("#ig-followers");
+    const fbEl = $("#fb-followers"), igEl = $("#ig-followers");
     try {
-      const res = await fetch("/api/admin?action=followers", {
-        cache: "no-store",
-      });
+      const res = await fetch("/api/admin?action=followers", { cache: "no-store" });
       const j = await res.json().catch(() => ({}));
       const fb = Number(j?.facebook ?? 0);
       const ig = Number(j?.instagram ?? 0);
-      if (fbEl)
-        fbEl.textContent = Number.isFinite(fb) ? fb.toLocaleString() : "—";
-      if (igEl)
-        igEl.textContent = Number.isFinite(ig) ? ig.toLocaleString() : "—";
+      if (fbEl) fbEl.textContent = Number.isFinite(fb) ? fb.toLocaleString() : "—";
+      if (igEl) igEl.textContent = Number.isFinite(ig) ? ig.toLocaleString() : "—";
     } catch {
       if (fbEl) fbEl.textContent = "—";
       if (igEl) igEl.textContent = "—";
@@ -213,86 +178,43 @@
   // ──────────────────────────────────────────────────────────────
   // Prize helpers + jackpot logging (STRICT from result only)
   // ──────────────────────────────────────────────────────────────
-  const KNOWN_PRIZES = new Set([
-    "Sticker",
-    "T-Shirt",
-    "VIP Seat",
-    "Extra Entry",
-    "Jackpot",
-  ]);
-
+  const KNOWN_PRIZES = new Set(["Sticker", "T-Shirt", "VIP Seat", "Extra Entry", "Jackpot"]);
   const EMOJI_MAP = new Map([
-    ["🍒", "Cherry"],
-    ["🍌", "Banana"],
-    ["🍋", "Lemon"],
-    ["⭐", "Star"],
-    ["💎", "Diamond"],
-    ["🔔", "Bell"],
-    ["🍇", "Grape"],
-    ["🍊", "Orange"],
-    ["7", "Seven"],
+    ["🍒", "Cherry"], ["🍌", "Banana"], ["🍋", "Lemon"], ["⭐", "Star"],
+    ["💎", "Diamond"], ["🔔", "Bell"], ["🍇", "Grape"], ["🍊", "Orange"], ["7", "Seven"],
   ]);
 
   function extractTargetText(t) {
     if (t == null) return "";
     if (typeof t === "string") return t.trim();
     if (typeof t === "object") {
-      const fields = [
-        "prize",
-        "label",
-        "title",
-        "name",
-        "text",
-        "emoji",
-        "symbol",
-        "value",
-      ];
-      for (const k of fields) {
-        if (t[k] != null && String(t[k]).trim()) return String(t[k]).trim();
-      }
-      try {
-        return String(t).trim();
-      } catch {
-        return "";
-      }
+      const fields = ["prize","label","title","name","text","emoji","symbol","value"];
+      for (const k of fields) if (t[k] != null && String(t[k]).trim()) return String(t[k]).trim();
+      try { return String(t).trim(); } catch { return ""; }
     }
     return String(t).trim();
   }
-
   function canonicalFromReelToken(raw) {
     let s = (raw || "").toString().trim();
     if (!s) return "";
     if (EMOJI_MAP.has(s)) s = EMOJI_MAP.get(s);
     s = s.replace(/\btee\s*-?\s*shirt\b/i, "T-Shirt");
     const lower = s.toLowerCase();
-
-    if (
-      /^vip(\s*seat|s)?$/.test(lower) ||
-      lower === "vip" ||
-      lower === "vip seat"
-    )
-      return "VIP Seat";
-    if (/^(t-?\s*shirt|tshirt|t\s*shirt|tee\s*shirt|tee|shirt)$/.test(lower))
-      return "T-Shirt";
-    if (/^stickers?$/.test(lower)) return "Sticker";
-    if (
-      /^(extra\s*entry|extra|bonus\s*entry|free\s*entry)$/.test(lower) ||
-      lower === "extra entry"
-    )
-      return "Extra Entry";
-    if (/^jackpot$/.test(lower)) return "Jackpot";
+    if (/^vip(\s*seat|s)?$/.test(lower) || lower === "vip" || lower === "vip seat") return "VIP Seat";
+    if (/^(t-?\s*shirt|tshirt|t\s*shirt|tee\s*shirt|tee|shirt)$/.test(lower))   return "T-Shirt";
+    if (/^stickers?$/.test(lower))                                             return "Sticker";
+    if (/^(extra\s*entry|extra|bonus\s*entry|free\s*entry)$/.test(lower) ||
+        lower === "extra entry")                                               return "Extra Entry";
+    if (/^jackpot$/.test(lower))                                               return "Jackpot";
     return "";
   }
 
-  // Single-spin “Extra Entry” awarding guard (kept for safety; slot.js handles award)
   let __awardedExtraThisSpin = false;
   let __awardResetTimer = null;
   function markExtraAwardedOnce() {
     __awardedExtraThisSpin = true;
     clearTimeout(__awardResetTimer);
-    __awardResetTimer = setTimeout(() => {
-      __awardedExtraThisSpin = false;
-    }, 5000);
+    __awardResetTimer = setTimeout(() => { __awardedExtraThisSpin = false; }, 5000);
   }
 
   async function logSpin(targets, jackpot) {
@@ -307,37 +229,29 @@
     let sent = false;
     try {
       if ("sendBeacon" in navigator) {
-        const blob = new Blob([JSON.stringify(payload)], {
-          type: "application/json",
-        });
+        const blob = new Blob([JSON.stringify(payload)], { type: "application/json" });
         sent = navigator.sendBeacon("/api/admin?action=prize-log", blob);
       }
     } catch {}
     if (sent) return;
 
-    try {
-      await postJSON("/api/admin?action=prize-log", payload);
-    } catch (e) {
-      console.warn("logSpin POST failed:", e?.message || e);
-    }
+    try { await postJSON("/api/admin?action=prize-log", payload); }
+    catch (e) { console.warn("logSpin POST failed:", e?.message || e); }
   }
 
   // ──────────────────────────────────────────────────────────────
   // Entry Stats
   // ──────────────────────────────────────────────────────────────
   function ensureEntryStatsUI() {
-    if (!$("#entry-stats"))
-      console.warn("[entry-stats] #entry-stats container not found.");
+    if (!$("#entry-stats")) console.warn("[entry-stats] #entry-stats container not found.");
   }
 
-  let prevYour = 0,
-    prevTotal = 0;
+  let prevYour = 0, prevTotal = 0;
 
   function bump(el) {
     if (!el) return;
     el.classList.remove("entry-bump");
-    // reflow
-    el.offsetWidth;
+    el.offsetWidth; // reflow
     el.classList.add("entry-bump");
     setTimeout(() => el.classList.remove("entry-bump"), 400);
   }
@@ -348,9 +262,7 @@
     const totalEl = $("#total-entries-count");
 
     try {
-      const res = await fetch("/api/admin?action=my-entries", {
-        cache: "no-store",
-      });
+      const res = await fetch("/api/admin?action=my-entries", { cache: "no-store" });
       if (res.ok) {
         const j = await res.json();
         let mine = Number(j?.mine ?? 0);
@@ -362,12 +274,7 @@
 
         const cfg = cfgMem || readCfgCache();
         const serverStartOk = Number.isFinite(parseStartMs(cfg?.startTime));
-        if (
-          !serverStartOk &&
-          total === 0 &&
-          !lastWinner &&
-          !getRoundStartOverride()
-        ) {
+        if (!serverStartOk && total === 0 && !lastWinner && !getRoundStartOverride()) {
           setRoundStartOverride(Date.now());
         }
 
@@ -389,9 +296,7 @@
 
     // Fallback
     try {
-      const res = await fetch("/api/admin?action=entries", {
-        cache: "no-store",
-      });
+      const res = await fetch("/api/admin?action=entries", { cache: "no-store" });
       const j = await res.json().catch(() => ({ entries: [], count: 0 }));
       const total = Number(j?.count || 0);
 
@@ -424,107 +329,49 @@
   // ──────────────────────────────────────────────────────────────
   // Device helpers + follow buttons
   // ──────────────────────────────────────────────────────────────
-  function isAndroid() {
-    return /\bAndroid\b/i.test(navigator.userAgent);
-  }
-  function isIOS() {
-    return /\b(iPhone|iPad|iPod)\b/i.test(navigator.userAgent);
-  }
+  function isAndroid() { return /\bAndroid\b/i.test(navigator.userAgent); }
+  function isIOS()     { return /\b(iPhone|iPad|iPod)\b/i.test(navigator.userAgent); }
 
-  function getDeepLinkCandidates(platform) {
-    const fbWeb = FB_PAGE_ID
-      ? `https://facebook.com/${FB_PAGE_ID}`
-      : `https://facebook.com/${FB_HANDLE}`;
-    const igWeb = `https://instagram.com/${IG_USERNAME}`;
-
-    if (platform === "ig") {
+  function getAppSchemes(platform) {
+    if (platform === "ig") return [`instagram://user?username=${IG_USERNAME}`];
+    const schemes = [];
+    const id = (FB_PAGE_ID || "").trim();
+    if (id) {
       if (isIOS()) {
-        // iOS → Prefer Universal Link first (usually opens app directly)
-        return [
-          `https://instagram.com/_u/${IG_USERNAME}`,
-          `instagram://user?username=${IG_USERNAME}`,
-          igWeb, // final web fallback
-        ];
+        schemes.push(`fb://profile/${id}`, `fb://page/?id=${id}`, `fb://page/${id}`);
       } else {
-        // Android → Intent first; Chrome usually opens app directly if installed
-        const fallback = encodeURIComponent(igWeb);
-        return [
-          `intent://instagram.com/_u/${IG_USERNAME}` +
-            `#Intent;scheme=https;package=com.instagram.android;` +
-            `S.browser_fallback_url=${fallback};end`,
-          `instagram://user?username=${IG_USERNAME}`,
-          igWeb,
-        ];
+        schemes.push(`fb://page/${id}`, `fb://profile/${id}`, `fb://page/?id=${id}`);
       }
     } else {
-      // Facebook
-      if (isIOS()) {
-        return [
-          fbWeb, // Universal Link first
-          FB_PAGE_ID ? `fb://page/${FB_PAGE_ID}` : `fb://profile/${FB_HANDLE}`,
-          fbWeb, // web fallback
-        ];
-      } else {
-        const fbSlug = FB_PAGE_ID || FB_HANDLE;
-        const fallback = encodeURIComponent(fbWeb);
-        return [
-          `intent://facebook.com/${fbSlug}` +
-            `#Intent;scheme=https;package=com.facebook.katana;` +
-            `S.browser_fallback_url=${fallback};end`,
-          FB_PAGE_ID ? `fb://page/${FB_PAGE_ID}` : `fb://profile/${FB_HANDLE}`,
-          fbWeb,
-        ];
-      }
+      schemes.push(`fb://facewebmodal/f?href=${encodeURIComponent(FACEBOOK_URL)}`);
     }
+    return schemes;
   }
 
   function openAppAndTrack(platform, { timeout = 1800 } = {}) {
     return new Promise((resolve) => {
       const schemes = getAppSchemes(platform);
-      let done = false,
-        iframe = null,
-        attemptIdx = 0;
+      let done = false, iframe = null, attemptIdx = 0;
 
       const cleanup = () => {
         document.removeEventListener("visibilitychange", onVis, true);
         window.removeEventListener("pagehide", onHidden, true);
         window.removeEventListener("blur", onBlur, true);
-        clearTimeout(timer);
-        clearTimeout(stepper);
-        if (iframe && iframe.parentNode) {
-          try {
-            document.body.removeChild(iframe);
-          } catch {}
-        }
+        clearTimeout(timer); clearTimeout(stepper);
+        if (iframe && iframe.parentNode) { try { document.body.removeChild(iframe); } catch {} }
       };
 
       const onHidden = () => {
-        if (done) return;
-        done = true;
-        try {
-          markFollowBeacon(platform);
-        } catch {}
-        try {
-          submitEntryOnceBeacon(platform);
-        } catch {}
-        cleanup();
-        resolve(true);
+        if (done) return; done = true;
+        try { markFollowBeacon(platform); } catch {}
+        try { submitEntryOnceBeacon(platform); } catch {}
+        cleanup(); resolve(true);
       };
-      const onVis = () => {
-        if (document.visibilityState === "hidden") onHidden();
-      };
-      const onBlur = () => {
-        setTimeout(onHidden, 0);
-      };
+      const onVis  = () => { if (document.visibilityState === "hidden") onHidden(); };
+      const onBlur = () => { setTimeout(onHidden, 0); };
 
-      document.addEventListener("visibilitychange", onVis, {
-        once: true,
-        capture: true,
-      });
-      window.addEventListener("pagehide", onHidden, {
-        once: true,
-        capture: true,
-      });
+      document.addEventListener("visibilitychange", onVis, { once: true, capture: true });
+      window.addEventListener("pagehide", onHidden, { once: true, capture: true });
       window.addEventListener("blur", onBlur, { once: true, capture: true });
 
       const tryOne = (url) => {
@@ -534,48 +381,27 @@
             iframe.style.display = "none";
             iframe.src = url;
             document.body.appendChild(iframe);
-            setTimeout(() => {
-              try {
-                if (iframe && iframe.parentNode)
-                  document.body.removeChild(iframe);
-              } catch {}
-            }, 2000);
+            setTimeout(() => { try { if (iframe && iframe.parentNode) document.body.removeChild(iframe); } catch {} }, 2000);
           } else {
             window.location.href = url; // iOS
           }
         } catch {}
       };
 
-      if (schemes.length) {
-        tryOne(schemes[0]);
-        attemptIdx = 1;
-      }
+      if (schemes.length) { tryOne(schemes[0]); attemptIdx = 1; }
       const step = () => {
         if (done || attemptIdx >= schemes.length) return;
         tryOne(schemes[attemptIdx++]);
-        if (!done && attemptIdx < schemes.length)
-          stepper = setTimeout(step, 600);
+        if (!done && attemptIdx < schemes.length) stepper = setTimeout(step, 600);
       };
       let stepper = setTimeout(step, 600);
 
-      const timer = setTimeout(() => {
-        if (done) return;
-        done = true;
-        cleanup();
-        resolve(false);
-      }, timeout);
+      const timer = setTimeout(() => { if (done) return; done = true; cleanup(); resolve(false); }, timeout);
     });
   }
 
   let globalFollowLock = false;
-  function setDisabled(el, val) {
-    if (!el) return;
-    try {
-      el.disabled = !!val;
-    } catch {}
-    el.classList.toggle("is-disabled", !!val);
-  }
-
+  function setDisabled(el, val) { if (!el) return; try { el.disabled = !!val; } catch {} el.classList.toggle("is-disabled", !!val); }
   async function handleFollow(platform, btn) {
     if (!requireName()) return;
     if (globalFollowLock) return;
@@ -585,73 +411,43 @@
       if (isAndroid() || isIOS()) {
         await openAppAndTrack(platform);
       } else {
-        try {
-          const url = platform === "fb" ? FACEBOOK_URL : INSTAGRAM_URL;
-          if (url) window.open(url, "_blank", "noopener");
-        } catch {}
+        try { const url = platform === "fb" ? FACEBOOK_URL : INSTAGRAM_URL; if (url) window.open(url, "_blank", "noopener"); } catch {}
         await markFollow(platform);
         await submitEntryOnce(platform);
       }
     } catch (err) {
       console.warn(`[follow] ${platform} flow error:`, err?.message || err);
     } finally {
-      setTimeout(() => {
-        globalFollowLock = false;
-        setDisabled(btn, false);
-      }, 700);
+      setTimeout(() => { globalFollowLock = false; setDisabled(btn, false); }, 700);
     }
   }
 
-  document.addEventListener(
-    "DOMContentLoaded",
-    () => {
-      document.querySelectorAll('a[href^="intent://"]').forEach((a) => {
-        const href = a.getAttribute("href") || "";
-        const isFb = /facebook|katana|\/profile\//i.test(href);
-        a.setAttribute("href", isFb ? FACEBOOK_URL : INSTAGRAM_URL);
-        a.classList.add(isFb ? "follow-btn-fb" : "follow-btn-ig");
-      });
-    },
-    { once: true }
-  );
+  document.addEventListener("DOMContentLoaded", () => {
+    document.querySelectorAll('a[href^="intent://"]').forEach((a) => {
+      const href = a.getAttribute("href") || "";
+      const isFb = /facebook|katana|\/profile\//i.test(href);
+      a.setAttribute("href", isFb ? FACEBOOK_URL : INSTAGRAM_URL);
+      a.classList.add(isFb ? "follow-btn-fb" : "follow-btn-ig");
+    });
+  }, { once: true });
 
   // unified delegated click listener
-  document.addEventListener(
-    "click",
-    (e) => {
-      const fbSel = '.follow-btn-fb, a[href*="facebook.com"]';
-      const igSel = '.follow-btn-ig, a[href*="instagram.com"]';
-      const a = e.target.closest(fbSel) || e.target.closest(igSel) || null;
-      if (!a) return;
-      const isFb =
-        !!e.target.closest(fbSel) ||
-        /facebook|katana|\/profile\//i.test(a.getAttribute("href") || "");
-      e.preventDefault();
-      e.stopImmediatePropagation();
-      e.stopPropagation();
-      handleFollow(isFb ? "fb" : "ig", a);
-    },
-    true
-  );
+  document.addEventListener("click", (e) => {
+    const fbSel = '.follow-btn-fb, a[href*="facebook.com"]';
+    const igSel = '.follow-btn-ig, a[href*="instagram.com"]';
+    const a = e.target.closest(fbSel) || e.target.closest(igSel) || null;
+    if (!a) return;
+    const isFb = !!e.target.closest(fbSel) || /facebook|katana|\/profile\//i.test(a.getAttribute("href") || "");
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    e.stopPropagation();
+    handleFollow(isFb ? "fb" : "ig", a);
+  }, true);
 
-  window.openFacebook = (ev) => {
-    ev?.preventDefault?.();
-    const el =
-      document.querySelector(".follow-btn-fb") ||
-      document.querySelector('a[href*="facebook.com"]');
-    if (el) handleFollow("fb", el);
-    return false;
-  };
-  window.openInstagram = (ev) => {
-    ev?.preventDefault?.();
-    const el =
-      document.querySelector(".follow-btn-ig") ||
-      document.querySelector('a[href*="instagram.com"]');
-    if (el) handleFollow("ig", el);
-    return false;
-  };
+  window.openFacebook = (ev) => { ev?.preventDefault?.(); const el = document.querySelector(".follow-btn-fb") || document.querySelector('a[href*="facebook.com"]'); if (el) handleFollow("fb", el); return false; };
+  window.openInstagram = (ev) => { ev?.preventDefault?.(); const el = document.querySelector(".follow-btn-ig") || document.querySelector('a[href*="instagram.com"]'); if (el) handleFollow("ig", el); return false; };
 
-  // --- Jackpot modal wiring (works with the new HTML) ---
+  // --- Jackpot modal wiring ---
   function ensureJackpotModal() {
     const modal = document.getElementById("jackpot-modal");
     if (!modal) return null;
@@ -664,20 +460,16 @@
       unlockScroll();
     };
 
-    modal.addEventListener(
-      "click",
-      (e) => {
-        if (
-          e.target.classList.contains("modal-overlay") ||
-          e.target.matches("[data-close]") ||
-          e.target.closest?.("[data-close]")
-        ) {
-          e.preventDefault();
-          close();
-        }
-      },
-      true
-    );
+    modal.addEventListener("click", (e) => {
+      if (
+        e.target.classList.contains("modal-overlay") ||
+        e.target.matches("[data-close]") ||
+        e.target.closest?.("[data-close]")
+      ) {
+        e.preventDefault();
+        close();
+      }
+    }, true);
 
     document.addEventListener("keydown", (e) => {
       if (e.key === "Escape" && !modal.classList.contains("hidden")) close();
@@ -689,55 +481,17 @@
 
   function showJackpotModal(label, message) {
     const modal = ensureJackpotModal();
-    if (!modal) {
-      alert(`🎰 JACKPOT!\n${label}\n\n${message || ""}`);
-      return;
-    }
-
+    if (!modal) { alert(`🎰 JACKPOT!\n${label}\n\n${message || ""}`); return; }
     const prizeEl = document.getElementById("jackpot-prize");
-    const msgEl = document.getElementById("jackpot-message");
+    const msgEl   = document.getElementById("jackpot-message");
     if (prizeEl) prizeEl.textContent = label || "";
-    if (msgEl) msgEl.textContent = message || "";
-
+    if (msgEl)   msgEl.textContent = message || "";
     modal.classList.remove("hidden");
     modal.setAttribute("aria-hidden", "false");
-    lockScroll(); // ← add this
-
-    const okBtn = modal.querySelector("[data-close]");
-    try {
-      okBtn?.focus();
-    } catch {}
+    lockScroll();
+    try { modal.querySelector("[data-close]")?.focus(); } catch {}
   }
 
-  function showJackpotModal(label, message) {
-    const modal = ensureJackpotModal();
-    if (!modal) {
-      // Fallback if the HTML snippet wasn't added
-      alert(`🎰 JACKPOT!\n${label}\n\n${message || ""}`);
-      return;
-    }
-
-    const prizeEl = document.getElementById("jackpot-prize");
-    const msgEl = document.getElementById("jackpot-message");
-
-    if (prizeEl) prizeEl.textContent = label || "";
-    if (msgEl) msgEl.textContent = message || "";
-
-    modal.classList.remove("hidden");
-    modal.setAttribute("aria-hidden", "false");
-    document.documentElement.classList.add("modal-open");
-    document.body.classList.add("modal-open");
-
-    // focus the OK button for accessibility
-    const okBtn = modal.querySelector("[data-close]");
-    if (okBtn) {
-      try {
-        okBtn.focus();
-      } catch {}
-    }
-  }
-
-  // Make callable from slot result handler
   window.__showJackpotModal = showJackpotModal;
 
   // ──────────────────────────────────────────────────────────────
@@ -762,9 +516,7 @@
 
         const okTriple =
           norm.length >= 3 &&
-          norm[0] &&
-          norm[0] === norm[1] &&
-          norm[1] === norm[2] &&
+          norm[0] && norm[0] === norm[1] && norm[1] === norm[2] &&
           KNOWN_PRIZES.has(norm[0]);
 
         if (!okTriple) return;
@@ -775,16 +527,14 @@
         // Log jackpot (server ledger)
         await logSpin(triple, true);
 
-        // Grab the inline text that slot.js just wrote, then clear it
+        // Grab inline text that slot.js wrote, then clear it
         const resultEl = document.getElementById("slot-result");
         const inlineMsg = (resultEl?.textContent || "").trim();
         if (resultEl) resultEl.textContent = ""; // hide inline
 
         // Show modal with whatever message slot.js produced
-        // (includes the “Enter your name…” or “Already counted…” text)
-        showJackpotModal(primary, inlineMsg || `${primary}`);
+        window.__showJackpotModal(primary, inlineMsg || `${primary}`);
 
-        // For “Extra Entry”, the award is handled inside slot.js already.
         if (primary === "Extra Entry") {
           refreshEntryStats().catch(() => {});
         }
@@ -800,25 +550,8 @@
   // HEADLINE CONFIG + CACHE
   // ──────────────────────────────────────────────────────────────
   const CFG_CACHE_KEY = "cfg";
-  const HEADLINE_SELECTORS = ["#headline", ".show-name", "[data-headline]"];
-  function setHeadlineText(name) {
-    const text = name && name.trim() ? name : "90 Surge";
-    HEADLINE_SELECTORS.forEach((sel) => {
-      document.querySelectorAll(sel).forEach((el) => (el.textContent = text));
-    });
-  }
-  function readCfgCache() {
-    try {
-      return JSON.parse(sessionStorage.getItem(CFG_CACHE_KEY) || "null");
-    } catch {
-      return null;
-    }
-  }
-  function writeCfgCache(cfg) {
-    try {
-      sessionStorage.setItem(CFG_CACHE_KEY, JSON.stringify(cfg));
-    } catch {}
-  }
+  function readCfgCache() { try { return JSON.parse(sessionStorage.getItem(CFG_CACHE_KEY) || "null"); } catch { return null; } }
+  function writeCfgCache(cfg) { try { sessionStorage.setItem(CFG_CACHE_KEY, JSON.stringify(cfg)); } catch {} }
 
   async function fetchConfigFresh() {
     const res = await fetch(`/api/admin?action=config&_=${Date.now()}`, {
@@ -829,18 +562,21 @@
     return await res.json();
   }
 
+  const HEADLINE_SELECTORS = ["#headline", ".show-name", "[data-headline]"];
+  function setHeadlineText(name) {
+    const text = name && name.trim() ? name : "90 Surge";
+    HEADLINE_SELECTORS.forEach((sel) => {
+      document.querySelectorAll(sel).forEach((el) => (el.textContent = text));
+    });
+  }
+
   async function initConfigHeadline(force = false) {
     const cached = force ? null : readCfgCache();
     if (cached?.showName) setHeadlineText(cached.showName || "90 Surge");
     try {
       const fresh = await fetchConfigFresh();
-      if (
-        !cached ||
-        fresh.version !== cached.version ||
-        fresh.showName !== cached.showName
-      ) {
-        writeCfgCache(fresh);
-        setHeadlineText(fresh.showName || "90 Surge");
+      if (!cached || fresh.version !== cached.version || fresh.showName !== cached.showName) {
+        writeCfgCache(fresh); setHeadlineText(fresh.showName || "90 Surge");
       }
     } catch (e) {
       console.debug("[config] headline refresh skipped:", e?.message || e);
@@ -848,7 +584,7 @@
   }
 
   // ──────────────────────────────────────────────────────────────
-  // Winner countdown
+  // Winner countdown (TOP-LEVEL again)
   // ──────────────────────────────────────────────────────────────
   const WINNER_DELAY_MS = 2.5 * 60 * 60 * 1000;
   let __countdownTimer = null;
@@ -861,15 +597,13 @@
     if (!startTime) return NaN;
     let t = Date.parse(startTime);
     if (Number.isFinite(t)) return t;
-    const m = String(startTime)
-      .trim()
-      .match(/^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}(?::\d{2})?)$/);
+    const m = String(startTime).trim().match(/^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}(?::\d{2})?)$/);
     if (m) return new Date(`${m[1]}T${m[2]}`).getTime();
     return NaN;
   }
 
   const EFFECTIVE_START_KEY = "effectiveStartMs";
-  const EFFECTIVE_VER_KEY = "effectiveStartVer";
+  const EFFECTIVE_VER_KEY   = "effectiveStartVer";
 
   function clearEffectiveStartPin() {
     try {
@@ -883,10 +617,7 @@
     if (Number.isFinite(serverMs)) {
       try {
         sessionStorage.setItem(EFFECTIVE_START_KEY, String(serverMs));
-        sessionStorage.setItem(
-          EFFECTIVE_VER_KEY,
-          String(cfg?.version ?? "nov")
-        );
+        sessionStorage.setItem(EFFECTIVE_VER_KEY, String(cfg?.version ?? "nov"));
       } catch {}
       return serverMs;
     }
@@ -904,9 +635,12 @@
     return pinned;
   }
 
+  // Prefer server-provided autoPickAt when available; fallback to startTime + 2h30
   function computePickAtFromCfg(cfg) {
+    const ap = Date.parse(cfg?.autoPickAt || "");
+    if (Number.isFinite(ap)) return ap;
     const startMs = getEffectiveStartMs(cfg);
-    return startMs ? startMs + WINNER_DELAY_MS : null;
+    return Number.isFinite(startMs) ? startMs + WINNER_DELAY_MS : NaN;
   }
 
   function setCfgMem(cfg) {
@@ -919,32 +653,18 @@
   function setCountdownVisible(visible) {
     if (__countdownVisible === visible) return;
     __countdownVisible = visible;
-    document
-      .querySelectorAll(
-        "#winner-countdown, [data-winner-countdown], #winner-countdown-text"
-      )
-      .forEach((el) => {
-        el.style.display = visible ? "" : "none";
-      });
+    document.querySelectorAll("#winner-countdown, [data-winner-countdown], #winner-countdown-text")
+      .forEach((el) => { el.style.display = visible ? "" : "none"; });
   }
 
   function stopWinnerCountdownTimers() {
-    if (__countdownTimer) {
-      clearInterval(__countdownTimer);
-      __countdownTimer = null;
-    }
-    if (__ensurePickTimer) {
-      clearInterval(__ensurePickTimer);
-      __ensurePickTimer = null;
-    }
+    if (__countdownTimer)  { clearInterval(__countdownTimer);  __countdownTimer  = null; }
+    if (__ensurePickTimer) { clearInterval(__ensurePickTimer); __ensurePickTimer = null; }
   }
 
   async function triggerAutoPick() {
     try {
-      await fetch("/api/admin?action=maybe-auto-pick", {
-        method: "POST",
-        keepalive: true,
-      });
+      await fetch("/api/admin?action=maybe-auto-pick", { method: "POST", keepalive: true });
     } catch {}
   }
 
@@ -958,29 +678,51 @@
     }
   }
 
+  // After triggering, poll for the winner briefly to avoid “Picking…” hang
   async function verifyAndMaybeAutoPick() {
     await refreshConfigAuthoritative();
+
     if (!Number.isFinite(pickAtMem)) {
-      const el =
-        document.getElementById("winner-countdown-text") ||
-        document.querySelector("[data-winner-countdown]") ||
-        document.getElementById("winner-countdown");
+      const el = document.getElementById("winner-countdown-text") ||
+                 document.querySelector("[data-winner-countdown]") ||
+                 document.getElementById("winner-countdown");
       if (el) el.textContent = "—";
       stopWinnerCountdownTimers();
       return;
     }
+
     if (Date.now() < pickAtMem) {
       startWinnerCountdown(false);
       return;
     }
+
     const guardKey = cfgMem?.version ?? `ts:${Math.floor(pickAtMem / 60000)}`;
+    let triggered = false;
     if (!autoPickGuard.has(guardKey)) {
       autoPickGuard.add(guardKey);
       await triggerAutoPick();
+      triggered = true;
     }
-    stopWinnerCountdownTimers();
+
+    // Fast local poll: up to ~6s total
+    for (let i = 0; i < 8; i++) {
+      const name = await fetchWinnerOnce();
+      if (name) { maybeDisplayWinner(name); return; }
+      await new Promise((r) => setTimeout(r, 750));
+    }
+
+    // Still no winner — release guard so we can try again on the next tick
+    if (triggered) autoPickGuard.delete(guardKey);
+
+    const textEl =
+      document.getElementById("winner-countdown-text") ||
+      document.querySelector("[data-winner-countdown]") ||
+      document.getElementById("winner-countdown");
+    if (textEl) textEl.textContent = "Picking…";
+    setTimeout(() => startWinnerCountdown(true), 3000);
   }
 
+  // ⬇️ TOP-LEVEL startWinnerCountdown (accessible to all callers)
   async function startWinnerCountdown(forceRefresh = false) {
     const textEl =
       document.getElementById("winner-countdown-text") ||
@@ -988,8 +730,9 @@
       document.getElementById("winner-countdown");
     if (!textEl) return;
 
-    // 👇 Winner exists: keep countdown hidden and stop all timers
-    if (__winnerLocked) {
+    // Only hide when an actual winner is on screen
+    const hasWinner = !!lastWinner && __winnerLocked;
+    if (hasWinner) {
       setCountdownVisible(false);
       stopWinnerCountdownTimers();
       return;
@@ -1003,6 +746,7 @@
       pickAtMem = computePickAtFromCfg(cfgMem || {});
     }
 
+    // Always show the widget while counting down
     setCountdownVisible(true);
 
     if (!Number.isFinite(pickAtMem)) {
@@ -1016,16 +760,14 @@
     };
 
     const tick = async () => {
-      // If a winner appeared mid-tick, bail out immediately
-      if (__winnerLocked) {
+      if (lastWinner && __winnerLocked) {
         setCountdownVisible(false);
         stopWinnerCountdownTimers();
         return;
       }
-      const nowPickAt = pickAtMem;
-      const diff = nowPickAt - Date.now();
+      const diff = pickAtMem - Date.now();
       if (diff <= 0) {
-        write("Picking...");
+        write("Picking…");
         stopWinnerCountdownTimers();
         await verifyAndMaybeAutoPick();
         return;
@@ -1035,19 +777,13 @@
       const h = Math.floor((sec % 86400) / 3600);
       const m = Math.floor((sec % 3600) / 60);
       const s = sec % 60;
-      write(
-        d > 0
-          ? `${d}d ${h}h ${m}m ${s}s`
-          : h > 0
-          ? `${h}h ${m}m ${s}s`
-          : `${m}m ${s}s`
-      );
+      write(d > 0 ? `${d}d ${h}h ${m}m ${s}s` : h > 0 ? `${h}h ${m}m ${s}s` : `${m}m ${s}s`);
     };
 
     await tick();
     __countdownTimer = setInterval(tick, 1000);
     __ensurePickTimer = setInterval(async () => {
-      if (__winnerLocked) {
+      if (lastWinner && __winnerLocked) {
         setCountdownVisible(false);
         stopWinnerCountdownTimers();
         return;
@@ -1066,26 +802,20 @@
   let lastWinner = null;
 
   function winnerBannerEl() {
-    return (
-      document.querySelector(".raffle.raffle-title.blink") ||
-      document.querySelector("[data-winner-banner]")
-    );
+    return document.querySelector(".raffle.raffle-title.blink") ||
+           document.querySelector("[data-winner-banner]");
   }
-
   function setWinnerBanner(name) {
     const el = winnerBannerEl();
     if (!el) return;
-
     if (!el.getAttribute("data-default")) {
       el.setAttribute("data-default", el.textContent || "Free T-shirt raffle!");
     }
-
     if (name) {
       el.textContent = `Woohooo! Tonight's winner is ${name}!`;
       el.classList.add("has-winner");
     } else {
-      const fallback =
-        el.getAttribute("data-default") || "Free T-shirt raffle!";
+      const fallback = el.getAttribute("data-default") || "Free T-shirt raffle!";
       el.textContent = fallback;
       el.classList.remove("has-winner");
     }
@@ -1093,7 +823,7 @@
 
   function ensureWinnerModal() {
     const modal =
-      document.getElementById("winnerModal") || // your current HTML id
+      document.getElementById("winnerModal") ||
       document.getElementById("winner-modal") ||
       document.querySelector(".winner-modal");
     if (!modal) return null;
@@ -1103,66 +833,41 @@
     const close = () => {
       modal.classList.add("hidden");
       modal.setAttribute("aria-hidden", "true");
-      unlockScroll(); // ← important for iOS
+      unlockScroll();
     };
 
-    modal.addEventListener(
-      "click",
-      (e) => {
-        if (
-          e.target.classList.contains("modal-overlay") ||
-          e.target.matches(
-            "[data-close], .btn-modal-close, .winner-close, .modal-close"
-          ) ||
-          e.target.closest?.(
-            "[data-close], .btn-modal-close, .winner-close, .modal-close"
-          )
-        ) {
-          e.preventDefault();
-          close();
-        }
-      },
-      true
-    );
+    modal.addEventListener("click", (e) => {
+      if (
+        e.target.classList.contains("modal-overlay") ||
+        e.target.matches("[data-close], .btn-modal-close, .winner-close, .modal-close") ||
+        e.target.closest?.("[data-close], .btn-modal-close, .winner-close, .modal-close")
+      ) {
+        e.preventDefault();
+        close();
+      }
+    }, true);
 
     document.addEventListener("keydown", (e) => {
       if (e.key === "Escape" && !modal.classList.contains("hidden")) close();
     });
 
-    // expose
     modal.__close = close;
     return modal;
   }
 
   function showWinnerModal(name) {
     const modal = ensureWinnerModal();
-    if (!modal) {
-      alert(`Winner: ${name}`);
-      return;
-    }
-
-    const nameSpans = modal.querySelectorAll(
-      ".winner-name, [data-winner-name]"
-    );
+    if (!modal) { alert(`Winner: ${name}`); return; }
+    const nameSpans = modal.querySelectorAll(".winner-name, [data-winner-name]");
     nameSpans.forEach((n) => (n.textContent = name));
-
     modal.classList.remove("hidden");
     modal.setAttribute("aria-hidden", "false");
-    lockScroll(); // ← add this
-
-    // focus primary close button if present
-    const btn = modal.querySelector(
-      "[data-close], .btn-modal-close, .winner-close, .modal-close"
-    );
-    try {
-      btn?.focus();
-    } catch {}
+    lockScroll();
+    try { modal.querySelector("[data-close], .btn-modal-close, .winner-close, .modal-close")?.focus(); } catch {}
   }
 
   async function fetchWinnerOnce() {
-    const res = await fetch("/api/admin?action=winner&_=" + Date.now(), {
-      cache: "no-store",
-    });
+    const res = await fetch("/api/admin?action=winner&_=" + Date.now(), { cache: "no-store" });
     if (!res.ok) return null;
     const j = await res.json().catch(() => ({}));
     return j?.winner?.name || null;
@@ -1170,15 +875,18 @@
 
   function maybeDisplayWinner(name) {
     if (!name) {
-      __winnerLocked = false; // allow countdown again
+      __winnerLocked = false;
+      document.body.classList.remove("winner-locked");
       lastWinner = null;
       localStorage.removeItem(SHOWN_WINNER_KEY);
       setWinnerBanner(null);
+      setCountdownVisible(true);
       startWinnerCountdown(true);
       return;
     }
 
-    __winnerLocked = true; // lock countdown while a winner exists
+    __winnerLocked = true;
+    document.body.classList.add("winner-locked");
     stopWinnerCountdownTimers();
     setCountdownVisible(false);
     setWinnerBanner(name);
@@ -1244,9 +952,7 @@
       };
 
       es.onerror = () => {
-        try {
-          es.close();
-        } catch {}
+        try { es.close(); } catch {}
         if (!pollingTimer) pollingTimer = startWinnerPolling();
       };
     } catch {
@@ -1277,7 +983,9 @@
     // init slot AFTER slot.js is loaded (index.html loads slot.js before app.js now)
     initSlot();
 
+    // 👇 show countdown immediately (no 10s wait)
     startWinnerCountdown(false);
+
     document.addEventListener("visibilitychange", () => {
       if (document.visibilityState === "visible") {
         initConfigHeadline(true);
@@ -1288,20 +996,14 @@
     setInterval(() => startWinnerCountdown(true), 10_000);
 
     (function initWinnerBannerDefault() {
-      const el =
-        document.querySelector(".raffle.raffle-title.blink") ||
-        document.querySelector("[data-winner-banner]");
+      const el = document.querySelector(".raffle.raffle-title.blink") ||
+                 document.querySelector("[data-winner-banner]");
       if (el && !el.getAttribute("data-default")) {
-        el.setAttribute(
-          "data-default",
-          el.textContent || "Free T-shirt raffle!"
-        );
+        el.setAttribute("data-default", el.textContent || "Free T-shirt raffle!");
       }
     })();
 
-    fetchWinnerOnce()
-      .then(maybeDisplayWinner)
-      .catch(() => {});
+    fetchWinnerOnce().then(maybeDisplayWinner).catch(() => {});
   }
 
   if (document.readyState === "loading") {

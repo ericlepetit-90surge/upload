@@ -25,85 +25,87 @@
       <h2 class="raffle raffle-title blink">
         <strong>ENTER OUR RAFFLE FOR A CHANCE TO WIN A 90 SURGE TEE!</strong>
       </h2>
-      <div id="winner-countdown" class="countdown">
-        Winner picked in:<br> <span id="winner-countdown-text">—</span>
-      </div>
-      <div class="arrows blink">
-        <span class="arrow-icon">&#8595; &#8595; &#8595; &#8595; &#8595;</span>
-      </div>
-      <ol>
-        <li>
-          Drop your name
-          <div class="input-group">
-            <input type="text" id="user-display-name" name="user_display_name" required placeholder=""
-              autocomplete="off" inputmode="text" autocorrect="off" autocapitalize="none" spellcheck="false" />
-          </div>
-        </li>
-
-        <li>
-          Follow us on Facebook or Instagram. <br>
-          Each follow gives you 1 raffle entry!
-          <div id="follow-gate">
-            <div class="follow-links" style="display:flex; justify-content:center; gap:.5rem; padding-top:5px">
-              <button type="button" class="follow-btn-fb">Facebook</button>
-              <button type="button" class="follow-btn-ig">Instagram</button>
-            </div>
-          </div>
-        </li>
-        <li>
-          That's it. Fingers crossed!<br>
-        </li>
-      </ol>
-      <span style="font-size:16px">Come back here to find out if you are the lucky winner!</span>
-      <div id="entry-stats" class="entry-stats-card">
-        <div class="entry-stat">
-          <div class="entry-stat-label">Total entries in tonight's raffle</div>
-          <div class="entry-stat-value" id="total-entries-count">0</div>
+      <!-- BEGIN: hide when winner is picked -->
+      <div id="app-main">
+        <div id="winner-countdown" class="countdown">
+          Winner picked in:<br> <span id="winner-countdown-text">—</span>
         </div>
-        <div class="entry-stat">
-          <div class="entry-stat-label">Your entries to tonight's raffle</div>
-          <div class="entry-stat-value" id="your-entries-count">0</div>
+        <div class="arrows blink">
+          <span class="arrow-icon">&#8595; &#8595; &#8595; &#8595; &#8595;</span>
         </div>
-
-      </div>
-
-      <div class="arrows"> <span class="arrow-icon">&#8595; &#8595; &#8595; &#8595; &#8595;</span>
-      </div>
-      <h2 class="raffle raffle-title blink">
-
-
-        <strong>FEELING LUCKY? <br>SPIN IT!</strong>
-      </h2>
-      <!-- Slot machine mount -->
-      <div id="slot-root">
-
-        <div class="slot-card">
-
-
-          <div class="slot-machine">
-            <div class="slot-window">
-              <div class="slot-reel" id="slot-reel-0"></div>
+        <ol>
+          <li>
+            Drop your name
+            <div class="input-group">
+              <input type="text" id="user-display-name" name="user_display_name" required placeholder=""
+                autocomplete="off" inputmode="text" autocorrect="off" autocapitalize="none" spellcheck="false" />
             </div>
-            <div class="slot-window">
-              <div class="slot-reel" id="slot-reel-1"></div>
+          </li>
+
+          <li>
+            Follow us on Facebook or Instagram. <br>
+            Each follow gives you 1 raffle entry!
+            <div id="follow-gate">
+              <div class="follow-links" style="display:flex; justify-content:center; gap:.5rem; padding-top:5px">
+                <button type="button" class="follow-btn-fb">Facebook</button>
+                <button type="button" class="follow-btn-ig">Instagram</button>
+              </div>
             </div>
-            <div class="slot-window">
-              <div class="slot-reel" id="slot-reel-2"></div>
-            </div>
+          </li>
+          <li>
+            That's it. Fingers crossed!<br>
+          </li>
+        </ol>
+        <span style="font-size:16px">Come back here to find out if you are the lucky winner!</span>
+        <div id="entry-stats" class="entry-stats-card">
+          <div class="entry-stat">
+            <div class="entry-stat-label">Total entries in tonight's raffle</div>
+            <div class="entry-stat-value" id="total-entries-count">0</div>
+          </div>
+          <div class="entry-stat">
+            <div class="entry-stat-label">Your entries to tonight's raffle</div>
+            <div class="entry-stat-value" id="your-entries-count">0</div>
           </div>
 
-          <div class="slot-controls">
-            <div class="slot-left" id="slot-spins-left">Spins left: 5</div>
-            <button class="slot-spin" id="slot-spin-btn">Spin</button>
-          </div>
-
-          <div class="slot-result" id="slot-result"></div>
         </div>
 
+        <div class="arrows"> <span class="arrow-icon">&#8595; &#8595; &#8595; &#8595; &#8595;</span>
+        </div>
+        <h2 class="raffle raffle-title blink">
 
 
+          <strong>FEELING LUCKY? <br>SPIN IT!</strong>
+        </h2>
+        <!-- Slot machine mount -->
+        <div id="slot-root">
+
+          <div class="slot-card">
+
+
+            <div class="slot-machine">
+              <div class="slot-window">
+                <div class="slot-reel" id="slot-reel-0"></div>
+              </div>
+              <div class="slot-window">
+                <div class="slot-reel" id="slot-reel-1"></div>
+              </div>
+              <div class="slot-window">
+                <div class="slot-reel" id="slot-reel-2"></div>
+              </div>
+            </div>
+
+            <div class="slot-controls">
+              <div class="slot-left" id="slot-spins-left">Spins left: 5</div>
+              <button class="slot-spin" id="slot-spin-btn">Spin</button>
+            </div>
+
+            <div class="slot-result" id="slot-result"></div>
+          </div>
+
+
+
+        </div>
       </div>
-
       <!-- JACKPOT MODAL -->
       <div id="jackpot-modal" class="jackpot-modal hidden" role="dialog" aria-modal="true"
         aria-labelledby="jackpot-title" aria-describedby="jackpot-message">

@@ -750,3 +750,11 @@ text-align: center;
   font-size: 40px; /* Adjust size as needed */
   color: rgb(167, 255, 147); /* Adjust color as needed */
 }
+
+body.winner-locked #app-main {
+  display: none !important;
+}
+
+body.winner-locked #app-main {
+  display: none !important;
+}
