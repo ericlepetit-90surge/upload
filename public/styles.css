@@ -657,5 +657,96 @@ progress { height: 10px; border-radius: 5px; width: 100%; }
 .countdown {
   font-size: 28px;
   font-weight: bold;
-  color: rgb(224, 92, 180)
+  color: rgb(255, 245, 103);
+  text-align: center;
+  padding-bottom: 10px;
+}
+
+/* ========== JACKPOT MODAL ========== */
+#jackpot-modal.hidden { display: none; }
+#jackpot-modal {
+  position: fixed; inset: 0; z-index: 10000;
+  display: flex; align-items: center; justify-content: center;
+}
+
+/* solid dim backdrop (not transparent) */
+#jackpot-modal .modal-overlay {
+  position: absolute; inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(2px);
+}
+
+/* centered card */
+#jackpot-modal .modal-card {
+  position: relative;
+  width: min(92vw, 520px);
+  border-radius: 16px;
+  padding: 22px 20px;
+  box-shadow: 0 18px 60px rgba(0,0,0,.55);
+  transform: scale(.96);
+  opacity: 0;
+  animation: jackpotModalIn .18s ease-out forwards;
+
+  /* theme: dark solid card */
+  background: #111;
+  color: #fff;
+  /* — if you prefer light, swap the two lines above for:
+     background:#fff; color:#111; */
+}
+
+@keyframes jackpotModalIn {
+  to { transform: scale(1); opacity: 1; }
+}
+
+/* text */
+#jackpot-modal .modal-title {
+  margin: 0 0 6px;
+  font-size: 24px; line-height: 1.25; font-weight: 800;
+  letter-spacing: .2px;
+}
+#jackpot-modal .jackpot-prize {
+  margin: 6px 0 8px;
+  font-size: 20px; font-weight: 800;
+}
+#jackpot-modal .jackpot-message {
+  margin: 0;
+  opacity: .95;
+  font-size: 16px; line-height: 1.45;
+}
+
+/* actions */
+#jackpot-modal .modal-actions {
+  display: flex; justify-content: center; gap: 12px; margin-top: 14px;
+}
+#jackpot-modal .btn-modal-close {
+  appearance: none; border: 0; cursor: pointer;
+  padding: 10px 18px; border-radius: 999px;
+  font-weight: 700; font-size: 15px;
+  background: #fff; color: #111;
+  box-shadow: 0 2px 0 rgba(255,255,255,.18) inset, 0 6px 18px rgba(0,0,0,.25);
+}
+#jackpot-modal .btn-modal-close:hover { filter: brightness(.96); }
+#jackpot-modal .btn-modal-close:active { transform: translateY(1px); }
+
+/* lock page scroll when modal is open */
+html.modal-open, body.modal-open { overflow: hidden; }
+
+/* small screens */
+@media (max-width: 360px) {
+  #jackpot-modal .modal-card { width: 94vw; padding: 20px 16px; }
+  #jackpot-modal .modal-title { font-size: 22px; }
+  #jackpot-modal .jackpot-prize { font-size: 18px; }
+}
+
+/* reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  #jackpot-modal .modal-card { animation: none; opacity: 1; transform: none; }
+}
+
+.arrows {
+text-align: center;
+}
+.arrow-icon {
+  font-size: 40px; /* Adjust size as needed */
+  color: rgb(167, 255, 147); /* Adjust color as needed */
 }

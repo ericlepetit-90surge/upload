@@ -275,22 +275,22 @@
         let uiMsg = "";
         if (isJackpot) {
           const label = targets[0];
-          uiMsg = `🎉 JACKPOT! ${label}`;
+          uiMsg = `${label}`;
           const extra = JACKPOT_TEXT[label] || "";
 
           if (label === "Extra entry") {
             const nameEl = document.querySelector("#user-display-name");
             const name = (nameEl?.value || "").trim();
             if (!name) {
-              uiMsg = `🎉 JACKPOT! Extra entry — Enter your name above to claim your extra raffle entry!`;
+              uiMsg = `Enter your name above to claim your extra raffle entry!`;
             } else {
               const { awarded, already } = await awardExtraEntry(name);
-              if (awarded)       uiMsg = `🎉 JACKPOT! Extra entry — ${JACKPOT_TEXT["Extra entry"]}`;
-              else if (already)  uiMsg = `🎉 JACKPOT! Extra entry — Already counted for this device.`;
-              else               uiMsg = `🎉 JACKPOT! Extra entry — (Could not record, please try again.)`;
+              if (awarded)       uiMsg = `${JACKPOT_TEXT["Extra entry"]}`;
+              else if (already)  uiMsg = `Already counted for this device.`;
+              else               uiMsg = `(Could not record, please try again.)`;
             }
           } else if (extra) {
-            uiMsg = `🎉 JACKPOT! ${label} — ${extra}`;
+            uiMsg = `${label} — ${extra}`;
           }
           result.textContent = uiMsg;
         } else {
