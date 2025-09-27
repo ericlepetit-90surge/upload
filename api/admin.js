@@ -21,36 +21,103 @@ const DATA_DIR = path.join(process.cwd(), ".data");
 const LOCAL_LEDGER_FILE = path.join(DATA_DIR, "winners-local.json");
 
 /* ──────────────────────────────────────────────────────────────
-   Redis singleton
+   Redis — GLOBAL SINGLETON (never quit/disconnect in handlers)
+   - de-duplicated connect()
+   - auto-reconnect via socket.reconnectStrategy
+   - one-time retry wrapper for "client is closed"
 ────────────────────────────────────────────────────────────── */
-let redis;
-if (!globalThis.__redis && process.env.REDIS_URL) {
-  const client = createClient({
-    url: process.env.REDIS_URL,
+const REDIS_URL = (process.env.REDIS_URL || "").trim();
+
+let _redis = null;
+let _connecting = null;
+
+function _makeRedis() {
+  if (!REDIS_URL) return null;
+  const useTLS = REDIS_URL.startsWith("rediss://");
+  const c = createClient({
+    url: REDIS_URL,
     socket: {
-      connectTimeout: 5000,
-      reconnectStrategy: (r) => Math.min(r * 200, 3000),
+      tls: useTLS,
+      keepAlive: 10_000,
+      connectTimeout: 10_000,
+      // Let the client handle reconnects; we won't manually quit/replace it
+      reconnectStrategy: (retries) => Math.min(250 + retries * 250, 2000),
     },
   });
-  client.on("error", (e) => console.error("Redis error:", e?.message || e));
-  globalThis.__redis = client;
-  client
-    .connect()
-    .then(() => console.log("✅ Redis connected"))
-    .catch((err) => console.error("❌ Redis initial connect failed:", err));
+  c.on("error", (e) => console.error("Redis error:", e?.message || e));
+  c.on("end", () => console.warn("🔌 Redis connection ended"));
+  c.on("reconnecting", () => console.log("♻️  Redis reconnecting…"));
+  return c;
 }
-redis = globalThis.__redis;
 
-async function ensureRedisConnected() {
-  if (!redis) return false;
-  if (redis.isOpen) return true;
+async function getRedis() {
+  if (!REDIS_URL) return null;
+
+  // Already open
+  if (_redis?.isOpen) return _redis;
+
+  // Someone else is connecting — await it
+  if (_connecting) {
+    try {
+      await _connecting;
+    } catch {
+      // swallow; we will try to create again
+    }
+    return _redis?.isOpen ? _redis : null;
+  }
+
+  // Create & connect
+  _redis = _makeRedis();
+  if (!_redis) return null;
+
+  _connecting = _redis
+    .connect()
+    .catch((e) => {
+      console.error("Redis connect failed:", e?.message || e);
+      // leave _redis around; client will try to reconnect on demand
+      // but report not ready for this call
+      throw e;
+    })
+    .finally(() => {
+      _connecting = null;
+    });
+
   try {
-    await redis.connect();
-    console.log("✅ Redis reconnected");
-    return true;
-  } catch (err) {
-    console.error("❌ Redis reconnect failed:", err?.message || err);
-    return false;
+    await _connecting;
+    return _redis;
+  } catch {
+    return null;
+  }
+}
+
+function hasRedis(c) {
+  return !!(c && c.isOpen);
+}
+
+// Wrap a Redis op to auto-retry once if we hit a closed client edge
+async function withRedis(op) {
+  let c = await getRedis();
+  if (!hasRedis(c)) {
+    // Give the reconnect loop a brief moment
+    await new Promise((r) => setTimeout(r, 50));
+    c = await getRedis();
+  }
+  if (!hasRedis(c)) throw new Error("Redis not ready");
+
+  try {
+    return await op(c);
+  } catch (e) {
+    const msg = (e && (e.message || e.toString())) || "";
+    if (/client is closed/i.test(msg) || e?.name === "ClientClosedError") {
+      // force a reconnect attempt on next call
+      // (do NOT quit/disconnect; let internal reconnectStrategy work)
+      console.warn("Retrying after ClientClosedError…");
+      await new Promise((r) => setTimeout(r, 100));
+      const c2 = await getRedis();
+      if (!hasRedis(c2)) throw e;
+      return await op(c2);
+    }
+    throw e;
   }
 }
 
@@ -58,7 +125,6 @@ async function ensureRedisConnected() {
    Helpers
 ────────────────────────────────────────────────────────────── */
 const g = globalThis;
-// In-memory mirror (safety net in same process)
 if (!g.__surgeMem) g.__surgeMem = { winners: [], currentWinner: null };
 const MEM = g.__surgeMem;
 
@@ -69,15 +135,17 @@ function isAdmin(req) {
   const token = h.slice(pref.length);
   return !!ADMIN_PASS && token === ADMIN_PASS;
 }
-
-async function scanAll(match) {
-  const out = [];
-  if (!redis?.scanIterator) return out;
-  for await (const k of redis.scanIterator({ MATCH: match, COUNT: 1000 }))
-    out.push(k);
-  return out;
+function isSuperAdmin(req) {
+  const auth =
+    (req.headers && (req.headers.authorization || req.headers.Authorization)) ||
+    "";
+  return isAdmin(req) && auth.startsWith("Bearer:super:");
 }
 
+async function readJson(req) {
+  if (req?.body && typeof req.body === "object") return req.body;
+  return {};
+}
 function isFollowAllowed(raw) {
   if (!raw) return false;
   if (raw === "true") return true;
@@ -87,13 +155,11 @@ function isFollowAllowed(raw) {
     return false;
   }
 }
-
 function timeout(ms) {
   return new Promise((_, rej) =>
     setTimeout(() => rej(new Error("Timeout " + ms + "ms")), ms)
   );
 }
-
 function noCache(res) {
   res.setHeader(
     "Cache-Control",
@@ -105,7 +171,6 @@ function noCache(res) {
   res.setHeader("CDN-Cache-Control", "no-store");
   res.setHeader("Vercel-CDN-Cache-Control", "no-store");
 }
-
 function ensureLocalDir() {
   try {
     if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -138,32 +203,26 @@ function appendLocalLedgerRow(row) {
   writeLocalLedgerSafe(arr);
 }
 
-async function isShutdown() {
+async function isShutdown(r) {
   try {
-    const v = await redis.get("shutdown");
+    const v = await r.get("shutdown");
     return v === "1" || v === "true";
-  } catch { return false; }
+  } catch {
+    return false;
+  }
 }
 
-// Use your existing isAdmin(req). This extra check enforces super role for shutdown.
-function isSuperAdmin(req) {
-  const auth = (req.headers && (req.headers.authorization || req.headers.Authorization)) || "";
-  return isAdmin(req) && auth.startsWith("Bearer:super:");
-}
-
-
-async function getWindowInfo() {
+async function getWindowInfo(r) {
   let showName = "90 Surge";
   let startTime = null;
   let endTime = null;
 
   try {
-    const ok = await ensureRedisConnected();
-    if (ok && redis?.isOpen) {
+    if (hasRedis(r)) {
       const [sn, st, et] = await Promise.all([
-        redis.get("showName").catch(() => ""),
-        redis.get("startTime").catch(() => ""),
-        redis.get("endTime").catch(() => ""),
+        r.get("showName").catch(() => ""),
+        r.get("startTime").catch(() => ""),
+        r.get("endTime").catch(() => ""),
       ]);
       if (sn) showName = sn;
       if (st) startTime = st;
@@ -221,31 +280,27 @@ function computeAutoPickAt(startTimeIso) {
 }
 
 /* Winners persistence with robust fallback */
-async function appendWinnerRow(row) {
-  // Always mirror in memory
+async function appendWinnerRow(r, row) {
   MEM.winners.push(row);
   if (MEM.winners.length > 500) MEM.winners = MEM.winners.slice(-500);
-  // DEBUG: Log where the winner is being saved
   let where = "memory";
   try {
-    const ok = await ensureRedisConnected();
-    if (ok && redis?.isOpen) {
-      await redis.rPush("raffle:winners:all", JSON.stringify(row));
-      await redis.lTrim("raffle:winners:all", -500, -1);
+    if (hasRedis(r)) {
+      await r.rPush("raffle:winners:all", JSON.stringify(row));
+      await r.lTrim("raffle:winners:all", -500, -1);
       where = "redis";
       if (isLocal) appendLocalLedgerRow(row);
     } else if (isLocal) {
       appendLocalLedgerRow(row);
       where = "file";
     }
-    console.log(`// DEBUG: Successfully appended winner row to ${where}.`);
+    console.log(`// DEBUG: appended winner row to ${where}`);
     return { where };
   } catch (e) {
-    console.error("// DEBUG: Failed to append winner row:", e?.message || e);
+    console.error("// DEBUG: appendWinnerRow error:", e?.message || e);
     if (isLocal) {
       appendLocalLedgerRow(row);
       where = "file (fallback)";
-      console.log(`// DEBUG: Successfully appended winner row to ${where}.`);
     }
   }
   return { where };
@@ -277,9 +332,6 @@ function detectJackpot(targets = [], clientFlag = false) {
    Main handler
 ────────────────────────────────────────────────────────────── */
 export default async function handler(req, res) {
-  const url = new URL(req.url || "", `http://${req.headers.host}`);
-  const action = url.searchParams.get("action");
-
   // tolerant JSON body parsing
   if (req.method === "POST") {
     const isJson = (req.headers["content-type"] || "").includes(
@@ -306,6 +358,9 @@ export default async function handler(req, res) {
     }
   }
 
+  const url = new URL(req.url || "", `http://${req.headers.host}`);
+  const action = url.searchParams.get("action");
+
   /* ───── AUTH ───── */
   if (action === "login" && req.method === "POST") {
     const { password } = req.body || {};
@@ -319,51 +374,43 @@ export default async function handler(req, res) {
   /* ───── REDIS STATUS / WARM ───── */
   if (req.method === "GET" && action === "redis-status") {
     try {
-      if (!(await ensureRedisConnected()))
-        return res.status(200).json({ status: "idle" });
-      const t0 = Date.now();
-      await redis.ping();
-      const pingMs = Date.now() - t0;
-      const [keyCount, lastWarmAt, seeded, hitRate] = await Promise.all([
-        redis.dbSize().catch(() => null),
-        redis.get("lastWarmAt").catch(() => null),
-        redis.get("warm_seeded").catch(() => null),
-        redis.get("cache:hitRate").catch(() => null),
-      ]);
-      return res.status(200).json({
-        status: "active",
-        pingMs,
-        keyCount,
-        lastWarmAt,
-        seeded: seeded === "true" ? true : seeded ?? null,
-        hitRate: hitRate ? Number(hitRate) : null,
+      return await withRedis(async (r) => {
+        const t0 = Date.now();
+        await r.ping();
+        const pingMs = Date.now() - t0;
+        const [keyCount, lastWarmAt, seeded, hitRate] = await Promise.all([
+          r.dbSize().catch(() => null),
+          r.get("lastWarmAt").catch(() => null),
+          r.get("warm_seeded").catch(() => null),
+          r.get("cache:hitRate").catch(() => null),
+        ]);
+        return res.status(200).json({
+          status: "active",
+          pingMs,
+          keyCount,
+          lastWarmAt,
+          seeded: seeded === "true" ? true : seeded ?? null,
+          hitRate: hitRate ? Number(hitRate) : null,
+        });
       });
     } catch {
       return res.status(200).json({ status: "idle" });
     }
   }
 
+  /* ───── WARM REDIS (admin only) ───── */
   if (req.method === "POST" && action === "warm-redis") {
     if (!isAdmin(req)) return res.status(403).json({ error: "Forbidden" });
     try {
-      const ok = await ensureRedisConnected();
-      if (!ok) throw new Error("connect failed");
-      await Promise.all([
-        redis.set("warm_probe", String(Date.now()), { EX: 300 }),
-        redis.set("warm_seeded", "true", { EX: 3600 }),
-        redis.set("lastWarmAt", new Date().toISOString(), { EX: 3600 }),
-        redis.ping(),
-      ]);
-      const t0 = Date.now();
-      await redis.ping();
-      const pingMs = Date.now() - t0;
-      const keyCount = await redis.dbSize().catch(() => null);
-      return res
-        .status(200)
-        .json({ success: true, pong: "PONG", pingMs, keyCount });
-    } catch (err) {
-      console.error("❌ warm-redis:", err);
-      return res.status(500).json({ error: "Warm-up failed" });
+      return await withRedis(async (r) => {
+        const pong = await r.ping();
+        await r.set("lastWarmAt", new Date().toISOString());
+        // optional, mark that a warm happened
+        await r.set("warm_seeded", "true");
+        return res.status(200).json({ success: true, pong });
+      });
+    } catch (e) {
+      return res.status(503).json({ error: "Redis not ready" });
     }
   }
 
@@ -371,7 +418,6 @@ export default async function handler(req, res) {
   if (action === "config") {
     if (req.method === "GET") {
       noCache(res);
-      await ensureRedisConnected();
       try {
         if (isLocal) {
           try {
@@ -387,17 +433,18 @@ export default async function handler(req, res) {
               .json({ showName, startTime, endTime, version, autoPickAt });
           } catch {}
         }
-        if (redis?.isOpen) {
-          let [showName, startTime, endTime, version, autoPickAt] = await Promise.race([
-            Promise.all([
-              redis.get("showName").catch(() => ""),
-              redis.get("startTime").catch(() => ""),
-              redis.get("endTime").catch(() => ""),
-              redis.get("config:version").catch(() => "0"),
-              redis.get("autoPickAt").catch(() => ""),
-            ]),
-            timeout(10000),
-          ]);
+        return await withRedis(async (r) => {
+          let [showName, startTime, endTime, version, autoPickAt] =
+            await Promise.race([
+              Promise.all([
+                r.get("showName").catch(() => ""),
+                r.get("startTime").catch(() => ""),
+                r.get("endTime").catch(() => ""),
+                r.get("config:version").catch(() => "0"),
+                r.get("autoPickAt").catch(() => ""),
+              ]),
+              timeout(10000),
+            ]);
           return res.status(200).json({
             showName,
             startTime,
@@ -405,12 +452,6 @@ export default async function handler(req, res) {
             version: Number(version || 0),
             autoPickAt,
           });
-        }
-        return res.status(200).json({
-          showName: "90 Surge",
-          startTime: null,
-          endTime: null,
-          version: 0,
         });
       } catch (err) {
         console.error("❌ config GET:", err);
@@ -421,53 +462,85 @@ export default async function handler(req, res) {
     if (req.method === "POST") {
       const { showName, startTime, endTime } = req.body || {};
       try {
-        await ensureRedisConnected();
-        let version = 0;
-        // compute autoPickAt (+2h30 from startTime) if provided
         let computedAuto = "";
         try {
           if (startTime) {
             const t = new Date(startTime);
-            if (!isNaN(t)) computedAuto = new Date(t.getTime() + 150*60*1000).toISOString();
+            if (!isNaN(t))
+              computedAuto = new Date(
+                t.getTime() + 150 * 60 * 1000
+              ).toISOString();
           }
         } catch {}
-
         if (isLocal) {
           const filePath = path.join(process.cwd(), "config.json");
           let existing = {};
           try {
             existing = JSON.parse(fs.readFileSync(filePath, "utf8"));
           } catch {}
-          version = Number(existing.version || 0) + 1;
+          const version = Number(existing.version || 0) + 1;
           fs.writeFileSync(
             filePath,
-            JSON.stringify({ showName, startTime, endTime, version, autoPickAt: computedAuto }, null, 2)
+            JSON.stringify(
+              {
+                showName,
+                startTime,
+                endTime,
+                version,
+                autoPickAt: computedAuto,
+              },
+              null,
+              2
+            )
           );
-        } else {
-          if (!redis?.isOpen)
-            return res.status(503).json({ error: "Redis not ready" });
-          await Promise.all([
-            redis.set("showName", showName || ""),
-            redis.set("startTime", startTime || ""),
-            redis.set("endTime", endTime || ""),
-            redis.set("autoPickAt", computedAuto || ""),
-            redis.set("autoPickArmed", computedAuto ? "true" : "false"),
-          ]);
-          version = await redis.incr("config:version");
+          noCache(res);
+          return res
+            .status(200)
+            .json({
+              success: true,
+              showName,
+              startTime,
+              endTime,
+              version,
+              autoPickAt: computedAuto,
+            });
         }
-        try {
-          await redis?.publish?.(
-            "sse",
-            JSON.stringify({
-              type: "config",
-              config: { showName, startTime, endTime, version, autoPickAt: computedAuto },
-            })
-          );
-        } catch {}
-        noCache(res);
-        return res
-          .status(200)
-          .json({ success: true, showName, startTime, endTime, version, autoPickAt: computedAuto });
+        return await withRedis(async (r) => {
+          await Promise.all([
+            r.set("showName", showName || ""),
+            r.set("startTime", startTime || ""),
+            r.set("endTime", endTime || ""),
+            r.set("autoPickAt", computedAuto || ""),
+            r.set("autoPickArmed", computedAuto ? "true" : "false"),
+          ]);
+          const version = await r.incr("config:version");
+          try {
+            await r.publish(
+              "sse",
+              JSON.stringify({
+                type: "config",
+                config: {
+                  showName,
+                  startTime,
+                  endTime,
+                  version,
+                  autoPickAt: computedAuto,
+                },
+              })
+            );
+          } catch {}
+          noCache(res);
+          return res
+            .status(200)
+            .json({
+              success: true,
+              showName,
+              startTime,
+              endTime,
+              version,
+              autoPickAt: computedAuto,
+            });
+        });
       } catch (err) {
         console.error("❌ config POST:", err);
         return res.status(500).json({ error: "Failed to save config" });
@@ -481,68 +554,27 @@ export default async function handler(req, res) {
      RAFFLE: enter / list / summary / my-entries
   ───────────────────────────────────────────────────────────── */
   if (action === "enter" && req.method === "POST") {
-    const ok = await ensureRedisConnected();
-    if (!ok) return res.status(503).json({ error: "Redis not ready" });
+    try {
+      return await withRedis(async (r) => {
+        const nameRaw = (req.body?.name || "").trim();
+        if (!nameRaw) return res.status(400).json({ error: "Missing name" });
+        const name = nameRaw.slice(0, 80);
 
-    const nameRaw = (req.body?.name || "").trim();
-    if (!nameRaw) return res.status(400).json({ error: "Missing name" });
-    const name = nameRaw.slice(0, 80);
+        const rawSource = (req.body?.source || "").toString().toLowerCase();
+        const source = ["fb", "ig", "jackpot"].includes(rawSource)
+          ? rawSource
+          : "other";
 
-    const rawSource = (req.body?.source || "").toString().toLowerCase();
-    const source = ["fb", "ig", "jackpot"].includes(rawSource)
-      ? rawSource
-      : "other";
+        const ip =
+          req.headers["x-forwarded-for"]?.split(",")[0]?.trim() ||
+          req.socket.remoteAddress ||
+          "unknown";
+        const { windowKey, ttlSeconds } = await getWindowInfo(r);
 
-    const ip =
-      req.headers["x-forwarded-for"]?.split(",")[0]?.trim() ||
-      req.socket.remoteAddress ||
-      "unknown";
-    const { windowKey, ttlSeconds } = await getWindowInfo();
+        const setKey = `raffle:entered:${windowKey}:${source}`;
+        const listKey = `raffle:entries:${windowKey}`;
 
-    const setKey = `raffle:entered:${windowKey}:${source}`;
-    const listKey = `raffle:entries:${windowKey}`;
-
-    if (source === "jackpot") {
-  const entry = {
-    id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
-    name,
-    ip,
-    source,
-    createdTime: new Date().toISOString(),
-  };
-
-  const jpKey  = `raffle:jackpotCount:${windowKey}:${ip}`;
-  const setKey = `raffle:entered:${windowKey}:jackpot`; // <-- NEW
-  const listKey = `raffle:entries:${windowKey}`;
-
-  await redis
-    .multi()
-    .sAdd(setKey, ip)                    // <-- mark that this IP has a jackpot entry
-    .expire(setKey, ttlSeconds)
-    .rPush(listKey, JSON.stringify(entry))
-    .expire(listKey, ttlSeconds)
-    .incr(jpKey)
-    .expire(jpKey, ttlSeconds)
-    .exec();
-
-  return res.status(200).json({ success: true, entry, jackpot: true });
-}
-
-    const already = await redis.sIsMember(setKey, ip);
-    if (already) {
-      try {
-        const tail = await redis.lRange(listKey, -300, -1);
-        let found = false;
-        for (const s of tail) {
-          try {
-            const e = JSON.parse(s);
-            if (e && e.ip === ip && e.source === source) {
-              found = true;
-              break;
-            }
-          } catch {}
-        }
-        if (!found) {
+        if (source === "jackpot") {
           const entry = {
             id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
             name,
@@ -550,241 +582,345 @@ export default async function handler(req, res) {
             source,
             createdTime: new Date().toISOString(),
           };
-          await redis.rPush(listKey, JSON.stringify(entry));
-          await redis.expire(listKey, ttlSeconds);
-          return res
-            .status(200)
-            .json({ success: true, already: true, repaired: true, entry });
+          const jpKey = `raffle:jackpotCount:${windowKey}:${ip}`;
+          const setKeyJp = `raffle:entered:${windowKey}:jackpot`;
+          await r
+            .multi()
+            .sAdd(setKeyJp, ip)
+            .expire(setKeyJp, ttlSeconds)
+            .rPush(listKey, JSON.stringify(entry))
+            .expire(listKey, ttlSeconds)
+            .incr(jpKey)
+            .expire(jpKey, ttlSeconds)
+            .exec();
+          return res.status(200).json({ success: true, entry, jackpot: true });
         }
-      } catch {}
-      return res.status(200).json({ success: true, already: true, source });
+
+        const already = await r.sIsMember(setKey, ip);
+        if (already) {
+          try {
+            const tail = await r.lRange(listKey, -300, -1);
+            let found = false;
+            for (const s of tail) {
+              try {
+                const e = JSON.parse(s);
+                if (e && e.ip === ip && e.source === source) {
+                  found = true;
+                  break;
+                }
+              } catch {}
+            }
+            if (!found) {
+              const entry = {
+                id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
+                name,
+                ip,
+                source,
+                createdTime: new Date().toISOString(),
+              };
+              await r.rPush(listKey, JSON.stringify(entry));
+              await r.expire(listKey, ttlSeconds);
+              return res
+                .status(200)
+                .json({ success: true, already: true, repaired: true, entry });
+            }
+          } catch {}
+          return res.status(200).json({ success: true, already: true, source });
+        }
+
+        const entry = {
+          id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
+          name,
+          ip,
+          source,
+          createdTime: new Date().toISOString(),
+        };
+        await r
+          .multi()
+          .sAdd(setKey, ip)
+          .expire(setKey, ttlSeconds)
+          .rPush(listKey, JSON.stringify(entry))
+          .expire(listKey, ttlSeconds)
+          .exec();
+        return res.status(200).json({ success: true, entry });
+      });
+    } catch {
+      return res.status(503).json({ error: "Redis not ready" });
     }
-
-    const entry = {
-      id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
-      name,
-      ip,
-      source,
-      createdTime: new Date().toISOString(),
-    };
-
-    await redis
-      .multi()
-      .sAdd(setKey, ip)
-      .expire(setKey, ttlSeconds)
-      .rPush(listKey, JSON.stringify(entry))
-      .expire(listKey, ttlSeconds)
-      .exec();
-
-    return res.status(200).json({ success: true, entry });
   }
 
   if (action === "entries" && req.method === "GET") {
-    const ok = await ensureRedisConnected();
-    if (!ok) return res.status(200).json({ entries: [], count: 0 });
-
-    const { windowKey } = await getWindowInfo();
-    const listKey = `raffle:entries:${windowKey}`;
-    const raw = await redis.lRange(listKey, 0, -1);
-    const entries = raw
-      .map((s) => {
-        try {
-          return JSON.parse(s);
-        } catch {
-          return null;
-        }
-      })
-      .filter(Boolean);
-    return res.status(200).json({ entries, count: entries.length });
+    try {
+      return await withRedis(async (r) => {
+        const { windowKey } = await getWindowInfo(r);
+        const listKey = `raffle:entries:${windowKey}`;
+        const raw = await r.lRange(listKey, 0, -1);
+        const entries = raw
+          .map((s) => {
+            try {
+              return JSON.parse(s);
+            } catch {
+              return null;
+            }
+          })
+          .filter(Boolean);
+        return res.status(200).json({ entries, count: entries.length });
+      });
+    } catch {
+      return res.status(200).json({ entries: [], count: 0 });
+    }
   }
 
   if (action === "my-entries" && req.method === "GET") {
-    const ok = await ensureRedisConnected();
-    if (!ok) {
-      return res.status(200).json({
-        mine: 0,
-        total: 0,
-        sources: { fb: false, ig: false, jackpot: false },
-        bonus: 0,
+    try {
+      return await withRedis(async (r) => {
+        const { windowKey } = await getWindowInfo(r);
+        const ip =
+          req.headers["x-forwarded-for"]?.split(",")[0]?.trim() ||
+          req.socket.remoteAddress ||
+          "unknown";
+
+        const setFb = `raffle:entered:${windowKey}:fb`;
+        const setIg = `raffle:entered:${windowKey}:ig`;
+        const setJp = `raffle:entered:${windowKey}:jackpot`;
+        const bonusKey = `raffle:bonus:${windowKey}:${ip}`;
+        const listKey = `raffle:entries:${windowKey}`;
+
+        const [fb, ig, jp, total, bonusRaw] = await Promise.all([
+          r.sIsMember(setFb, ip),
+          r.sIsMember(setIg, ip),
+          r.sIsMember(setJp, ip),
+          r.lLen(listKey).catch(() => 0),
+          r.get(bonusKey).catch(() => "0"),
+        ]);
+
+        const bonus = Number(bonusRaw || 0) || 0;
+        const mine = (fb ? 1 : 0) + (ig ? 1 : 0) + (jp ? 1 : 0) + bonus;
+
+        return res.status(200).json({
+          mine,
+          total: Number(total || 0),
+          sources: { fb: !!fb, ig: !!ig, jackpot: !!jp },
+          bonus,
+        });
       });
+    } catch {
+      return res
+        .status(200)
+        .json({
+          mine: 0,
+          total: 0,
+          sources: { fb: false, ig: false, jackpot: false },
+          bonus: 0,
+        });
     }
-
-    const { windowKey } = await getWindowInfo();
-    const ip =
-      req.headers["x-forwarded-for"]?.split(",")[0]?.trim() ||
-      req.socket.remoteAddress ||
-      "unknown";
-
-    const setFb = `raffle:entered:${windowKey}:fb`;
-    const setIg = `raffle:entered:${windowKey}:ig`;
-    const setJp = `raffle:entered:${windowKey}:jackpot`;
-    const bonusKey = `raffle:bonus:${windowKey}:${ip}`;
-    const listKey = `raffle:entries:${windowKey}`;
-
-    const [fb, ig, jp, total, bonusRaw] = await Promise.all([
-      redis.sIsMember(setFb, ip),
-      redis.sIsMember(setIg, ip),
-      redis.sIsMember(setJp, ip),
-      redis.lLen(listKey).catch(() => 0),
-      redis.get(bonusKey).catch(() => "0"),
-    ]);
-
-    const bonus = Number(bonusRaw || 0) || 0;
-    const mine = (fb ? 1 : 0) + (ig ? 1 : 0) + (jp ? 1 : 0) + bonus;
-
-    return res.status(200).json({
-      mine,
-      total: Number(total || 0),
-      sources: { fb: !!fb, ig: !!ig, jackpot: !!jp },
-      bonus,
-    });
   }
 
   if (action === "entries-summary" && req.method === "GET") {
-    const ok = await ensureRedisConnected();
-    if (!ok) return res.status(200).json({ rows: [] });
-
-    const { windowKey } = await getWindowInfo();
-    const listKey = `raffle:entries:${windowKey}`;
-    const raw = await redis.lRange(listKey, 0, -1);
-    const rowsMap = new Map();
-    for (const s of raw) {
-      try {
-        const e = JSON.parse(s);
-        const name = (e?.name || "").trim();
-        if (!name) continue;
-        rowsMap.set(name, (rowsMap.get(name) || 0) + 1);
-      } catch {}
+    try {
+      return await withRedis(async (r) => {
+        const { windowKey } = await getWindowInfo(r);
+        const listKey = `raffle:entries:${windowKey}`;
+        const raw = await r.lRange(listKey, 0, -1);
+        const rowsMap = new Map();
+        for (const s of raw) {
+          try {
+            const e = JSON.parse(s);
+            const name = (e?.name || "").trim();
+            if (!name) continue;
+            rowsMap.set(name, (rowsMap.get(name) || 0) + 1);
+          } catch {}
+        }
+        const rows = Array.from(rowsMap, ([name, entries]) => ({
+          name,
+          entries,
+        })).sort(
+          (a, b) => b.entries - a.entries || a.name.localeCompare(b.name)
+        );
+        return res.status(200).json({ rows });
+      });
+    } catch {
+      return res.status(200).json({ rows: [] });
     }
-    const rows = Array.from(rowsMap, ([name, entries]) => ({
-      name,
-      entries,
-    })).sort((a, b) => b.entries - a.entries || a.name.localeCompare(b.name));
-    return res.status(200).json({ rows });
   }
 
   /* ────────────────────────────────────────────────────────────
    RESET EVERYTHING (entries + winners + social)
 ───────────────────────────────────────────────────────────── */
   if (action === "reset-entries" && req.method === "POST") {
-  if (!isAdmin(req)) return res.status(403).json({ error: "Forbidden" });
+    if (!isAdmin(req)) return res.status(403).json({ error: "Forbidden" });
 
-  const ok = await ensureRedisConnected();
-  if (!ok || !redis?.isOpen) {
-    try { MEM.winners = []; MEM.currentWinner = null; } catch {}
-    return res.status(200).json({
-      success: true,
-      windowKey: "(mem)",
-      deletedKeys: 0,
-      remaining: { social: [], raffleEntered: [], jackpots: [], votes: [], entries: [] },
-      _note: "Redis not ready; cleared memory mirror only",
-    });
-  }
-
-  const safeScan = async (pattern) => {
     try {
-      if (!redis?.scanIterator) return [];
-      const out = [];
-      for await (const k of redis.scanIterator({ MATCH: pattern, COUNT: 1000 })) {
-        if (typeof k === "string" && k) out.push(k);
-      }
-      return out;
-    } catch (e) {
-      console.warn("scan failed", pattern, e?.message || e);
-      return [];
+      return await withRedis(async (r) => {
+        const safeScan = async (pattern) => {
+          try {
+            if (!r?.scanIterator) return [];
+            const out = [];
+            for await (const k of r.scanIterator({
+              MATCH: pattern,
+              COUNT: 1000,
+            })) {
+              if (typeof k === "string" && k) out.push(k);
+            }
+            return out;
+          } catch (e) {
+            console.warn("scan failed", pattern, e?.message || e);
+            return [];
+          }
+        };
+        const delKey = async (k) => {
+          if (!k || typeof k !== "string") return 0;
+          try {
+            return (await r.unlink(k)) || 0;
+          } catch {
+            try {
+              return (await r.del(k)) || 0;
+            } catch {
+              return 0;
+            }
+          }
+        };
+
+        const { windowKey } = await getWindowInfo(r);
+
+        const listKey = `raffle:entries:${windowKey}`;
+        const dedupes = await safeScan(`raffle:entered:${windowKey}:*`);
+        const bonuses = await safeScan(`raffle:bonus:${windowKey}:*`);
+        const socialIpsScoped = `social:ips:${windowKey}`;
+        const socialStates = await safeScan(`social:${windowKey}:*`);
+        const socialLocks = await safeScan(`social:lock:${windowKey}*`);
+        const jpCounts = await safeScan(`raffle:jackpotCount:${windowKey}:*`);
+
+        const winnersKey = "raffle:winners:all";
+        const winnerKey = "raffle_winner";
+        const socialIpsLegacy = "social:ips";
+
+        const votesAll = await safeScan(`votes:*`);
+        const entriesCaches = await safeScan(`entries:*`);
+
+        const toDelete = Array.from(
+          new Set([
+            listKey,
+            winnersKey,
+            winnerKey,
+            socialIpsScoped,
+            socialIpsLegacy,
+            ...dedupes,
+            ...bonuses,
+            ...socialStates,
+            ...socialLocks,
+            ...jpCounts,
+            ...votesAll,
+            ...entriesCaches,
+          ])
+        );
+
+        let deleted = 0;
+        for (const k of toDelete) deleted += await delKey(k);
+
+        MEM.winners = [];
+        MEM.currentWinner = null;
+
+        const [
+          remainingSocial,
+          remainingEntered,
+          remainingJp,
+          remainingVotes,
+          remainingEntries,
+        ] = await Promise.all([
+          safeScan(`social:${windowKey}:*`),
+          safeScan(`raffle:entered:${windowKey}:*`),
+          safeScan(`raffle:jackpotCount:${windowKey}:*`),
+          safeScan(`votes:*`),
+          safeScan(`entries:*`),
+        ]);
+
+        return res.status(200).json({
+          success: true,
+          windowKey,
+          deletedKeys: deleted,
+          remaining: {
+            social: remainingSocial,
+            raffleEntered: remainingEntered,
+            jackpots: remainingJp,
+            votes: remainingVotes,
+            entries: remainingEntries,
+          },
+        });
+      });
+    } catch {
+      // If Redis truly not ready, clear memory mirror only (dev convenience)
+      try {
+        MEM.winners = [];
+        MEM.currentWinner = null;
+      } catch {}
+      return res.status(200).json({
+        success: true,
+        windowKey: "(mem)",
+        deletedKeys: 0,
+        remaining: {
+          social: [],
+          raffleEntered: [],
+          jackpots: [],
+          votes: [],
+          entries: [],
+        },
+        _note: "Redis not ready; cleared memory mirror only",
+      });
     }
-  };
-
-  const delKey = async (k) => {
-    if (!k || typeof k !== "string") return 0;
-    try { return (await redis.unlink(k)) || 0; }
-    catch { try { return (await redis.del(k)) || 0; } catch { return 0; } }
-  };
-
-  try {
-    const { windowKey } = await getWindowInfo();
-
-    // Window-scoped keys you already reset
-    const listKey = `raffle:entries:${windowKey}`;
-    const dedupes = await safeScan(`raffle:entered:${windowKey}:*`);
-    const bonuses = await safeScan(`raffle:bonus:${windowKey}:*`);
-    const socialIpsScoped = `social:ips:${windowKey}`;
-    const socialStates = await safeScan(`social:${windowKey}:*`);
-    const socialLocks = await safeScan(`social:lock:${windowKey}:*`);
-    const jpCounts = await safeScan(`raffle:jackpotCount:${windowKey}:*`);
-
-    // Global-ish keys you already had
-    const winnersKey = "raffle:winners:all";
-    const winnerKey = "raffle_winner";
-    const socialIpsLegacy = "social:ips";
-
-    // 🔥 NEW: Nuke ALL vote counters & any entry caches
-    // This guarantees the UI cannot add local votes to BASE=1 after a reset.
-    const votesAll = await safeScan(`votes:*`);     // e.g., votes:{fileId}
-    const entriesCaches = await safeScan(`entries:*`); // in case you introduced derived caches
-
-    // Build deletion set
-    const toDelete = Array.from(new Set([
-      listKey,
-      winnersKey,
-      winnerKey,
-      socialIpsScoped,
-      socialIpsLegacy,
-      ...dedupes,
-      ...bonuses,
-      ...socialStates,
-      ...socialLocks,
-      ...jpCounts,
-      // NEW
-      ...votesAll,
-      ...entriesCaches,
-    ]));
-
-    let deleted = 0;
-    for (const k of toDelete) deleted += await delKey(k);
-
-    // Clear memory mirrors too
-    MEM.winners = [];
-    MEM.currentWinner = null;
-
-    // Report what (if anything) remains
-    const [remainingSocial, remainingEntered, remainingJp, remainingVotes, remainingEntries] =
-      await Promise.all([
-        safeScan(`social:${windowKey}:*`),
-        safeScan(`raffle:entered:${windowKey}:*`),
-        safeScan(`raffle:jackpotCount:${windowKey}:*`),
-        safeScan(`votes:*`),
-        safeScan(`entries:*`),
-      ]);
-
-    // Optional: broadcast a reset event if you use SSE/WebSocket
-    // await redis.publish("events", JSON.stringify({ type: "raffle_reset", windowKey }));
-
-    return res.status(200).json({
-      success: true,
-      windowKey,
-      deletedKeys: deleted,
-      remaining: {
-        social: remainingSocial,
-        raffleEntered: remainingEntered,
-        jackpots: remainingJp,
-        votes: remainingVotes,
-        entries: remainingEntries,
-      },
-    });
-  } catch (e) {
-    console.error("❌ reset-entries failed:", e?.message || e, e?.stack || "");
-    return res.status(500).json({ success: false, error: "Reset entries failed", details: e?.message || String(e) });
   }
-}
-
 
   // ────────────────────────────────────────────────────────────
   // Social status (per-window aggregate for Admin UI)
   // ────────────────────────────────────────────────────────────
   if (req.method === "GET" && action === "social-status") {
-    const ok = await ensureRedisConnected();
-    if (!ok || !redis?.isOpen) {
+    try {
+      return await withRedis(async (r) => {
+        const { windowKey } = await getWindowInfo(r);
+        const setKey = `social:ips:${windowKey}`;
+        const ips = await r.sMembers(setKey);
+
+        const entries = [];
+        let totalUnlocked = 0,
+          fbClicks = 0,
+          igClicks = 0;
+
+        for (const ip of ips) {
+          const key = `social:${windowKey}:${ip}`;
+          const raw = await r.get(key);
+          if (!raw) continue;
+          let s;
+          try {
+            s = JSON.parse(raw);
+          } catch {
+            s = { followed: raw === "true", platforms: {} };
+          }
+          const ttlSeconds = await r.ttl(key);
+          if (s.followed) totalUnlocked += 1;
+          if (s.platforms?.fb) fbClicks += 1;
+          if (s.platforms?.ig) igClicks += 1;
+          entries.push({
+            ip,
+            firstSeen: s.firstSeen || null,
+            lastSeen: s.lastSeen || null,
+            followed: !!s.followed,
+            platforms: s.platforms || {},
+            count: s.count || 1,
+            ttlSeconds,
+          });
+        }
+
+        return res.status(200).json({
+          totals: {
+            uniqueIPsTracked: entries.length,
+            unlocked: totalUnlocked,
+            facebookClicks: fbClicks,
+            instagramClicks: igClicks,
+          },
+          entries,
+        });
+      });
+    } catch {
       return res.status(200).json({
         totals: {
           uniqueIPsTracked: 0,
@@ -796,259 +932,170 @@ export default async function handler(req, res) {
         _fallback: true,
       });
     }
-
-    const { windowKey } = await getWindowInfo();
-    const setKey = `social:ips:${windowKey}`;
-    const ips = await redis.sMembers(setKey);
-
-    const entries = [];
-    let totalUnlocked = 0,
-      fbClicks = 0,
-      igClicks = 0;
-
-    for (const ip of ips) {
-      const key = `social:${windowKey}:${ip}`;
-      const raw = await redis.get(key);
-      if (!raw) continue;
-      let s;
-      try {
-        s = JSON.parse(raw);
-      } catch {
-        s = { followed: raw === "true", platforms: {} };
-      }
-      const ttlSeconds = await redis.ttl(key);
-      if (s.followed) totalUnlocked += 1;
-      if (s.platforms?.fb) fbClicks += 1;
-      if (s.platforms?.ig) igClicks += 1;
-      entries.push({
-        ip,
-        firstSeen: s.firstSeen || null,
-        lastSeen: s.lastSeen || null,
-        followed: !!s.followed,
-        platforms: s.platforms || {},
-        count: s.count || 1,
-        ttlSeconds,
-      });
-    }
-
-    return res.status(200).json({
-      totals: {
-        uniqueIPsTracked: entries.length,
-        unlocked: totalUnlocked,
-        facebookClicks: fbClicks,
-        instagramClicks: igClicks,
-      },
-      entries,
-    });
   }
-// GET /api/admin?action=my-entries&fileId=<optional>
-if (action === "my-entries" && req.method === "GET") {
-  const ok = await ensureRedisConnected();
-  const BASE = 0;
-  let entries = BASE;
-
-  if (ok && redis?.isOpen) {
-    try {
-      const { windowKey } = await getWindowInfo();
-      const fileId = String(req.query.fileId || "").trim();
-
-      if (fileId) {
-        // Validate this file belongs to the current window before counting its votes
-        const uploadsJson = await redis.lrange("uploads", 0, -1);
-        let belongs = false;
-        for (const s of uploadsJson) {
-          try {
-            const u = JSON.parse(s);
-            const fid = String(u?.fileId || u?.driveFileId || u?.id || u?.fileName || u?.key || "").trim();
-            const w   = (u?.windowKey || u?.showWindow || u?.window || u?.window_id || "").trim();
-            if (fid === fileId && w === windowKey) { belongs = true; break; }
-          } catch {}
-        }
-        if (belongs) {
-          const v = await redis.get(`votes:${fileId}`);
-          entries = BASE + Number(v || 0);
-        }
-      }
-    } catch (e) {
-      console.warn("my-entries fallback", e?.message || e);
-    }
-  }
-
-  return res.status(200).json({ entries });
-}
 
   /* ────────────────────────────────────────────────────────────
      WINNER (current) + PICK + RESET
   ───────────────────────────────────────────────────────────── */
   if (action === "winner" && req.method === "GET") {
     try {
-      const ok = await ensureRedisConnected();
-      if (ok && redis?.isOpen) {
-        const winner = await redis.get("raffle_winner");
+      return await withRedis(async (r) => {
+        const winner = await r.get("raffle_winner");
         return res.json({ winner: winner ? JSON.parse(winner) : null });
-      }
+      });
+    } catch (err) {
+      // fallback to memory mirror
       return res.json({
         winner: MEM.currentWinner ? { name: MEM.currentWinner } : null,
         _fallback: true,
       });
-    } catch (err) {
-      console.error("❌ winner GET:", err);
-      return res.status(500).json({ error: "Failed to get winner" });
     }
   }
 
-  // ────────────────────────────────────────────────────────────
-// MAYBE AUTO-PICK (idempotent, time-gated, no admin needed)
-// ────────────────────────────────────────────────────────────
-if ((req.method === "POST" || req.method === "GET") && action === "maybe-auto-pick") {
-  const ok = await ensureRedisConnected();
-  if (!ok || !redis?.isOpen) {
-    return res.status(503).json({ ok: false, error: "Redis not ready" });
-  }
-
-  try {
-    const { windowKey, startTime } = await getWindowInfo();
-    const pickAtMs = computeAutoPickAt(startTime);
-    if (!pickAtMs) {
-      return res.status(200).json({ ok: false, reason: "no_start_time" });
-    }
-    const now = Date.now();
-    if (now < pickAtMs) {
-      return res.status(200).json({ ok: false, reason: "too_early", msLeft: pickAtMs - now });
-    }
-
-    // If a winner already exists, we're done
-    const already = await redis.get("raffle_winner").catch(() => null);
-    if (already) {
-      return res.status(200).json({ ok: true, already: true, winner: JSON.parse(already) });
-    }
-
-    // Lock to avoid races from multiple tabs/devices
-    const lockKey = `autoPick:lock:${windowKey}`;
-    const gotLock = await redis.set(lockKey, String(now), { NX: true, PX: 8000 });
-    if (!gotLock) {
-      return res.status(200).json({ ok: false, reason: "locked" });
-    }
-
-    // Read entries for current window
-    const listKey = `raffle:entries:${windowKey}`;
-    const raw = await redis.lRange(listKey, 0, -1);
-    const entries = raw
-      .map(s => { try { return JSON.parse(s); } catch { return null; } })
-      .filter(Boolean);
-
-    if (!entries.length) {
-      return res.status(200).json({ ok: false, reason: "no_entries" });
-    }
-
-    // Pick one at random
-    const idx = Math.floor(Math.random() * entries.length);
-    const w = entries[idx];
-    const payload = { id: w.id, name: w.name, source: w.source || null };
-
-    await redis.set("raffle_winner", JSON.stringify(payload));
-    MEM.currentWinner = payload.name;
-
-    // Ledger row
-    const row = {
-      id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
-      name: payload.name,
-      prize: "Raffle Winner — T-Shirt",
-      source: "raffle(auto)",
-      windowKey,
-      ts: new Date().toISOString(),
-    };
-    await appendWinnerRow(row);
-
-    // Optional notify (ignore errors)
+  // AUTO PICK
+  if (
+    (req.method === "POST" || req.method === "GET") &&
+    action === "maybe-auto-pick"
+  ) {
     try {
-      await fetch("https://winner-sse-server.onrender.com/broadcast", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ winner: payload.name }),
+      return await withRedis(async (r) => {
+        const { windowKey, startTime } = await getWindowInfo(r);
+        const pickAtMs = computeAutoPickAt(startTime);
+        if (!pickAtMs)
+          return res.status(200).json({ ok: false, reason: "no_start_time" });
+        const now = Date.now();
+        if (now < pickAtMs)
+          return res
+            .status(200)
+            .json({ ok: false, reason: "too_early", msLeft: pickAtMs - now });
+
+        const already = await r.get("raffle_winner").catch(() => null);
+        if (already)
+          return res
+            .status(200)
+            .json({ ok: true, already: true, winner: JSON.parse(already) });
+
+        const lockKey = `autoPick:lock:${windowKey}`;
+        const gotLock = await r.set(lockKey, String(now), {
+          NX: true,
+          PX: 8000,
+        });
+        if (!gotLock)
+          return res.status(200).json({ ok: false, reason: "locked" });
+
+        const listKey = `raffle:entries:${windowKey}`;
+        const raw = await r.lRange(listKey, 0, -1);
+        const entries = raw
+          .map((s) => {
+            try {
+              return JSON.parse(s);
+            } catch {
+              return null;
+            }
+          })
+          .filter(Boolean);
+        if (!entries.length)
+          return res.status(200).json({ ok: false, reason: "no_entries" });
+
+        const idx = Math.floor(Math.random() * entries.length);
+        const w = entries[idx];
+        const payload = { id: w.id, name: w.name, source: w.source || null };
+
+        await r.set("raffle_winner", JSON.stringify(payload));
+        MEM.currentWinner = payload.name;
+
+        const row = {
+          id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
+          name: payload.name,
+          prize: "Raffle Winner — T-Shirt",
+          source: "raffle(auto)",
+          windowKey,
+          ts: new Date().toISOString(),
+        };
+        await appendWinnerRow(r, row);
+
+        try {
+          await fetch("https://winner-sse-server.onrender.com/broadcast", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ winner: payload.name }),
+          });
+        } catch {}
+
+        return res
+          .status(200)
+          .json({ ok: true, autoPicked: true, winner: payload });
       });
-    } catch {}
-
-    return res.status(200).json({ ok: true, autoPicked: true, winner: payload });
-  } catch (e) {
-    console.error("maybe-auto-pick failed:", e?.message || e);
-    return res.status(500).json({ ok: false, error: "auto-pick failed" });
+    } catch (e) {
+      console.error("maybe-auto-pick failed:", e?.message || e);
+      return res.status(503).json({ ok: false, error: "Redis not ready" });
+    }
   }
-}
-
 
   if (action === "pick-winner" && req.method === "POST") {
-    await ensureRedisConnected();
     const { role } = req.body || {};
     if (role !== "admin" && role !== "moderator")
       return res.status(401).json({ error: "Unauthorized" });
 
     try {
-      const { windowKey } = await getWindowInfo();
-      if (!redis?.isOpen)
-        return res.status(503).json({ error: "Redis not ready" });
+      return await withRedis(async (r) => {
+        const { windowKey } = await getWindowInfo(r);
+        const listKey = `raffle:entries:${windowKey}`;
+        const raw = await r.lRange(listKey, 0, -1);
+        const entries = raw
+          .map((s) => {
+            try {
+              return JSON.parse(s);
+            } catch {
+              return null;
+            }
+          })
+          .filter(Boolean);
+        if (!entries.length)
+          return res.status(400).json({ error: "No eligible entries" });
 
-      const listKey = `raffle:entries:${windowKey}`;
-      const raw = await redis.lRange(listKey, 0, -1);
-      const entries = raw
-        .map((s) => {
-          try {
-            return JSON.parse(s);
-          } catch {
-            return null;
-          }
-        })
-        .filter(Boolean);
-      if (!entries.length)
-        return res.status(400).json({ error: "No eligible entries" });
+        const idx = Math.floor(Math.random() * entries.length);
+        const winner = entries[idx];
+        const payload = {
+          id: winner.id,
+          name: winner.name,
+          source: winner.source || null,
+        };
 
-      const idx = Math.floor(Math.random() * entries.length);
-      const winner = entries[idx];
-      const payload = {
-        id: winner.id,
-        name: winner.name,
-        source: winner.source || null,
-      };
+        await r.set("raffle_winner", JSON.stringify(payload));
+        MEM.currentWinner = payload.name;
 
-      await redis.set("raffle_winner", JSON.stringify(payload));
-      MEM.currentWinner = payload.name;
+        const row = {
+          id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
+          name: payload.name,
+          prize: "Raffle Winner — T-Shirt",
+          source: "raffle",
+          windowKey,
+          ts: new Date().toISOString(),
+        };
+        await appendWinnerRow(r, row);
 
-      const row = {
-        id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
-        name: payload.name,
-        prize: "Raffle Winner — T-Shirt",
-        source: "raffle",
-        windowKey,
-        ts: new Date().toISOString(),
-      };
-      await appendWinnerRow(row);
-
-      try {
-        await fetch("https://winner-sse-server.onrender.com/broadcast", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ winner: payload.name }),
-        });
-      } catch {}
-      return res.json({ success: true, winner: payload });
+        try {
+          await fetch("https://winner-sse-server.onrender.com/broadcast", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ winner: payload.name }),
+          });
+        } catch {}
+        return res.json({ success: true, winner: payload });
+      });
     } catch (err) {
       console.error("❌ pick-winner:", err);
-      return res.status(500).json({ error: "Failed to pick winner" });
+      return res.status(503).json({ error: "Redis not ready" });
     }
   }
 
-  /* ────────────────────────────────────────────────────────────
-   RESET CURRENT WINNER (+ optionally clear Winners Ledger)
-───────────────────────────────────────────────────────────── */
+  /* RESET CURRENT WINNER (+ optionally clear Winners Ledger) */
   if (action === "reset-winner" && req.method === "POST") {
     if (!isAdmin(req)) return res.status(403).json({ error: "Forbidden" });
 
-    const u = new URL(req.url || "", `http://${req.headers.host}`);
-
-    // By default we CLEAR the winners ledger too.
-    // You can override by calling ?keepLedger=true or body: { clearLedger: false }
     const keepLedgerQP = /^true|1|yes$/i.test(
-      u.searchParams.get("keepLedger") || ""
+      url.searchParams.get("keepLedger") || ""
     );
     const clearLedgerBody =
       typeof req.body?.clearLedger === "boolean"
@@ -1057,70 +1104,55 @@ if ((req.method === "POST" || req.method === "GET") && action === "maybe-auto-pi
     const clearLedger =
       clearLedgerBody !== undefined ? clearLedgerBody : !keepLedgerQP;
 
-    await ensureRedisConnected();
-
     try {
-      // Clear the “current winner” key everywhere
-      if (redis?.isOpen) await redis.del("raffle_winner");
-      MEM.currentWinner = null;
+      return await withRedis(async (r) => {
+        await r.del("raffle_winner");
+        MEM.currentWinner = null;
 
-      // Optionally clear the Winners Ledger as well
-      let ledgerCleared = false;
-      if (clearLedger) {
-        try {
-          if (redis?.isOpen) {
-            await redis.del("raffle:winners:all");
-          }
-          MEM.winners = [];
-
-          // If you’re running locally and keep a file fallback, wipe it too
+        let ledgerCleared = false;
+        if (clearLedger) {
           try {
-            const localFilePath = path.join(
-              process.cwd(),
-              ".data",
-              "winners-local.json"
+            await r.del("raffle:winners:all");
+            MEM.winners = [];
+            try {
+              const localFilePath = path.join(
+                process.cwd(),
+                ".data",
+                "winners-local.json"
+              );
+              if (fs.existsSync(localFilePath))
+                fs.writeFileSync(localFilePath, "[]");
+            } catch {}
+            ledgerCleared = true;
+          } catch (e) {
+            console.warn(
+              "reset-winner: clearing ledger failed:",
+              e?.message || e
             );
-            if (fs.existsSync(localFilePath)) {
-              fs.writeFileSync(localFilePath, "[]");
-            }
-          } catch {}
-
-          ledgerCleared = true;
-        } catch (e) {
-          console.warn(
-            "reset-winner: clearing ledger failed:",
-            e?.message || e
-          );
+          }
         }
-      }
 
-      // Optional: broadcast reset for any SSE client you have
-      try {
-        await fetch("https://winner-sse-server.onrender.com/reset", {
-          method: "POST",
+        try {
+          await fetch("https://winner-sse-server.onrender.com/reset", {
+            method: "POST",
+          });
+        } catch {}
+
+        return res.json({
+          success: true,
+          ledgerCleared,
+          note: ledgerCleared
+            ? "Current winner and Winners Ledger cleared."
+            : "Current winner cleared. Ledger kept.",
         });
-      } catch {}
-
-      return res.json({
-        success: true,
-        ledgerCleared,
-        note: ledgerCleared
-          ? "Current winner and Winners Ledger cleared."
-          : "Current winner cleared. Ledger kept.",
       });
     } catch (err) {
       console.error("❌ reset-winner:", err);
-      return res.status(500).json({
-        success: false,
-        error: "Failed to reset winner",
-        details: err?.message || String(err),
-      });
+      return res.status(503).json({ success: false, error: "Redis not ready" });
     }
   }
 
-  /* ────────────────────────────────────────────────────────────
-     WINNERS LEDGER (manual + list)
-  ───────────────────────────────────────────────────────────── */
+  /* WINNERS LEDGER (manual + list) */
   if (action === "winner-log" && req.method === "POST") {
     if (!isAdmin(req)) return res.status(403).json({ error: "Forbidden" });
     const { name, prize } = req.body || {};
@@ -1137,9 +1169,11 @@ if ((req.method === "POST" || req.method === "GET") && action === "maybe-auto-pi
       ts: new Date().toISOString(),
     };
     try {
-      await appendWinnerRow(row);
-      noCache(res);
-      return res.status(200).json({ success: true, row });
+      return await withRedis(async (r) => {
+        await appendWinnerRow(r, row);
+        noCache(res);
+        return res.status(200).json({ success: true, row });
+      });
     } catch (e) {
       console.error("winner-log failed:", e);
       return res.status(500).json({ error: "winner-log failed" });
@@ -1148,31 +1182,28 @@ if ((req.method === "POST" || req.method === "GET") && action === "maybe-auto-pi
 
   if (action === "winner-logs" && req.method === "GET") {
     try {
-      const ok = await ensureRedisConnected();
-
       let redisRows = [];
-      if (ok && redis?.isOpen) {
-        const raw = await redis.lRange("raffle:winners:all", -400, -1);
-        redisRows = raw
-          .map((s) => {
-            try {
-              return JSON.parse(s);
-            } catch {
-              return null;
-            }
-          })
-          .filter(Boolean);
-      }
-
+      try {
+        await withRedis(async (r) => {
+          const raw = await r.lRange("raffle:winners:all", -400, -1);
+          redisRows = raw
+            .map((s) => {
+              try {
+                return JSON.parse(s);
+              } catch {
+                return null;
+              }
+            })
+            .filter(Boolean);
+        });
+      } catch {}
       const memRows = Array.isArray(MEM.winners) ? MEM.winners : [];
       const fileRows = isLocal ? readLocalLedgerSafe() : [];
 
-      // Merge & dedupe by id
       const byId = new Map();
-      for (const r of [...redisRows, ...fileRows, ...memRows]) {
-        if (r && r.id) byId.set(r.id, r);
+      for (const ro of [...redisRows, ...fileRows, ...memRows]) {
+        if (ro && ro.id) byId.set(ro.id, ro);
       }
-
       const rows = Array.from(byId.values())
         .sort((a, b) => new Date(b.ts) - new Date(a.ts))
         .slice(0, 200);
@@ -1217,106 +1248,124 @@ if ((req.method === "POST" || req.method === "GET") && action === "maybe-auto-pi
   }
 
   if (req.method === "GET" && action === "check-follow") {
-    await ensureRedisConnected();
-    const { windowKey } = await getWindowInfo();
-    const ip =
-      req.headers["x-forwarded-for"]?.split(",")[0] ||
-      req.socket.remoteAddress ||
-      "unknown";
-    let raw = null;
     try {
-      raw = await redis.get(`social:${windowKey}:${ip}`);
-    } catch {}
-    if (!raw)
-      try {
-        raw = await redis.get(`social:${ip}`);
-      } catch {}
-    return res.status(200).json({ allowed: isFollowAllowed(raw) });
+      return await withRedis(async (r) => {
+        const { windowKey } = await getWindowInfo(r);
+        const ip =
+          req.headers["x-forwarded-for"]?.split(",")[0] ||
+          req.socket.remoteAddress ||
+          "unknown";
+        let raw = null;
+        try {
+          raw = await r.get(`social:${windowKey}:${ip}`);
+        } catch {}
+        if (!raw)
+          try {
+            raw = await r.get(`social:${ip}`);
+          } catch {}
+        return res.status(200).json({ allowed: isFollowAllowed(raw) });
+      });
+    } catch {
+      return res.status(200).json({ allowed: false });
+    }
   }
 
   if (
     (req.method === "POST" || req.method === "GET") &&
     action === "mark-follow"
   ) {
-    await ensureRedisConnected();
-    if (!redis?.isOpen)
-      return res.status(503).json({ error: "Redis not ready" });
-
-    let platform =
-      new URL(req.url, `http://${req.headers.host}`).searchParams.get(
-        "platform"
-      ) ||
-      (typeof req.body === "object" && req.body ? req.body.platform : null);
-    platform = (platform || "").toString().trim().toLowerCase();
-
-    if (platform !== "fb" && platform !== "ig") {
-      return res.status(400).json({ error: "Invalid platform" });
-    }
-
-    const { windowKey, ttlSeconds } = await getWindowInfo();
-    const ip =
-      req.headers["x-forwarded-for"]?.split(",")[0]?.trim() ||
-      req.socket.remoteAddress ||
-      "unknown";
-
-    const lockKey = `social:lock:${windowKey}:${ip}`;
     try {
-      const got = await redis.set(lockKey, platform, { NX: true, PX: 1000 });
-      if (!got) return res.status(200).json({ success: true, throttled: true });
-    } catch {}
+      return await withRedis(async (r) => {
+        let platform =
+          new URL(req.url, `http://${req.headers.host}`).searchParams.get(
+            "platform"
+          ) ||
+          (typeof req.body === "object" && req.body ? req.body.platform : null);
+        platform = (platform || "").toString().trim().toLowerCase();
 
-    const key = `social:${windowKey}:${ip}`;
-    const setKey = `social:ips:${windowKey}`;
-    const now = new Date().toISOString();
+        if (platform !== "fb" && platform !== "ig") {
+          return res.status(400).json({ error: "Invalid platform" });
+        }
 
-    let state = {
-      firstSeen: now,
-      lastSeen: now,
-      followed: true,
-      count: 0,
-      platforms: { fb: false, ig: false },
-    };
+        const { windowKey, ttlSeconds } = await getWindowInfo(r);
+        const ip =
+          req.headers["x-forwarded-for"]?.split(",")[0]?.trim() ||
+          req.socket.remoteAddress ||
+          "unknown";
 
-    try {
-      const prev = await redis.get(key);
-      if (prev) {
+        const lockKey = `social:lock:${windowKey}:${ip}`;
         try {
-          const p = JSON.parse(prev);
-          state.firstSeen = p.firstSeen || state.firstSeen;
-          state.count = Number(p.count || 0);
-          state.platforms = { fb: !!p.platforms?.fb, ig: !!p.platforms?.ig };
+          const got = await r.set(lockKey, platform, { NX: true, PX: 1000 });
+          if (!got)
+            return res.status(200).json({ success: true, throttled: true });
         } catch {}
-      }
-    } catch {}
 
-    state.lastSeen = now;
-    state.followed = true;
-    state.count += 1;
-    state.platforms[platform] = true;
+        const key = `social:${windowKey}:${ip}`;
+        const setKey = `social:ips:${windowKey}`;
+        const now = new Date().toISOString();
 
-    await redis.set(key, JSON.stringify(state), { EX: ttlSeconds });
-    await redis.sAdd(setKey, ip);
+        let state = {
+          firstSeen: now,
+          lastSeen: now,
+          followed: true,
+          count: 0,
+          platforms: { fb: false, ig: false },
+        };
 
-    return res.status(200).json({ success: true, state });
+        try {
+          const prev = await r.get(key);
+          if (prev) {
+            try {
+              const p = JSON.parse(prev);
+              state.firstSeen = p.firstSeen || state.firstSeen;
+              state.count = Number(p.count || 0);
+              state.platforms = {
+                fb: !!p.platforms?.fb,
+                ig: !!p.platforms?.ig,
+              };
+            } catch {}
+          }
+        } catch {}
+
+        state.lastSeen = now;
+        state.followed = true;
+        state.count += 1;
+        state.platforms[platform] = true;
+
+        await r.set(key, JSON.stringify(state), { EX: ttlSeconds });
+        await r.sAdd(setKey, ip);
+
+        return res.status(200).json({ success: true, state });
+      });
+    } catch {
+      return res.status(503).json({ error: "Redis not ready" });
+    }
   }
 
   if (action === "slot-spins-version" && req.method === "GET") {
-    const ok = await ensureRedisConnected();
-    if (!ok || !redis?.isOpen) return res.status(200).json({ version: 0 });
-    const v =
-      Number(await redis.get("slot:spinsResetVersion").catch(() => 0)) || 0;
-    return res.status(200).json({ version: v });
+    try {
+      return await withRedis(async (r) => {
+        const v =
+          Number(await r.get("slot:spinsResetVersion").catch(() => 0)) || 0;
+        return res.status(200).json({ version: v });
+      });
+    } catch {
+      return res.status(200).json({ version: 0 });
+    }
   }
   if (action === "reset-slot-spins" && req.method === "POST") {
     if (!isAdmin(req)) return res.status(403).json({ error: "Forbidden" });
-    const ok = await ensureRedisConnected();
-    if (!ok || !redis?.isOpen)
+    try {
+      return await withRedis(async (r) => {
+        const version = await r.incr("slot:spinsResetVersion");
+        await r.set("slot:spinsResetAt", new Date().toISOString(), {
+          EX: 60 * 60 * 24 * 7,
+        });
+        return res.status(200).json({ success: true, version });
+      });
+    } catch {
       return res.status(503).json({ error: "Redis not ready" });
-    const version = await redis.incr("slot:spinsResetVersion");
-    await redis.set("slot:spinsResetAt", new Date().toISOString(), {
-      EX: 60 * 60 * 24 * 7,
-    });
-    return res.status(200).json({ success: true, version });
+    }
   }
 
   /* ────────────────────────────────────────────────────────────
@@ -1324,131 +1373,89 @@ if ((req.method === "POST" || req.method === "GET") && action === "maybe-auto-pi
   ───────────────────────────────────────────────────────────── */
   if (req.method === "GET" && action === "shutdown-status") {
     try {
-      await ensureRedisConnected();
-      const raw = await redis?.get("shutdown").catch(() => null);
-      const isShutdown = raw === "true";
-      return res.status(200).json({ isShutdown });
+      return await withRedis(async (r) => {
+        const raw = await r.get("shutdown").catch(() => null);
+        const isShutdownFlag = raw === "true";
+        return res.status(200).json({ isShutdown: isShutdownFlag });
+      });
     } catch (e) {
       console.error("shutdown-status error:", e);
       return res.status(200).json({ isShutdown: false, _warning: "fallback" });
     }
   }
+
   if (req.method === "POST" && action === "toggle-shutdown") {
     if (!isAdmin(req)) return res.status(403).json({ error: "Forbidden" });
-    const ok = await ensureRedisConnected();
-    if (!ok || !redis?.isOpen)
-      return res.status(503).json({ error: "Redis not ready" });
-    const current = await redis.get("shutdown");
-    const newStatus = current !== "true";
-    await redis.set("shutdown", newStatus ? "true" : "false");
-    return res.status(200).json({ success: true, isShutdown: newStatus });
-  }
-
-if (action === "shutdown" && req.method === "POST") {
-  if (!isSuperAdmin(req)) return res.status(403).json({ error: "Forbidden" });
-
-  const ok = await ensureRedisConnected();
-  if (!ok || !redis?.isOpen) {
-    return res.status(503).json({ error: "Redis unavailable" });
-  }
-
-  let body = {};
-  try { body = await readJson(req); } catch {}
-  let { enabled, toggle } = body;
-
-  if (typeof enabled === "undefined") {
-    if (toggle) {
-      const cur = await isShutdown();
-      enabled = !cur;
-    } else {
-      enabled = true; // default to enabling shutdown if not specified
-    }
-  }
-
-  await redis.set("shutdown", enabled ? "1" : "0");
-
-  // (Optional) notify clients via SSE/WebSocket
-  // await redis.publish("events", JSON.stringify({ type: "shutdown_changed", enabled }));
-
-  return res.status(200).json({ ok: true, enabled });
-}
-
-
-  
-  if (action === "auto-pick-status" && req.method === "GET") {
-    await ensureRedisConnected();
-    let [autoPickAt, armed, winner] = ["", "false", null];
-    if (redis?.isOpen) {
-      [autoPickAt, armed] = await Promise.all([
-        redis.get("autoPickAt").catch(() => ""),
-        redis.get("autoPickArmed").catch(() => "false"),
-      ]);
-      try {
-        const w = await redis.get("raffle_winner");
-        winner = w ? JSON.parse(w) : null;
-      } catch {}
-    }
-    return res.status(200).json({
-      autoPickAt,
-      armed: armed === "true",
-      now: new Date().toISOString(),
-      alreadyPicked: !!winner,
-      winner,
-    });
-  }
-
-  if (action === "maybe-auto-pick" && req.method === "GET") {
-    await ensureRedisConnected();
-    if (!redis?.isOpen) return res.status(200).json({ ok: false, reason: "redis" });
-
-    const [autoPickAt, armed, winnerRaw] = await Promise.all([
-      redis.get("autoPickAt").catch(() => ""),
-      redis.get("autoPickArmed").catch(() => "false"),
-      redis.get("raffle_winner").catch(() => null),
-    ]);
-
-    const now = Date.now();
-    const ts = autoPickAt ? Date.parse(autoPickAt) : NaN;
-
-    if (winnerRaw) return res.status(200).json({ ok: true, alreadyPicked: true });
-    if (armed !== "true" || !autoPickAt || !Number.isFinite(ts) || now < ts) {
-      return res.status(200).json({ ok: true, pending: true, autoPickAt });
-    }
-
-    const { windowKey } = await getWindowInfo();
-    const listKey = `raffle:entries:${windowKey}`;
-    const raw = await redis.lRange(listKey, 0, -1);
-    const entries = raw.map(s => { try { return JSON.parse(s); } catch { return null; } }).filter(Boolean);
-    if (!entries.length) return res.status(200).json({ ok: false, reason: "no_entries" });
-
-    const idx = Math.floor(Math.random() * entries.length);
-    const choice = entries[idx];
-    const payload = { id: choice.id, name: choice.name, source: choice.source || null };
-
-    await redis.set("raffle_winner", JSON.stringify(payload));
-    MEM.currentWinner = payload.name;
-    await redis.set("autoPickArmed", "false");
-
-    const row = {
-      id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
-      name: payload.name,
-      prize: "Raffle Winner — T-Shirt",
-      source: "raffle (auto)",
-      windowKey,
-      ts: new Date().toISOString(),
-    };
-    await appendWinnerRow(row);
-
     try {
-      await fetch("https://winner-sse-server.onrender.com/broadcast", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ winner: payload.name }),
+      return await withRedis(async (r) => {
+        const current = await r.get("shutdown");
+        const newStatus = current !== "true";
+        await r.set("shutdown", newStatus ? "true" : "false");
+        return res.status(200).json({ success: true, isShutdown: newStatus });
       });
-    } catch {}
-
-    return res.status(200).json({ ok: true, autoPicked: true, winner: payload });
+    } catch {
+      return res.status(503).json({ error: "Redis not ready" });
+    }
   }
-/* ────────────────────────────────────────────────────────────
+
+  if (action === "shutdown" && req.method === "POST") {
+    if (!isSuperAdmin(req)) return res.status(403).json({ error: "Forbidden" });
+    try {
+      return await withRedis(async (r) => {
+        let body = {};
+        try {
+          body = await readJson(req);
+        } catch {}
+        let { enabled, toggle } = body;
+
+        if (typeof enabled === "undefined") {
+          if (toggle) {
+            const cur = await isShutdown(r);
+            enabled = !cur;
+          } else {
+            enabled = true;
+          }
+        }
+        await r.set("shutdown", enabled ? "1" : "0");
+        return res.status(200).json({ ok: true, enabled });
+      });
+    } catch {
+      return res.status(503).json({ error: "Redis unavailable" });
+    }
+  }
+
+  if (action === "auto-pick-status" && req.method === "GET") {
+    try {
+      return await withRedis(async (r) => {
+        let [autoPickAt, armed, winner] = ["", "false", null];
+        [autoPickAt, armed] = await Promise.all([
+          r.get("autoPickAt").catch(() => ""),
+          r.get("autoPickArmed").catch(() => "false"),
+        ]);
+        try {
+          const w = await r.get("raffle_winner");
+          winner = w ? JSON.parse(w) : null;
+        } catch {}
+        return res.status(200).json({
+          autoPickAt,
+          armed: armed === "true",
+          now: new Date().toISOString(),
+          alreadyPicked: !!winner,
+          winner,
+        });
+      });
+    } catch {
+      return res.status(200).json({
+        autoPickAt: "",
+        armed: false,
+        now: new Date().toISOString(),
+        alreadyPicked: !!MEM.currentWinner,
+        winner: MEM.currentWinner ? { name: MEM.currentWinner } : null,
+      });
+    }
+  }
+
+  /* ────────────────────────────────────────────────────────────
      SLOT → prize-log (WITH DEBUGGING)
   ───────────────────────────────────────────────────────────── */
   if (
@@ -1456,97 +1463,366 @@ if (action === "shutdown" && req.method === "POST") {
     (req.method === "POST" || req.method === "GET")
   ) {
     console.log("// DEBUG: Received request for prize-log.");
-    await ensureRedisConnected();
-    const { windowKey } = await getWindowInfo();
-
-    const body = req.body && typeof req.body === "object" ? req.body : {};
-    console.log("// DEBUG: Request body received:", JSON.stringify(body));
-
-    const name = (body.name || "(anonymous)").toString().slice(0, 80);
-    const targets = Array.isArray(body.targets) ? body.targets.map(String) : [];
-    const explicit = body.jackpot === true || body.jackpot === "true";
-
-    console.log(
-      `// DEBUG: Checking for jackpot. Explicit flag: ${explicit}, Targets: ${targets.join(
-        ", "
-      )}`
-    );
-    const isJackpot = detectJackpot(targets, explicit);
-
-    if (!isJackpot) {
-      console.log("// DEBUG: Not a jackpot. Ignoring.");
-      noCache(res);
-      return res
-        .status(200)
-        .json({ success: true, ignored: true, isJackpot: false });
-    }
-
-    console.log("// DEBUG: Jackpot detected! Preparing to save winner.");
-    const prizeName = targets[0]?.trim() || "Jackpot";
-    const row = {
-      id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
-      name,
-      prize: `${prizeName}`,
-      source: "slot",
-      windowKey,
-      ts: new Date().toISOString(),
-    };
-
     try {
-      console.log(
-        "// DEBUG: Appending winner row to ledger:",
-        JSON.stringify(row)
-      );
-      await appendWinnerRow(row);
-      noCache(res);
-      return res.status(200).json({ success: true, isJackpot: true, row });
-    } catch (e) {
-      console.error("// DEBUG: prize-log failed during append:", e);
-      return res
-        .status(500)
-        .json({ success: false, error: "prize-log failed" });
+      return await withRedis(async (r) => {
+        const { windowKey } = await getWindowInfo(r);
+
+        const body = req.body && typeof req.body === "object" ? req.body : {};
+        console.log("// DEBUG: Request body received:", JSON.stringify(body));
+
+        const name = (body.name || "(anonymous)").toString().slice(0, 80);
+        const targets = Array.isArray(body.targets)
+          ? body.targets.map(String)
+          : [];
+        const explicit = body.jackpot === true || body.jackpot === "true";
+
+        console.log(
+          `// DEBUG: Checking for jackpot. Explicit flag: ${explicit}, Targets: ${targets.join(
+            ", "
+          )}`
+        );
+        const isJackpot = detectJackpot(targets, explicit);
+
+        if (!isJackpot) {
+          console.log("// DEBUG: Not a jackpot. Ignoring.");
+          noCache(res);
+          return res
+            .status(200)
+            .json({ success: true, ignored: true, isJackpot: false });
+        }
+
+        console.log("// DEBUG: Jackpot detected! Preparing to save winner.");
+        const prizeName = targets[0]?.trim() || "Jackpot";
+        const row = {
+          id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
+          name,
+          prize: `${prizeName}`,
+          source: "slot",
+          windowKey,
+          ts: new Date().toISOString(),
+        };
+
+        try {
+          console.log(
+            "// DEBUG: Appending winner row to ledger:",
+            JSON.stringify(row)
+          );
+          await appendWinnerRow(r, row);
+          noCache(res);
+          return res.status(200).json({ success: true, isJackpot: true, row });
+        } catch (e) {
+          console.error("// DEBUG: prize-log failed during append:", e);
+          return res
+            .status(500)
+            .json({ success: false, error: "prize-log failed" });
+        }
+      });
+    } catch {
+      return res.status(503).json({ success: false, error: "Redis not ready" });
     }
   }
 
-  // ────────────────────────────────────────────────────────────
   // BONUS ENTRY (non-deduped) — used for "Extra Entry" jackpots
-  // ────────────────────────────────────────────────────────────
   if (action === "bonus-entry" && req.method === "POST") {
-    const ok = await ensureRedisConnected();
-    if (!ok || !redis?.isOpen) {
+    try {
+      return await withRedis(async (r) => {
+        const nameRaw = (req.body?.name || "").trim();
+        if (!nameRaw) return res.status(400).json({ error: "Missing name" });
+        const name = nameRaw.slice(0, 80);
+
+        const ip =
+          req.headers["x-forwarded-for"]?.split(",")[0]?.trim() ||
+          req.socket.remoteAddress ||
+          "unknown";
+
+        const { windowKey, ttlSeconds } = await getWindowInfo(r);
+        const listKey = `raffle:entries:${windowKey}`;
+        const bonusKey = `raffle:bonus:${windowKey}:${ip}`;
+
+        const entry = {
+          id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
+          name,
+          ip,
+          source: "jackpot-bonus",
+          createdTime: new Date().toISOString(),
+        };
+
+        await r
+          .multi()
+          .rPush(listKey, JSON.stringify(entry))
+          .expire(listKey, ttlSeconds)
+          .incr(bonusKey)
+          .expire(bonusKey, ttlSeconds)
+          .exec();
+
+        return res.status(200).json({ success: true, entry });
+      });
+    } catch {
       return res.status(503).json({ error: "Redis not ready" });
     }
+  }
 
-    const nameRaw = (req.body?.name || "").trim();
-    if (!nameRaw) return res.status(400).json({ error: "Missing name" });
-    const name = nameRaw.slice(0, 80);
+  // POLL: get songs
+  if (action === "poll" && req.method === "GET") {
+    try {
+      return await withRedis(async (r) => {
+        const pollId = String(
+          new URL(req.url, `http://${req.headers.host}`).searchParams.get(
+            "pollId"
+          ) || "top10"
+        );
+        const raw = await r.get(`poll:songs:${pollId}`);
+        let songs = [];
+        try {
+          const v = JSON.parse(raw || "[]");
+          songs = Array.isArray(v) ? v : [];
+        } catch {}
+        noCache(res);
+        return res.status(200).json({ pollId, songs });
+      });
+    } catch {
+      return res.status(200).json({ pollId: "top10", songs: [] });
+    }
+  }
 
-    const ip =
-      req.headers["x-forwarded-for"]?.split(",")[0]?.trim() ||
-      req.socket.remoteAddress ||
-      "unknown";
+  /* POLL: setup songs */
+  if (action === "poll-setup" && req.method === "POST") {
+    if (!isAdmin(req)) return res.status(403).json({ error: "Forbidden" });
+    try {
+      return await withRedis(async (r) => {
+        const { pollId = "top10", songs = [] } = req.body || {};
+        if (!Array.isArray(songs) || songs.length === 0)
+          return res
+            .status(400)
+            .json({ error: "songs must be a non-empty array" });
 
-    const { windowKey, ttlSeconds } = await getWindowInfo();
-    const listKey = `raffle:entries:${windowKey}`;
-    const bonusKey = `raffle:bonus:${windowKey}:${ip}`;
+        const norm = songs
+          .map((s, i) => ({
+            id: String(
+              s.id ??
+                s.slug ??
+                s.title?.toLowerCase().replace(/[^a-z0-9]+/g, "-") ??
+                i + 1
+            ),
+            title: String(s.title || "").trim(),
+            artist: s.artist ? String(s.artist).trim() : "",
+          }))
+          .filter((s) => s.id && s.title);
 
-    const entry = {
-      id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
-      name,
-      ip,
-      source: "jackpot-bonus",
-      createdTime: new Date().toISOString(),
-    };
+        await r.set(`poll:songs:${pollId}`, JSON.stringify(norm));
+        noCache(res);
+        return res
+          .status(200)
+          .json({ ok: true, pollId, count: norm.length, songs: norm });
+      });
+    } catch {
+      return res.status(503).json({ error: "Redis not ready" });
+    }
+  }
 
-    await redis
-      .multi()
-      .rPush(listKey, JSON.stringify(entry))
-      .expire(listKey, ttlSeconds)
-      .incr(bonusKey)
-      .expire(bonusKey, ttlSeconds)
-      .exec();
+  /* POLL: vote (max 3 picks; dedup by IP or IP:clientId) + bonus raffle entry */
+  if (action === "poll-vote" && req.method === "POST") {
+    try {
+      return await withRedis(async (r) => {
+        const {
+          pollId = "top10",
+          picks,
+          songId,
+          clientId = "",
+          name = "",
+        } = req.body || {};
+        let chosen = Array.isArray(picks) ? picks.map(String) : [];
+        if (!chosen.length && songId) chosen = [String(songId)];
+        chosen = Array.from(new Set(chosen)).slice(0, 3);
+        if (chosen.length === 0)
+          return res.status(400).json({ error: "No picks" });
 
-    return res.status(200).json({ success: true, entry });
+        // Validate picks against configured songs
+        let songs = [];
+        try {
+          const raw = await r.get(`poll:songs:${pollId}`);
+          const arr = JSON.parse(raw || "[]");
+          if (Array.isArray(arr)) songs = arr;
+        } catch {}
+        const valid = new Set(songs.map((s) => String(s.id || "")));
+        if (!chosen.every((id) => valid.has(id))) {
+          return res.status(400).json({ error: "Invalid pick(s)" });
+        }
+
+        const ip =
+          req.headers["x-forwarded-for"]?.split(",")[0]?.trim() ||
+          req.socket.remoteAddress ||
+          "unknown";
+        const { windowKey, ttlSeconds } = await getWindowInfo(r);
+        const voterToken = clientId ? `${ip}:${clientId}` : ip;
+
+        const dedupeKey = `poll:voted:${windowKey}:${pollId}`;
+        const already = await r.sIsMember(dedupeKey, voterToken);
+        if (already)
+          return res.status(200).json({ ok: true, alreadyVoted: true });
+
+        // Optional: fallback name from cookie if client didn’t send one
+        let cookieName = "";
+        try {
+          const m = (req.headers.cookie || "").match(
+            /(?:^|;\s*)raffle_name=([^;]+)/
+          );
+          cookieName = m ? decodeURIComponent(m[1]) : "";
+        } catch {}
+        const displayName = (name || cookieName || "")
+          .toString()
+          .trim()
+          .slice(0, 80);
+
+        const ballotsKey = `poll:ballots:${windowKey}:${pollId}`;
+        const listKey = `raffle:entries:${windowKey}`;
+        const bonusKey = `raffle:bonus:${windowKey}:${ip}`;
+
+        const pipe = r.multi();
+
+        // Tally votes
+        for (const id of chosen)
+          pipe.incr(`poll:votes:${windowKey}:${pollId}:${id}`);
+
+        // Dedupe this voter
+        pipe.sAdd(dedupeKey, voterToken);
+        pipe.expire(dedupeKey, ttlSeconds);
+
+        // Store ballot
+        pipe.rPush(
+          ballotsKey,
+          JSON.stringify({
+            at: new Date().toISOString(),
+            ip,
+            clientId,
+            name: displayName,
+            picks: chosen,
+          })
+        );
+        pipe.expire(ballotsKey, ttlSeconds);
+
+        // ★ BONUS: +1 raffle entry on first successful vote (if we have a name)
+        if (displayName) {
+          pipe.rPush(
+            listKey,
+            JSON.stringify({
+              id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
+              name: displayName,
+              ip,
+              source: "poll-bonus",
+              createdTime: new Date().toISOString(),
+            })
+          );
+          pipe.expire(listKey, ttlSeconds);
+          pipe.incr(bonusKey);
+          pipe.expire(bonusKey, ttlSeconds);
+        }
+
+        await pipe.exec();
+
+        noCache(res);
+        return res
+          .status(200)
+          .json({ ok: true, picks: chosen, bonus: !!displayName });
+      });
+    } catch {
+      return res.status(503).json({ error: "Redis not ready" });
+    }
+  }
+
+  /* POLL: results */
+  if (action === "poll-results" && req.method === "GET") {
+    try {
+      return await withRedis(async (r) => {
+        const pollId = String(
+          new URL(req.url, `http://${req.headers.host}`).searchParams.get(
+            "pollId"
+          ) || "top10"
+        );
+
+        let songs = [];
+        try {
+          const raw = await r.get(`poll:songs:${pollId}`);
+          const arr = JSON.parse(raw || "[]");
+          if (Array.isArray(arr)) songs = arr;
+        } catch {}
+
+        const { windowKey } = await getWindowInfo(r);
+
+        let counts = {};
+        if (songs.length) {
+          const keys = songs.map(
+            (s) => `poll:votes:${windowKey}:${pollId}:${s.id}`
+          );
+          const vals = await r.mGet(keys);
+          counts = Object.fromEntries(
+            songs.map((s, i) => [s.id, Number(vals?.[i] || 0)])
+          );
+        }
+
+        const order = [...songs]
+          .sort(
+            (a, b) =>
+              Number(counts[b.id] || 0) - Number(counts[a.id] || 0) ||
+              a.title.localeCompare(b.title)
+          )
+          .map((s) => s.id);
+
+        noCache(res);
+        return res.status(200).json({ pollId, counts, order, songs });
+      });
+    } catch {
+      return res
+        .status(200)
+        .json({ pollId: "top10", counts: {}, order: [], songs: [] });
+    }
+  }
+
+  /* POLL: reset voters ONLY (keep counts) */
+  if (action === "poll-reset-voters" && req.method === "POST") {
+    if (!isAdmin(req)) return res.status(403).json({ error: "Forbidden" });
+
+    try {
+      return await withRedis(async (r) => {
+        const {
+          pollId = "top10",
+          scope = "all",
+          clientId = "",
+        } = req.body || {};
+        const { windowKey } = await getWindowInfo(r);
+        const dedupeKey = `poll:voted:${windowKey}:${pollId}`;
+        const ip =
+          req.headers["x-forwarded-for"]?.split(",")[0]?.trim() ||
+          req.socket.remoteAddress ||
+          "unknown";
+
+        if (scope === "all") {
+          try {
+            await r.unlink(dedupeKey);
+          } catch {
+            await r.del(dedupeKey).catch(() => {});
+          }
+          return res
+            .status(200)
+            .json({ ok: true, scope: "all", pollId, windowKey });
+        }
+        const token = scope === "token" && clientId ? `${ip}:${clientId}` : ip;
+        const removed = await r.sRem(dedupeKey, token).catch(() => 0);
+        return res
+          .status(200)
+          .json({
+            ok: true,
+            scope: scope === "token" ? "token" : "ip",
+            removed,
+            pollId,
+            windowKey,
+            token,
+          });
+      });
+    } catch (e) {
+      console.error("poll-reset-voters error:", e?.message || e);
+      return res.status(503).json({ ok: false, error: "Redis not ready" });
+    }
   }
 
   /* ───── UNKNOWN ───── */

@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Slots — 90 Surge</title>
+  <link rel="stylesheet" href="/public/styles.css" />
+  <script src="/public/slot.js" defer></script>
+</head>
+<body>
+  <div class="rules" style="max-width:420px;margin:0 auto;">
+    <div class="logo-wrap" style="margin-top:8px;">
+      <img src="https://pub-d919971fb927454bab9481eee8a435e3.r2.dev/logo-horizontal-white.png" width="180" alt="90 Surge logo" />
+    </div>
+
+    <h2 class="section-title" style="margin-top:12px;">Slot Machine 🎰</h2>
+    <p class="muted" style="text-align:center;margin:4px 0 10px;">
+      Jackpots win prizes. If you hit <strong>“Extra entry”</strong>, you get <strong>+1 raffle entry</strong>.
+    </p>
+
+    <section id="slots" class="card section section--slots" aria-labelledby="slots-title">
+      <h3 id="slots-title" class="section-title" style="margin:0 0 6px;">Spin to win</h3>
+
+      <div id="slot-root">
+        <div class="slot-card">
+          <div class="slot-machine">
+            <div class="slot-window"><div class="slot-reel" id="slot-reel-0"></div></div>
+            <div class="slot-window"><div class="slot-reel" id="slot-reel-1"></div></div>
+            <div class="slot-window"><div class="slot-reel" id="slot-reel-2"></div></div>
+          </div>
+
+          <div class="slot-controls">
+            <div class="slot-left" id="slot-spins-left">Spins left: 5</div>
+            <button class="slot-spin" id="slot-spin-btn">Spin</button>
+          </div>
+
+          <div class="slot-result" id="slot-result"></div>
+        </div>
+      </div>
+    </section>
+
+    <div style="text-align:center;margin:10px 0 6px;">
+      <button class="btn-compact" type="button" onclick="window.close()">Close</button>
+    </div>
+  </div>
+
+  <script>
+    // Initialize the slot machine when the popup loads
+    document.addEventListener('DOMContentLoaded', () => {
+      if (window.initSlotMachine) window.initSlotMachine('#slot-root');
+    });
+  </script>
+</body>
+</html>

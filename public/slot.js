@@ -23,7 +23,7 @@
     "T-Shirt":     "WOW, Come see us at the break or after the show to get your t-shirt!",
     "Free Drink":  "This one is on us — show it to the bartender!",
     "Sticker":     "FInd the box and help yourself!",
-    "Extra entry": "Awesome, you got yourself an extra raffle entry to win a 90 Surge t-shirt!",
+    "Extra entry": "Awesome—+1 raffle entry added!",
     "VIP Seat":    "Come closer to the stage! Now you're a VIP! :)",
   };
 
@@ -89,6 +89,41 @@
     return parts.slice(0, mid).join(" ") + "\n" + parts.slice(mid).join(" ");
   }
 
+  // Read display name consistently (input or localStorage fallback)
+  function getDisplayName() {
+    return (
+      document.querySelector('#user-display-name')?.value ||
+      localStorage.getItem('raffle_display_name') ||
+      ''
+    ).trim().slice(0, 80);
+  }
+
+  // Log any jackpot (for the admin Winners Ledger) – fire-and-forget
+  async function logJackpot(name, targets) {
+    try {
+      await fetch('/api/admin?action=prize-log', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, targets, jackpot: true })
+      });
+    } catch {}
+  }
+
+  // ---------- Server extra entry (only for JACKPOT "Extra entry") ----------
+  async function awardExtraEntry(name) {
+    try {
+      const res = await fetch("/api/admin?action=bonus-entry", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      if (!res.ok) return { awarded: false, already: false };
+      return { awarded: true, already: false };
+    } catch {
+      return { awarded: false, already: false };
+    }
+  }
+
   // ---------- Binder (bind to static markup) ----------
   function bindMachine(root) {
     const reels  = Array.from(root.querySelectorAll(".slot-reel"));
@@ -126,21 +161,6 @@
     const h = firstCell.getBoundingClientRect().height;
     const dpr = window.devicePixelRatio || 1;
     return Math.round(h * dpr) / dpr || ITEM_H;
-  }
-
-  // ---------- Server extra entry (only for JACKPOT "Extra entry") ----------
-  async function awardExtraEntry(name) {
-    try {
-      const res = await fetch("/api/admin?action=bonus-entry", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name }),
-      });
-      if (!res.ok) return { awarded: false, already: false };
-      return { awarded: true, already: false };
-    } catch {
-      return { awarded: false, already: false };
-    }
   }
 
   // ---------- Spin engine ----------
@@ -275,22 +295,23 @@
         let uiMsg = "";
         if (isJackpot) {
           const label = targets[0];
-          uiMsg = `${label}`;
-          const extra = JACKPOT_TEXT[label] || "";
+          const name = getDisplayName() || "(anonymous)";
 
-          if (label === "Extra entry") {
-            const nameEl = document.querySelector("#user-display-name");
-            const name = (nameEl?.value || "").trim();
-            if (!name) {
-              uiMsg = `Enter your name above to claim your extra raffle entry!`;
+          // Always log jackpots to the Winners Ledger
+          logJackpot(name, targets);
+
+          if (/extra\s*entry/i.test(label)) {
+            if (!getDisplayName()) {
+              uiMsg = 'Enter your name above to claim your extra raffle entry!';
             } else {
-              const { awarded, already } = await awardExtraEntry(name);
-              if (awarded)       uiMsg = `${JACKPOT_TEXT["Extra entry"]}`;
-              else if (already)  uiMsg = `Already counted for this device.`;
-              else               uiMsg = `(Could not record, please try again.)`;
+              const { awarded } = await awardExtraEntry(getDisplayName());
+              uiMsg = awarded
+                ? JACKPOT_TEXT["Extra entry"]
+                : '(Could not record, please try again.)';
             }
-          } else if (extra) {
-            uiMsg = `${label} — ${extra}`;
+          } else {
+            const extra = JACKPOT_TEXT[label] || '';
+            uiMsg = extra ? `${label} — ${extra}` : label;
           }
           result.textContent = uiMsg;
         } else {

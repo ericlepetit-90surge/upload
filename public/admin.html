@@ -207,10 +207,77 @@
           </div>
         </div>
 
+        <!-- ===== SONG POLL (top10) ===== -->
+        <div class="card col-12 admin-only-block" id="song-poll-card">
+          <div class="card-header">
+            <div class="card-title">🎵 Song Poll (10 items, users pick 3)</div>
+            <div class="inline-actions">
+              <a id="poll-open-link" class="chip" href="/?poll=top10" target="_blank" rel="noopener">Open poll</a>
+            </div>
+          </div>
+          <div class="card-body">
+            <div class="grid" style="grid-template-columns:repeat(12,1fr);gap:12px;">
+              <div class="col-4">
+                <div class="field">
+                  <label>Poll ID</label>
+                  <div class="status">top10</div>
+                </div>
+                <div class="inline-actions">
+                  <button class="btn small" id="poll-load-btn">Load</button>
+                  <button class="btn primary small" id="poll-save-btn">Save</button>
+                </div>
+                <div id="poll-status" class="muted mt-12">—</div>
+
+                <div class="mt-16">
+                  <button class="btn warning small" id="poll-reset-all-btn" type="button" title="Also clears raffle entries (server-dependent)">Reset ALL poll votes</button>
+                  <div class="card-subtle">Uses “Reset Entries”.</div>
+                </div>
+
+                <div class="mt-12">
+                  <button class="btn small" id="poll-reset-submit-local-btn" type="button" title="Local test: clears only the 'already voted' lock; keeps counts.">
+                    Reset Submit (local test)
+                  </button>
+                  <small id="poll-reset-submit-status" class="muted"></small>
+                </div>
+              </div>
+
+              <div class="col-8">
+                <div class="field">
+                  <label for="poll-json">Songs JSON (exactly 10)</label>
+                  <textarea id="poll-json" class="input" rows="14" spellcheck="false" placeholder='[{"id":"slug","title":"Song Title","artist":"Artist"}]'></textarea>
+                </div>
+                <div class="field">
+                  <label>Preview</label>
+                  <ol id="poll-preview" class="muted" style="margin:0;padding-left:18px;"></ol>
+                </div>
+              </div>
+            </div>
+
+            <div class="field" style="margin-top:12px;">
+              <label>Results</label>
+              <div class="inline-actions mb-8">
+                <button class="btn small" id="poll-results-refresh">Refresh Results</button>
+                <span id="poll-results-meta" class="card-subtle">—</span>
+              </div>
+              <div class="table-scroll">
+                <table id="poll-results-table">
+                  <thead>
+                    <tr><th>#</th><th>Song</th><th style="text-align:right;">Votes</th><th style="text-align:right;">%</th></tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+            </div>
+
+          </div>
+        </div>
+        <!-- ===== /SONG POLL ===== -->
+
       </div>
     </section>
   </div>
 
+  <!-- MAIN (kept as in prod) -->
   <script type="module">
     // ---------- helpers ----------
     const $  = (sel, root = document) => root.querySelector(sel);
@@ -601,7 +668,6 @@
         $$('.admin-only-block').forEach(el=> el.style.display='none');
         $$('.admin-only').forEach(el=> el.style.display='none');
         const pw = $('#pick-winner-btn'); if (pw){ pw.style.display='inline-flex'; pw.disabled=false; pw.classList.remove('admin-only'); }
-        // Allow moderators to click pick
         $('#pick-winner-btn')?.addEventListener('click', pickWinner);
       } else {
         if (banner){ banner.textContent='Admin'; banner.className='badge admin'; }
@@ -628,6 +694,207 @@
       setInterval(loadSocialStatus, 15000);
       setInterval(loadEntries, 10000);
       setInterval(loadCurrentWinner, 15000);
+    });
+  </script>
+
+  <!-- SONG POLL (separate module; no globals required) -->
+  <script type="module">
+    const $  = (sel, root=document) => root.querySelector(sel);
+    const $$ = (sel, root=document) => Array.from(root.querySelectorAll(sel));
+
+    const POLL_GET = "/api/admin?action=poll";
+    const POLL_SET = "/api/admin?action=poll-setup";
+    const POLL_RESULTS = "/api/admin?action=poll-results";
+    const POLL_RESET_VOTERS = "/api/admin?action=poll-reset-voters";
+    const POLL_ID = "top10";
+
+    function toast(msg, type="info"){
+      const el=document.createElement('div'); el.textContent=msg;
+      el.style.position='fixed'; el.style.bottom='20px'; el.style.left='50%'; el.style.transform='translateX(-50%)';
+      el.style.padding='10px 14px'; el.style.borderRadius='10px'; el.style.zIndex='9999'; el.style.fontWeight='700';
+      el.style.background= type==='error'?'#ef4444':(type==='success'?'#10b981':'#2b2f36'); el.style.color='#fff';
+      document.body.appendChild(el); setTimeout(()=>el.remove(),1800);
+    }
+    function escapeHtml(s){return String(s??"").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#39;");}
+    function sp_setStatus(msg, ok=true){
+      const el = $('#poll-status'); if (!el) return;
+      el.textContent = msg || '—'; el.style.color = ok ? 'var(--text)' : '#ff6b6b';
+    }
+    function sp_renderPreview(){
+      const ol = $('#poll-preview'); if (!ol) return;
+      let list = [];
+      try{
+        const arr = JSON.parse($('#poll-json').value || "[]");
+        if (Array.isArray(arr)) list = arr.slice(0,10);
+      } catch {}
+      ol.innerHTML = list.length
+        ? list.map(s => `<li><strong>${escapeHtml(s.title||"")}</strong>${s.artist?` — ${escapeHtml(s.artist)}`:""} <span class="card-subtle">(id: ${escapeHtml(s.id||"")})</span></li>`).join("")
+        : `<li class="card-subtle">No items</li>`;
+    }
+    async function sp_load(){
+      sp_setStatus('Loading…', true);
+      try{
+        const r = await fetch(`${POLL_GET}&pollId=${encodeURIComponent(POLL_ID)}`, { cache:"no-store" });
+        const j = await r.json().catch(()=> ({}));
+        const songs = Array.isArray(j.songs) ? j.songs : [];
+        $('#poll-json').value = JSON.stringify(songs, null, 2);
+        sp_renderPreview();
+        sp_setStatus(`Loaded ${songs.length} item(s) from ${POLL_ID}`, true);
+      } catch(e){
+        console.error('poll load error', e);
+        sp_setStatus('Could not load', false);
+      }
+    }
+    function sp_template(){
+      const tpl = [
+        { id:"s-1",  title:"Song 1",  artist:"Artist" },
+        { id:"s-2",  title:"Song 2",  artist:"Artist" },
+        { id:"s-3",  title:"Song 3",  artist:"Artist" },
+        { id:"s-4",  title:"Song 4",  artist:"Artist" },
+        { id:"s-5",  title:"Song 5",  artist:"Artist" },
+        { id:"s-6",  title:"Song 6",  artist:"Artist" },
+        { id:"s-7",  title:"Song 7",  artist:"Artist" },
+        { id:"s-8",  title:"Song 8",  artist:"Artist" },
+        { id:"s-9",  title:"Song 9",  artist:"Artist" },
+        { id:"s-10", title:"Song 10", artist:"Artist" }
+      ];
+      $('#poll-json').value = JSON.stringify(tpl, null, 2);
+      sp_renderPreview();
+    }
+    async function sp_save(){
+      const adminKey = localStorage.getItem('adminKey') || '';
+      if (!adminKey){ toast('Admin login required','error'); return; }
+      let songs;
+      try{
+        songs = JSON.parse($('#poll-json').value || "[]");
+        if (!Array.isArray(songs) || songs.length !== 10) throw new Error('need-10');
+      } catch {
+        sp_setStatus('Invalid JSON (must be an array of exactly 10 items)', false);
+        return;
+      }
+      sp_setStatus('Saving…', true);
+      try{
+        const res = await fetch(POLL_SET, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization':'Bearer:super:' + adminKey },
+          body: JSON.stringify({ pollId: POLL_ID, songs })
+        });
+        const out = await res.json().catch(()=>({}));
+        if (!res.ok) throw new Error(out?.error || 'Save failed');
+        sp_setStatus('Saved ✅', true);
+        toast('Poll saved','success');
+        sp_results().catch(()=>{});
+      } catch(e){
+        console.error('poll save error', e);
+        sp_setStatus('Save failed (check admin pass?)', false);
+        toast('Save failed','error');
+      }
+    }
+
+    function sp_nukeLocalVoteLocks(pollId){
+      const patterns = [
+        `poll:voted:${pollId}`, `voted:${pollId}`, `poll-voted:${pollId}`, `poll:${pollId}`,
+        'poll:voted','poll_vote','poll-vote','alreadyvoted','voted'
+      ];
+      for (const store of [localStorage, sessionStorage]) {
+        try {
+          for (const k of Object.keys(store)) {
+            const kl = k.toLowerCase();
+            if (patterns.some(p => kl.includes(p.toLowerCase()))) store.removeItem(k);
+          }
+        } catch {}
+      }
+      try { new BroadcastChannel('surge-poll').postMessage({ type:'clear-vote', pollId }); } catch {}
+    }
+
+    async function sp_resetSubmitLocal(){
+      const adminKey = localStorage.getItem('adminKey') || '';
+      const status = $('#poll-reset-submit-status');
+      try{
+        if (status) status.textContent = 'Resetting…';
+        const res = await fetch(POLL_RESET_VOTERS, {
+          method:'POST',
+          headers:{ 'Content-Type':'application/json', Authorization:'Bearer:super:' + adminKey },
+          body: JSON.stringify({ pollId: POLL_ID, scope: 'all' })
+        });
+        const j = await res.json().catch(()=>({}));
+        if (!res.ok || !j.ok) throw new Error(j?.error || 'server reset failed');
+
+        sp_nukeLocalVoteLocks(POLL_ID);
+        if (status) status.textContent = 'Submit lock cleared. You can vote again now.';
+        toast('Submit lock cleared (counts kept).', 'success');
+        sp_results().catch(()=>{});
+      } catch(e){
+        console.error('reset submit failed', e);
+        if (status) status.textContent = 'Reset failed';
+        toast('Reset submit failed', 'error');
+      } finally {
+        setTimeout(()=>{ if (status) status.textContent = ''; }, 4000);
+      }
+    }
+
+    async function sp_resetAll(){
+      const ok = confirm('Reset ALL poll votes (and raffle entries) for this show window?');
+      if (!ok) return;
+      const res = await fetch('/api/admin?action=reset-entries', {
+        method:'POST', headers:{ Authorization:'Bearer:super:' + (localStorage.getItem('adminKey')||'') }
+      });
+      const j = await res.json().catch(()=>({}));
+      if (res.ok && j?.success){ toast('Votes & entries reset','success'); sp_results().catch(()=>{}); }
+      else { toast('Reset failed','error'); }
+    }
+
+    async function sp_results(){
+      const meta = $('#poll-results-meta');
+      const tbody = $('#poll-results-table tbody');
+      try{
+        meta.textContent = 'Loading…';
+        tbody.innerHTML = `<tr><td colspan="4" class="muted">Loading…</td></tr>`;
+        const r = await fetch(`${POLL_RESULTS}&pollId=${encodeURIComponent(POLL_ID)}`, { cache:"no-store" });
+        const j = await r.json().catch(()=> ({}));
+        const counts = j.counts || {};
+        const songs  = Array.isArray(j.songs) ? j.songs : [];
+        const totalVotes = Object.values(counts).reduce((a,b)=>a + (Number(b)||0), 0);
+
+        const sorted = [...songs].sort((a,b)=>{
+          const va = Number(counts[a.id]||0);
+          const vb = Number(counts[b.id]||0);
+          if (vb !== va) return vb - va;
+          return a.title.localeCompare(b.title);
+        });
+
+        tbody.innerHTML = sorted.map((s, idx)=>{
+          const v = Number(counts[s.id]||0);
+          const pct = totalVotes ? Math.round((v/totalVotes)*1000)/10 : 0;
+          const label = `${s.title}${s.artist ? ' — ' + s.artist : ''}`;
+          return `<tr>
+            <td>${idx+1}</td>
+            <td>${escapeHtml(label)}</td>
+            <td style="text-align:right;font-weight:700;">${v}</td>
+            <td style="text-align:right;">${pct.toFixed(1)}%</td>
+          </tr>`;
+        }).join("") || `<tr><td colspan="4" class="muted">No results yet</td></tr>`;
+
+        meta.textContent = `Total votes: ${totalVotes}`;
+      } catch(e){
+        console.error('poll-results error', e);
+        meta.textContent = 'Failed to load';
+        tbody.innerHTML = `<tr><td colspan="4" class="muted">Failed to load</td></tr>`;
+      }
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      $('#poll-load-btn')?.addEventListener('click', sp_load);
+      $('#poll-save-btn')?.addEventListener('click', sp_save);
+      $('#poll-json')?.addEventListener('input', sp_renderPreview);
+
+      $('#poll-reset-all-btn')?.addEventListener('click', sp_resetAll);
+      $('#poll-results-refresh')?.addEventListener('click', sp_results);
+      $('#poll-reset-submit-local-btn')?.addEventListener('click', sp_resetSubmitLocal);
+
+      // initial
+      sp_load();
+      sp_results();
     });
   </script>
 </body>

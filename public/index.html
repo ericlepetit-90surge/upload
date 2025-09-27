@@ -7,7 +7,86 @@
   <title>90 Surge - Free T-shirt!</title>
   <script>window.__FB_PAGE_ID = "130023783530481";</script>
   <link rel="stylesheet" href="/public/styles.css" />
+
+  <!-- Minimal modal CSS (variant colors + compact poll) -->
+  <style>
+    .hidden { display: none !important; }
+
+    .modal { position: fixed; inset: 0; z-index: 10000; display: flex; align-items: center; justify-content: center; }
+    .modal.hidden { display: none !important; }
+    .modal-overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.7); backdrop-filter: blur(2px); }
+
+    .modal-card {
+      position: relative;
+      width: min(92vw, 480px);
+      max-height: 92vh;
+      overflow: auto;
+      border-radius: 14px;
+      padding: 16px;
+      box-shadow: 0 18px 60px rgba(0,0,0,0.55);
+      color: #fff;
+      transform: scale(.98);
+      opacity: 0;
+      animation: modalIn .18s ease-out forwards;
+      border: 1px solid rgba(255,255,255,0.08);
+    }
+    /* Distinct backgrounds */
+    .modal-card--poll {
+      background:
+        linear-gradient(180deg, rgba(124,77,255,0.12), rgba(124,77,255,0.03)),
+        #0b1222;
+    }
+    .modal-card--slots {
+      background:
+        linear-gradient(180deg, rgba(16,185,129,0.12), rgba(16,185,129,0.03)),
+        #0d1a11;
+    }
+
+    @keyframes modalIn { to { transform: scale(1); opacity: 1; } }
+
+    .modal-title { margin: 0; font-size: 17px; font-weight: 800; text-align:center; padding: 20px 30px 10px 30px; line-height: 22px;}
+    .modal-sub { margin: 6px 0 8px; text-align: center; opacity: .9; font-size: 18px; }
+
+    /* Top-right close cross */
+    .modal-close {
+      position: absolute; top: 10px; right: 10px;
+      place-items: center;
+      width: 39px; height: 39px;
+      border-radius: 999px;
+      background: rgba(14, 191, 106, 0.65);
+      border: 1px solid rgba(255,255,255,0.65);
+      color: #fff; cursor: pointer;
+      outline: none; border: none;
+    }
+    .modal-close:hover { background: rgba(255,255,255,0.16); }
+    .modal-close svg { display: block; }
+
+    html.modal-open, body.modal-open { overflow: hidden; }
+
+    /* Compact poll layout inside modal */
+    #song-poll { margin: 4px 0 0; }
+    #song-poll .poll-list { list-style: none; margin: 6px 0 8px; padding: 0; display: grid; gap: 6px; }
+    #song-poll .poll-row {
+      display: flex; align-items: center; gap: 10px;
+      padding: 8px 10px; border-radius: 10px;
+      background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.06);
+    }
+    #song-poll .poll-row input[type="checkbox"] { width: 18px; height: 18px; flex: 0 0 auto; }
+    #song-poll .poll-row label { flex: 1 1 auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 14px; line-height: 1.1; }
+    #song-poll .poll-actions { display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 8px; }
+    #song-poll .poll-status { font-size: 25px; }
+
+    /* Slightly tighter slots text */
+    .slots-hint { margin: 6px 0 8px; text-align: center; font-size: 14px; opacity: .9; }
+    @media (max-width: 360px) {
+      .modal-card { width: 94vw; padding: 14px; }
+      .modal-title { font-size: 17px; }
+    }
+  </style>
+
+  <!-- Slot engine -->
   <script src="/public/slot.js" defer></script>
+  <!-- App logic -->
   <script type="module" src="/public/app.js"></script>
 </head>
 
@@ -21,18 +100,30 @@
 
       <h1 id="headline">LIVE TONIGHT</h1>
 
-      <!-- Winner banner -->
-      <h2 class="raffle raffle-title blink">
-        <strong>ENTER OUR RAFFLE FOR A CHANCE TO WIN A 90 SURGE TEE!</strong>
-      </h2>
-      <!-- BEGIN: hide when winner is picked -->
       <div id="app-main">
         <div id="winner-countdown" class="countdown">
           Winner picked in:<br> <span id="winner-countdown-text">—</span>
         </div>
+
+        <div id="entry-stats" class="entry-stats-card">
+          <div class="entry-stat">
+            <div class="entry-stat-label">Your entries</div>
+            <div class="entry-stat-value" id="your-entries-count">0</div>
+          </div>
+          <div class="entry-stat">
+            <div class="entry-stat-label">Total entries</div>
+            <div class="entry-stat-value" id="total-entries-count">0</div>
+          </div>
+        </div>
+
+        <h2 class="raffle raffle-title blink">
+          <strong>ENTER OUR RAFFLE FOR A CHANCE TO WIN A 90 SURGE TEE!</strong>
+        </h2>
+
         <div class="arrows blink">
           <span class="arrow-icon">&#8595; &#8595; &#8595; &#8595; &#8595;</span>
         </div>
+
         <ol>
           <li>
             Drop your name
@@ -44,7 +135,7 @@
 
           <li>
             Follow us on Facebook or Instagram. <br>
-            Each follow gives you 1 raffle entry!
+            Each follow gives you <strong>+1 raffle entry</strong>!
             <div id="follow-gate">
               <div class="follow-links" style="display:flex; justify-content:center; gap:.5rem; padding-top:5px">
                 <button type="button" class="follow-btn-fb">Facebook</button>
@@ -52,99 +143,295 @@
               </div>
             </div>
           </li>
-          <li>
-            That's it. Fingers crossed!<br>
-          </li>
+
+          <li>That's it. Come back on this page after the winner has been picked to find out if you are the lucky winner! Fingers crossed!</li>
         </ol>
-        <span style="font-size:16px">Come back here to find out if you are the lucky winner!</span>
-        <div id="entry-stats" class="entry-stats-card">
-          <div class="entry-stat">
-            <div class="entry-stat-label">Total entries in tonight's raffle</div>
-            <div class="entry-stat-value" id="total-entries-count">0</div>
-          </div>
-          <div class="entry-stat">
-            <div class="entry-stat-label">Your entries to tonight's raffle</div>
-            <div class="entry-stat-value" id="your-entries-count">0</div>
-          </div>
 
+
+         <p style="color: rgb(255, 255, 0);font-size:20px;text-align:center;margin-top:40px;margin-bottom:30px">
+Want more chances to win?        </p>
+
+        <!-- Launchers -->
+        <div style="display:grid;gap:10px;margin:18px 0;">
+          <button type="button" id="open-poll-modal"  data-open="poll-modal">
+            Vote in the Song Poll
+          </button>
+          <button type="button" id="open-slots-modal" data-open="slots-modal">
+            Play the Slot Machine
+          </button>
         </div>
 
-        <div class="arrows"> <span class="arrow-icon">&#8595; &#8595; &#8595; &#8595; &#8595;</span>
-        </div>
-        <h2 class="raffle raffle-title blink">
-
-
-          <strong>FEELING LUCKY? <br>SPIN IT!</strong>
-        </h2>
-        <!-- Slot machine mount -->
-        <div id="slot-root">
-
-          <div class="slot-card">
-
-
-            <div class="slot-machine">
-              <div class="slot-window">
-                <div class="slot-reel" id="slot-reel-0"></div>
-              </div>
-              <div class="slot-window">
-                <div class="slot-reel" id="slot-reel-1"></div>
-              </div>
-              <div class="slot-window">
-                <div class="slot-reel" id="slot-reel-2"></div>
-              </div>
-            </div>
-
-            <div class="slot-controls">
-              <div class="slot-left" id="slot-spins-left">Spins left: 5</div>
-              <button class="slot-spin" id="slot-spin-btn">Spin</button>
-            </div>
-
-            <div class="slot-result" id="slot-result"></div>
+        <!-- Social follower counts -->
+        <div class="followers-wrapper">
+          <div class="follower-block">
+            <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/c/c3/FB_Logo_PNG.png/640px-FB_Logo_PNG.png"
+              width="16" alt="Facebook" />
+            <span id="fb-followers">—</span><span> followers</span>
           </div>
-
-
-
-        </div>
-      </div>
-      <!-- JACKPOT MODAL -->
-      <div id="jackpot-modal" class="jackpot-modal hidden" role="dialog" aria-modal="true"
-        aria-labelledby="jackpot-title" aria-describedby="jackpot-message">
-        <div class="modal-overlay" data-overlay></div>
-        <div class="modal-card" role="document">
-          <div class="modal-header">
-            <h2 id="jackpot-title" class="modal-title">🎰 JACKPOT!</h2>
+          <div class="follower-block">
+            <img src="https://upload.wikimedia.org/wikipedia/commons/a/a5/Instagram_icon.png" width="16"
+              alt="Instagram" />
+            <span id="ig-followers">—</span><span> followers</span>
           </div>
-          <div class="modal-body">
-            <div class="jackpot-prize" id="jackpot-prize"></div>
-            <p id="jackpot-message" class="jackpot-message"></p>
-          </div>
-          <div class="modal-actions">
-            <button class="btn-modal-close" data-close type="button">OK</button>
-          </div>
-        </div>
-      </div>
-      <!-- Winner modal -->
-      <div id="winnerModal" class="winner-modal hidden" role="dialog" aria-modal="true" aria-labelledby="winnerName">
-        <h1 class="winner-title">🎉 Raffle Winner 🎉</h1>
-        <p id="winnerName" class="winner-name"></p>
-        <button onclick="hideWinnerModal()" class="btn-modal-close">Close</button>
-      </div>
-      <!-- Social follower counts -->
-      <div class="followers-wrapper">
-        <div class="follower-block">
-          <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/c/c3/FB_Logo_PNG.png/640px-FB_Logo_PNG.png"
-            width="16" alt="Facebook" />
-          <span id="fb-followers">—</span><span> followers</span>
-        </div>
-        <div class="follower-block">
-          <img src="https://upload.wikimedia.org/wikipedia/commons/a/a5/Instagram_icon.png" width="16"
-            alt="Instagram" />
-          <span id="ig-followers">—</span><span> followers</span>
         </div>
       </div>
     </div>
-
   </form>
-</body>
 
+  <!-- =========================
+       MODAL: SONG POLL
+  ========================== -->
+  <div id="poll-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="poll-title">
+    <div class="modal-overlay" data-close="poll-modal" aria-hidden="true"></div>
+    <div class="modal-card modal-card--poll" role="document">
+      <button class="modal-close" data-close="poll-modal" type="button" aria-label="Close">
+        <!-- Cross (X) icon -->
+        <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/>
+        </svg>
+      </button>
+
+      <h2 id="poll-title" class="modal-title">Pick your top 3 songs you want us to cover next 🎸</h2>
+      <p class="modal-sub"><strong>And get 1 extra raffle entry</strong>.</p>
+
+      <section id="song-poll" data-poll-id="top10" aria-labelledby="poll-title">
+        <ol id="song-poll-list" class="poll-list" style="margin:0;"></ol>
+
+        <div class="poll-actions">
+          <span id="song-poll-counter" class="chip">0 / 3 selected</span>
+          <button id="song-poll-submit" type="button" disabled>Submit</button>
+        </div>
+        <div style="text-align:center;margin-top:6px;">
+          <span id="song-poll-status" class="poll-status muted" aria-live="polite"></span>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <!-- =========================
+       MODAL: SLOTS
+  ========================== -->
+  <div id="slots-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="slots-title">
+    <div class="modal-overlay" data-close="slots-modal" aria-hidden="true"></div>
+    <div class="modal-card modal-card--slots" role="document">
+      <button class="modal-close" data-close="slots-modal" type="button" aria-label="Close">
+        <!-- Cross (X) icon -->
+        <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/>
+        </svg>
+      </button>
+
+      <h2 id="slots-title" class="modal-title">Feeling lucky? 🎰</h2>
+      <p class="slots-hint">Hit <strong>“Extra entry”</strong> to add <strong>+1 raffle entry</strong>.</p>
+
+      <div id="slot-root">
+        <div class="slot-card">
+          <div class="slot-machine">
+            <div class="slot-window"><div class="slot-reel" id="slot-reel-0"></div></div>
+            <div class="slot-window"><div class="slot-reel" id="slot-reel-1"></div></div>
+            <div class="slot-window"><div class="slot-reel" id="slot-reel-2"></div></div>
+          </div>
+
+          <div class="slot-controls">
+            <div class="slot-left" id="slot-spins-left">Spins left: 5</div>
+            <button class="slot-spin" id="slot-spin-btn" type="button">Spin</button>
+          </div>
+
+          <div class="slot-result" id="slot-result"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- =========================
+       Modal Open/Close Script
+  ========================== -->
+  <script>
+    window.addEventListener('DOMContentLoaded', () => {
+      const htmlEl = document.documentElement;
+      const bodyEl = document.body;
+
+      function anyOpen() {
+        return [...document.querySelectorAll('.modal')].some(m => !m.classList.contains('hidden'));
+      }
+      function openModal(id) {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.classList.remove('hidden');
+        htmlEl.classList.add('modal-open');
+        bodyEl.classList.add('modal-open');
+        if (id === 'slots-modal' && typeof window.initSlotMachine === 'function') {
+          window.initSlotMachine('#slot-root');
+        }
+      }
+      function closeModal(id) {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.classList.add('hidden');
+        if (!anyOpen()) { htmlEl.classList.remove('modal-open'); bodyEl.classList.remove('modal-open'); }
+      }
+
+      document.addEventListener('click', (e) => {
+        const openBtn  = e.target.closest('[data-open]');
+        const closeBtn = e.target.closest('[data-close]');
+        if (openBtn)  { e.preventDefault(); openModal(openBtn.getAttribute('data-open')); }
+        if (closeBtn) { e.preventDefault(); closeModal(closeBtn.getAttribute('data-close')); }
+      });
+
+      // Direct bindings (belt + suspenders)
+      const pollBtn  = document.getElementById('open-poll-modal');
+      const slotsBtn = document.getElementById('open-slots-modal');
+      if (pollBtn)  pollBtn.addEventListener('click', (e) => { e.preventDefault(); openModal('poll-modal'); });
+      if (slotsBtn) slotsBtn.addEventListener('click', (e) => { e.preventDefault(); openModal('slots-modal'); });
+
+      document.addEventListener('keydown', (e) => {
+        if (e.key !== 'Escape') return;
+        const openModals = [...document.querySelectorAll('.modal')].filter(m => !m.classList.contains('hidden'));
+        const top = openModals.pop();
+        if (top) {
+          top.classList.add('hidden');
+          if (openModals.length === 0) { htmlEl.classList.remove('modal-open'); bodyEl.classList.remove('modal-open'); }
+        }
+      });
+
+      if (location.hash === '#poll')  openModal('poll-modal');
+      if (location.hash === '#slots') openModal('slots-modal');
+    });
+  </script>
+
+  <!-- =========================
+       SONG POLL Script (inside modal)
+  ========================== -->
+  <script type="module">
+    (() => {
+      const POLL_API = "/api/admin?action=poll";
+      const VOTE_API = "/api/admin?action=poll-vote";
+      const NAME_KEY = "raffle_display_name";
+      const POLL_ID  = document.querySelector("#song-poll")?.dataset.pollId || "top10";
+      const MAX = 3;
+
+      const $  = (s, r = document) => r.querySelector(s);
+      const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
+
+      const els = {
+        list:   $("#song-poll-list"),
+        submit: $("#song-poll-submit"),
+        counter:$("#song-poll-counter"),
+        status: $("#song-poll-status"),
+      };
+
+      function getClientId() {
+        const KEY = "client_id_poll_v2";
+        let id = localStorage.getItem(KEY);
+        if (!id) { id = crypto?.randomUUID?.() || (Date.now() + Math.random()).toString(36); localStorage.setItem(KEY, id); }
+        return id;
+      }
+      function getName() {
+        return ($("#user-display-name")?.value || localStorage.getItem(NAME_KEY) || "").trim().slice(0, 80);
+      }
+      const votedLocal = () => localStorage.getItem("poll_voted_" + POLL_ID) === "1";
+      const markVotedLocal = () => localStorage.setItem("poll_voted_" + POLL_ID, "1");
+
+      const state = { songs: [], picks: new Set() };
+
+      function updateCounter() {
+        els.counter.textContent = `${state.picks.size} / ${MAX} selected`;
+        const voted = votedLocal();
+        els.submit.disabled = voted || state.picks.size !== MAX;
+        $$(".poll-row input[type=checkbox]").forEach(inp => {
+          if (voted) inp.disabled = true;
+          else inp.disabled = (!inp.checked && state.picks.size >= MAX);
+        });
+      }
+
+      function lockUI(msg, disableAll = false) {
+        els.status.textContent = msg || "";
+        if (disableAll) els.submit.disabled = true;
+        $$(".poll-row input[type=checkbox]").forEach(inp => inp.disabled = true);
+      }
+
+      async function loadPoll() {
+        try {
+          const res = await fetch(`${POLL_API}&pollId=${encodeURIComponent(POLL_ID)}`, { cache: "no-store" });
+          const data = await res.json();
+          state.songs = Array.isArray(data.songs) ? data.songs.slice(0, 10) : [];
+          render();
+        } catch {
+          els.list.innerHTML = `<li class="poll-empty">Could not load songs.</li>`;
+        }
+      }
+
+      function render() {
+        els.list.innerHTML = "";
+        state.picks.clear();
+
+        const already = votedLocal();
+        const frag = document.createDocumentFragment();
+
+        state.songs.forEach((s, idx) => {
+          const li = document.createElement("li");
+          li.className = "poll-row";
+          const id = `song-${POLL_ID}-${s.id || idx}`;
+          li.innerHTML = `
+            <label style="display:flex;align-items:center;gap:10px;cursor:pointer;">
+              <input type="checkbox" id="${id}" value="${s.id}" ${already ? "disabled" : ""} />
+              <span><strong>${s.title || "Untitled"}</strong>${s.artist ? " — " + s.artist : ""}</span>
+            </label>`;
+          const cb = li.querySelector("input");
+          cb.addEventListener("change", () => {
+            if (cb.checked) {
+              if (state.picks.size >= MAX) {
+                cb.checked = false;
+                li.classList.add("shake");
+                setTimeout(() => li.classList.remove("shake"), 300);
+                return;
+              }
+              state.picks.add(cb.value);
+            } else {
+              state.picks.delete(cb.value);
+            }
+            updateCounter();
+          });
+          frag.appendChild(li);
+        });
+
+        els.list.appendChild(frag);
+
+        if (already) lockUI("You already voted. Thank you!", true);
+        updateCounter();
+      }
+
+      async function submitVote() {
+        if (state.picks.size !== MAX) return;
+        lockUI("Submitting…");
+        try {
+          const payload = {
+            pollId: POLL_ID,
+            picks: Array.from(state.picks),
+            clientId: getClientId(),
+            name: getName()
+          };
+          const res = await fetch(VOTE_API, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+          });
+          const out = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(out?.error || "vote failed");
+          if (out.alreadyVoted) { lockUI("You already voted. Thanks!", true); return; }
+
+          markVotedLocal();
+          lockUI(out.bonus ? "Vote recorded! 🎉 +1 raffle entry added." : "Vote recorded! 🙌", true);
+        } catch (e) {
+          els.status.textContent = "Could not submit vote. Please try again.";
+          updateCounter();
+        }
+      }
+
+      els.submit.addEventListener("click", submitVote);
+      document.addEventListener("DOMContentLoaded", loadPoll);
+    })();
+  </script>
+
+</body>
 </html>
