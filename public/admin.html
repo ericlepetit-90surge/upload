@@ -37,7 +37,7 @@
     .field label{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.08em}
     .input{background:#101216;color:var(--text);border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:10px 12px;outline:none}
     .input:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(233,30,99,.15)}
-    .inline-actions{display:flex;flex-wrap:wrap;gap:10px}
+    .inline-actions{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
     .status{display:inline-flex;align-items:center;gap:8px;padding:10px 12px;border-radius:10px;background:#0f1319;color:var(--muted);border:1px solid rgba(255,255,255,.08);font-weight:600}
     .chip{display:inline-flex;align-items:center;gap:6px;padding:4px 8px;border-radius:999px;background:#0f1319;border:1px solid rgba(255,255,255,.1);font-size:12px;color:var(--muted)}
     table{width:100%;border-collapse:separate;border-spacing:0 6px}
@@ -228,14 +228,9 @@
                 </div>
                 <div id="poll-status" class="muted mt-12">—</div>
 
-                <div class="mt-16">
-                  <button class="btn warning small" id="poll-reset-all-btn" type="button" title="Also clears raffle entries (server-dependent)">Reset ALL poll votes</button>
-                  <div class="card-subtle">Uses “Reset Entries”.</div>
-                </div>
-
                 <div class="mt-12">
                   <button class="btn small" id="poll-reset-submit-local-btn" type="button" title="Local test: clears only the 'already voted' lock; keeps counts.">
-                    Reset Submit (local test)
+                    Reset Submit (for local testing)
                   </button>
                   <small id="poll-reset-submit-status" class="muted"></small>
                 </div>
@@ -246,29 +241,42 @@
                   <label for="poll-json">Songs JSON (exactly 10)</label>
                   <textarea id="poll-json" class="input" rows="14" spellcheck="false" placeholder='[{"id":"slug","title":"Song Title","artist":"Artist"}]'></textarea>
                 </div>
+
                 <div class="field">
                   <label>Preview</label>
                   <ol id="poll-preview" class="muted" style="margin:0;padding-left:18px;"></ol>
                 </div>
+
+                <div class="field" style="margin-top:12px;">
+                  <label>Results</label>
+                  <div class="inline-actions mb-8">
+                    <button class="btn small" id="poll-results-refresh">Refresh Results</button>
+                    <button class="btn danger small" id="poll-reset-all-btn" type="button" title="Clears all poll votes/ballots/locks; keeps songs.">
+                      RESET ALL POLL VOTES
+                    </button>
+                    <span id="poll-results-meta" class="card-subtle">—</span>
+                  </div>
+
+                  <small id="poll-reset-note" class="card-subtle"></small>
+
+                  <!-- Debug viewer for reset response -->
+                  <details id="poll-reset-debug-wrap" class="mt-12">
+                    <summary class="chip">View reset response</summary>
+                    <pre id="poll-reset-debug" class="muted" style="white-space:pre-wrap; overflow:auto; max-height:200px; border:1px solid rgba(255,255,255,.06); border-radius:12px; padding:10px;"></pre>
+                  </details>
+
+                  <div class="table-scroll">
+                    <table id="poll-results-table">
+                      <thead>
+                        <tr><th>#</th><th>Song</th><th style="text-align:right;">Votes</th><th style="text-align:right;">%</th></tr>
+                      </thead>
+                      <tbody></tbody>
+                    </table>
+                  </div>
+                </div>
+
               </div>
             </div>
-
-            <div class="field" style="margin-top:12px;">
-              <label>Results</label>
-              <div class="inline-actions mb-8">
-                <button class="btn small" id="poll-results-refresh">Refresh Results</button>
-                <span id="poll-results-meta" class="card-subtle">—</span>
-              </div>
-              <div class="table-scroll">
-                <table id="poll-results-table">
-                  <thead>
-                    <tr><th>#</th><th>Song</th><th style="text-align:right;">Votes</th><th style="text-align:right;">%</th></tr>
-                  </thead>
-                  <tbody></tbody>
-                </table>
-              </div>
-            </div>
-
           </div>
         </div>
         <!-- ===== /SONG POLL ===== -->
@@ -277,7 +285,7 @@
     </section>
   </div>
 
-  <!-- MAIN (kept as in prod) -->
+  <!-- MAIN -->
   <script type="module">
     // ---------- helpers ----------
     const $  = (sel, root = document) => root.querySelector(sel);
@@ -290,13 +298,12 @@
       document.body.appendChild(el); setTimeout(()=>el.remove(),1800);
     }
 
-    // ---------- winners / prize-logs ----------
+    // winners table
     function escapeHtml(s){
       return String(s ?? "")
         .replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;")
         .replaceAll('"',"&quot;").replaceAll("'","&#39;");
     }
-
     function renderWinners(rows){
       const tbody = document.getElementById("winners-tbody");
       const count = document.getElementById("winners-count");
@@ -318,7 +325,6 @@
       tbody.innerHTML = html;
       if (count) count.textContent = String(rows.length);
     }
-
     async function loadWinnerLogs(){
       try{
         const res = await fetch("/api/admin?action=winner-logs", { cache:"no-store" });
@@ -330,7 +336,7 @@
       }
     }
 
-    // ---------- login/logout ----------
+    // login/logout
     async function handleLogin(){
       try{
         const password = $('#admin-password').value;
@@ -354,7 +360,7 @@
     }
     function logout(){ localStorage.clear(); location.href = '/admin?ts=' + Date.now(); }
 
-    // ---------- redis ----------
+    // redis
     async function checkRedisStatus(){
       const el = $('#redis-status'); if (!el) return;
       try{
@@ -394,7 +400,7 @@
       }
     }
 
-    // ---------- shutdown ----------
+    // shutdown
     async function checkShutdownStatusAndLabel(){
       try{
         const res = await fetch('/api/admin?action=shutdown-status');
@@ -430,7 +436,7 @@
       }
     }
 
-    // ---------- reset spins (+5) ----------
+    // spins
     async function resetSpins(){
       const btn = $('#reset-spins-btn'); const status = $('#reset-spins-status');
       const adminKey = localStorage.getItem('adminKey') || '';
@@ -454,7 +460,7 @@
       }
     }
 
-    // ---------- social status ----------
+    // social
     async function loadSocialStatus(){
       try{
         const res = await fetch('/api/admin?action=social-status');
@@ -479,7 +485,7 @@
       }
     }
 
-    // ---------- config helpers ----------
+    // config helpers
     function toDateInputValue(iso){
       if (!iso) return "";
       const d = new Date(iso);
@@ -536,7 +542,7 @@
       }
     }
 
-    // ---------- raffle ----------
+    // raffle
     async function loadCurrentWinner(){
       try{
         const res = await fetch('/api/admin?action=winner');
@@ -547,7 +553,6 @@
         console.error("winner load error", e);
       }
     }
-
     async function loadEntries(){
       const tbody = document.getElementById("raffle-rows");
       const totals = document.getElementById("entries-totals");
@@ -582,24 +587,21 @@
       }
       tbody.innerHTML = ""; tbody.appendChild(frag);
     }
-
     async function resetEntries(){
-      if (!confirm('Reset ALL raffle entries for THIS show window? (Winner & logs cleared)')) return;
+      if (!confirm('Reset ALL raffle entries for THIS show window?\n(Does NOT touch poll data or current winner)')) return;
       try{
         const res = await fetch('/api/admin?action=reset-entries',{
           method:'POST', headers:{ Authorization:'Bearer:super:' + (localStorage.getItem('adminKey')||'') }
         });
         const json = await res.json().catch(()=>({}));
         if (!res.ok || !json.success) throw new Error(json.error || 'Failed');
-        toast('Entries & logs reset','success');
-        $('#winnerDisplay').textContent = 'No winner yet';
+        toast('Raffle entries reset','success');
         await Promise.all([loadEntries(), loadSocialStatus(), loadWinnerLogs()]);
       } catch(e){
         console.error("reset-entries error", e);
         toast('Reset failed','error');
       }
     }
-
     async function pickWinner(){
       if (!confirm('Pick a random winner from all entries?')) return;
       try{
@@ -625,7 +627,6 @@
         toast('Pick failed','error');
       }
     }
-
     async function resetWinner(){
       if (!confirm('Clear the current winner?')) return;
       try{
@@ -644,12 +645,10 @@
 
     // ---------- bootstrap ----------
     document.addEventListener('DOMContentLoaded', async ()=>{
-      // basic wires
       $('#login-btn')?.addEventListener('click', handleLogin);
       $('#logout-btn')?.addEventListener('click', logout);
       $('#refresh-winners-btn')?.addEventListener('click', loadWinnerLogs);
 
-      // role + gating
       const role = localStorage.getItem('role');
       const login = $('#login-section');
       const app = $('#admin-content');
@@ -680,7 +679,6 @@
         $('#reset-winner-btn')?.addEventListener('click', resetWinner);
       }
 
-      // initial loads
       await loadWinnerLogs();
       setInterval(loadWinnerLogs, 10000);
       await loadConfig();
@@ -690,22 +688,23 @@
       await loadEntries();
       await loadCurrentWinner();
 
-      // refreshers
       setInterval(loadSocialStatus, 15000);
       setInterval(loadEntries, 10000);
       setInterval(loadCurrentWinner, 15000);
     });
   </script>
 
-  <!-- SONG POLL (separate module; no globals required) -->
+  <!-- SONG POLL MODULE -->
   <script type="module">
-    const $  = (sel, root=document) => root.querySelector(sel);
-    const $$ = (sel, root=document) => Array.from(root.querySelectorAll(sel));
+    // Use distinct helper names to avoid $/$$ redeclare errors
+    const qs  = (sel, root=document) => root.querySelector(sel);
+    const qsa = (sel, root=document) => Array.from(root.querySelectorAll(sel));
 
-    const POLL_GET = "/api/admin?action=poll";
-    const POLL_SET = "/api/admin?action=poll-setup";
-    const POLL_RESULTS = "/api/admin?action=poll-results";
+    const POLL_GET          = "/api/admin?action=poll";
+    const POLL_SET          = "/api/admin?action=poll-setup";
+    const POLL_RESULTS      = "/api/admin?action=poll-results";
     const POLL_RESET_VOTERS = "/api/admin?action=poll-reset-voters";
+    const POLL_RESET_ALL    = "/api/admin?action=poll-reset-all";
     const POLL_ID = "top10";
 
     function toast(msg, type="info"){
@@ -717,14 +716,14 @@
     }
     function escapeHtml(s){return String(s??"").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#39;");}
     function sp_setStatus(msg, ok=true){
-      const el = $('#poll-status'); if (!el) return;
+      const el = qs('#poll-status'); if (!el) return;
       el.textContent = msg || '—'; el.style.color = ok ? 'var(--text)' : '#ff6b6b';
     }
     function sp_renderPreview(){
-      const ol = $('#poll-preview'); if (!ol) return;
+      const ol = qs('#poll-preview'); if (!ol) return;
       let list = [];
       try{
-        const arr = JSON.parse($('#poll-json').value || "[]");
+        const arr = JSON.parse(qs('#poll-json').value || "[]");
         if (Array.isArray(arr)) list = arr.slice(0,10);
       } catch {}
       ol.innerHTML = list.length
@@ -737,7 +736,7 @@
         const r = await fetch(`${POLL_GET}&pollId=${encodeURIComponent(POLL_ID)}`, { cache:"no-store" });
         const j = await r.json().catch(()=> ({}));
         const songs = Array.isArray(j.songs) ? j.songs : [];
-        $('#poll-json').value = JSON.stringify(songs, null, 2);
+        qs('#poll-json').value = JSON.stringify(songs, null, 2);
         sp_renderPreview();
         sp_setStatus(`Loaded ${songs.length} item(s) from ${POLL_ID}`, true);
       } catch(e){
@@ -745,28 +744,12 @@
         sp_setStatus('Could not load', false);
       }
     }
-    function sp_template(){
-      const tpl = [
-        { id:"s-1",  title:"Song 1",  artist:"Artist" },
-        { id:"s-2",  title:"Song 2",  artist:"Artist" },
-        { id:"s-3",  title:"Song 3",  artist:"Artist" },
-        { id:"s-4",  title:"Song 4",  artist:"Artist" },
-        { id:"s-5",  title:"Song 5",  artist:"Artist" },
-        { id:"s-6",  title:"Song 6",  artist:"Artist" },
-        { id:"s-7",  title:"Song 7",  artist:"Artist" },
-        { id:"s-8",  title:"Song 8",  artist:"Artist" },
-        { id:"s-9",  title:"Song 9",  artist:"Artist" },
-        { id:"s-10", title:"Song 10", artist:"Artist" }
-      ];
-      $('#poll-json').value = JSON.stringify(tpl, null, 2);
-      sp_renderPreview();
-    }
     async function sp_save(){
       const adminKey = localStorage.getItem('adminKey') || '';
       if (!adminKey){ toast('Admin login required','error'); return; }
       let songs;
       try{
-        songs = JSON.parse($('#poll-json').value || "[]");
+        songs = JSON.parse(qs('#poll-json').value || "[]");
         if (!Array.isArray(songs) || songs.length !== 10) throw new Error('need-10');
       } catch {
         sp_setStatus('Invalid JSON (must be an array of exactly 10 items)', false);
@@ -809,7 +792,7 @@
 
     async function sp_resetSubmitLocal(){
       const adminKey = localStorage.getItem('adminKey') || '';
-      const status = $('#poll-reset-submit-status');
+      const status = qs('#poll-reset-submit-status');
       try{
         if (status) status.textContent = 'Resetting…';
         const res = await fetch(POLL_RESET_VOTERS, {
@@ -834,19 +817,45 @@
     }
 
     async function sp_resetAll(){
-      const ok = confirm('Reset ALL poll votes (and raffle entries) for this show window?');
-      if (!ok) return;
-      const res = await fetch('/api/admin?action=reset-entries', {
-        method:'POST', headers:{ Authorization:'Bearer:super:' + (localStorage.getItem('adminKey')||'') }
-      });
-      const j = await res.json().catch(()=>({}));
-      if (res.ok && j?.success){ toast('Votes & entries reset','success'); sp_results().catch(()=>{}); }
-      else { toast('Reset failed','error'); }
+      const adminKey = localStorage.getItem('adminKey') || '';
+      const note = document.getElementById('poll-reset-note');
+      const dbg  = document.getElementById('poll-reset-debug');
+      if (!adminKey){ toast('Admin login required', 'error'); return; }
+      if (!confirm('Reset ALL poll votes for this show window? (Keeps songs & raffle entries)')) return;
+
+      try{
+        if (note) note.textContent = 'Resetting poll votes…';
+        const res = await fetch(POLL_RESET_ALL, {
+          method: 'POST',
+          headers: {
+            'Content-Type':'application/json',
+            'Authorization':'Bearer:super:' + adminKey
+          },
+          // forceNoScan ensures the server performs a deterministic delete that works without SCAN/KEYS
+          body: JSON.stringify({ pollId: POLL_ID, scope: 'all', forceNoScan: true })
+        });
+        const j = await res.json().catch(()=>({}));
+        if (dbg) dbg.textContent = JSON.stringify(j, null, 2);
+
+        if (!res.ok || !j.success) throw new Error(j.error || 'Reset failed');
+
+        const scopeLabel = j.scope || 'all';
+        const cleared = Number(j.deletedKeys ?? 0);
+        toast(`Poll votes reset (${cleared} key${cleared===1?'':'s'}).`, 'success');
+        if (note) note.textContent = `Cleared ${cleared} key(s). Scope: ${scopeLabel} • Window: ${j.windowKey || '—'}`;
+        await sp_results();
+      } catch(e){
+        console.error('poll-reset-all failed', e);
+        toast('Reset failed: ' + (e?.message || 'error'), 'error');
+        if (note) note.textContent = 'Reset failed.';
+      } finally {
+        setTimeout(()=>{ if (note) note.textContent = ''; }, 5000);
+      }
     }
 
     async function sp_results(){
-      const meta = $('#poll-results-meta');
-      const tbody = $('#poll-results-table tbody');
+      const meta = qs('#poll-results-meta');
+      const tbody = qs('#poll-results-table tbody');
       try{
         meta.textContent = 'Loading…';
         tbody.innerHTML = `<tr><td colspan="4" class="muted">Loading…</td></tr>`;
@@ -884,15 +893,14 @@
     }
 
     document.addEventListener('DOMContentLoaded', () => {
-      $('#poll-load-btn')?.addEventListener('click', sp_load);
-      $('#poll-save-btn')?.addEventListener('click', sp_save);
-      $('#poll-json')?.addEventListener('input', sp_renderPreview);
+      qs('#poll-load-btn')?.addEventListener('click', sp_load);
+      qs('#poll-save-btn')?.addEventListener('click', sp_save);
+      qs('#poll-json')?.addEventListener('input', sp_renderPreview);
 
-      $('#poll-reset-all-btn')?.addEventListener('click', sp_resetAll);
-      $('#poll-results-refresh')?.addEventListener('click', sp_results);
-      $('#poll-reset-submit-local-btn')?.addEventListener('click', sp_resetSubmitLocal);
+      qs('#poll-results-refresh')?.addEventListener('click', sp_results);
+      qs('#poll-reset-all-btn')?.addEventListener('click', sp_resetAll);
+      qs('#poll-reset-submit-local-btn')?.addEventListener('click', sp_resetSubmitLocal);
 
-      // initial
       sp_load();
       sp_results();
     });

@@ -2,8 +2,13 @@
 import fs from "fs";
 import path from "path";
 import { createClient } from "redis";
+import dns from "dns";
+try { dns.setDefaultResultOrder?.("ipv4first"); } catch {}
 
 export const config = { runtime: "nodejs" };
+
+// Minimum total entries shown publicly
+const PUBLIC_TOTAL_FLOOR = 6;
 
 /* ──────────────────────────────────────────────────────────────
    ENV + mode
@@ -21,10 +26,7 @@ const DATA_DIR = path.join(process.cwd(), ".data");
 const LOCAL_LEDGER_FILE = path.join(DATA_DIR, "winners-local.json");
 
 /* ──────────────────────────────────────────────────────────────
-   Redis — GLOBAL SINGLETON (never quit/disconnect in handlers)
-   - de-duplicated connect()
-   - auto-reconnect via socket.reconnectStrategy
-   - one-time retry wrapper for "client is closed"
+   Redis — GLOBAL SINGLETON
 ────────────────────────────────────────────────────────────── */
 const REDIS_URL = (process.env.REDIS_URL || "").trim();
 
@@ -36,86 +38,67 @@ function _makeRedis() {
   const useTLS = REDIS_URL.startsWith("rediss://");
   const c = createClient({
     url: REDIS_URL,
+    maxRetriesPerRequest: 1,
+    disableOfflineQueue: true,
     socket: {
       tls: useTLS,
-      keepAlive: 10_000,
-      connectTimeout: 10_000,
-      // Let the client handle reconnects; we won't manually quit/replace it
-      reconnectStrategy: (retries) => Math.min(250 + retries * 250, 2000),
+      noDelay: true,
+      keepAlive: 30_000,
+      connectTimeout: 1500,
+      reconnectStrategy: (retries) => Math.min(300 + retries * 200, 2000),
     },
   });
   c.on("error", (e) => console.error("Redis error:", e?.message || e));
-  c.on("end", () => console.warn("🔌 Redis connection ended"));
-  c.on("reconnecting", () => console.log("♻️  Redis reconnecting…"));
   return c;
 }
 
 async function getRedis() {
   if (!REDIS_URL) return null;
-
-  // Already open
   if (_redis?.isOpen) return _redis;
-
-  // Someone else is connecting — await it
   if (_connecting) {
-    try {
-      await _connecting;
-    } catch {
-      // swallow; we will try to create again
-    }
+    try { await _connecting; } catch {}
     return _redis?.isOpen ? _redis : null;
   }
-
-  // Create & connect
   _redis = _makeRedis();
   if (!_redis) return null;
+  _connecting = _redis.connect()
+    .catch((e) => { console.error("Redis connect failed:", e?.message || e); throw e; })
+    .finally(() => { _connecting = null; });
+  try { await _connecting; return _redis; } catch { return null; }
+}
+function hasRedis(c) { return !!(c && c.isOpen); }
 
-  _connecting = _redis
-    .connect()
-    .catch((e) => {
-      console.error("Redis connect failed:", e?.message || e);
-      // leave _redis around; client will try to reconnect on demand
-      // but report not ready for this call
-      throw e;
-    })
-    .finally(() => {
-      _connecting = null;
-    });
-
-  try {
-    await _connecting;
-    return _redis;
-  } catch {
-    return null;
-  }
+async function getRedisFast(timeoutMs = 1200) {
+  return await Promise.race([
+    getRedis(),
+    new Promise((_, rej) => setTimeout(() => rej(new Error("Redis connect timeout")), timeoutMs)),
+  ]);
 }
 
-function hasRedis(c) {
-  return !!(c && c.isOpen);
-}
-
-// Wrap a Redis op to auto-retry once if we hit a closed client edge
-async function withRedis(op) {
-  let c = await getRedis();
+async function withRedis(op, opTimeoutMs = 2000) {
+  let c = await getRedisFast().catch(() => null);
   if (!hasRedis(c)) {
-    // Give the reconnect loop a brief moment
     await new Promise((r) => setTimeout(r, 50));
-    c = await getRedis();
+    c = await getRedisFast().catch(() => null);
   }
   if (!hasRedis(c)) throw new Error("Redis not ready");
 
-  try {
-    return await op(c);
-  } catch (e) {
+  const run = async (client) => {
+    const task = op(client);
+    return await Promise.race([
+      task,
+      new Promise((_, rej) => setTimeout(() => rej(new Error("Redis op timeout")), opTimeoutMs)),
+    ]);
+  };
+
+  try { return await run(c); }
+  catch (e) {
     const msg = (e && (e.message || e.toString())) || "";
     if (/client is closed/i.test(msg) || e?.name === "ClientClosedError") {
-      // force a reconnect attempt on next call
-      // (do NOT quit/disconnect; let internal reconnectStrategy work)
-      console.warn("Retrying after ClientClosedError…");
       await new Promise((r) => setTimeout(r, 100));
-      const c2 = await getRedis();
+      const c2 = await getRedisFast().catch(() => null);
       if (!hasRedis(c2)) throw e;
-      return await op(c2);
+      return await run(c2);
     }
     throw e;
   }
@@ -136,9 +119,7 @@ function isAdmin(req) {
   return !!ADMIN_PASS && token === ADMIN_PASS;
 }
 function isSuperAdmin(req) {
-  const auth =
-    (req.headers && (req.headers.authorization || req.headers.Authorization)) ||
-    "";
+  const auth = (req.headers && (req.headers.authorization || req.headers.Authorization)) || "";
   return isAdmin(req) && auth.startsWith("Bearer:super:");
 }
 
@@ -146,35 +127,63 @@ async function readJson(req) {
   if (req?.body && typeof req.body === "object") return req.body;
   return {};
 }
+
+import crypto from "crypto";
+const APP_SECRET = (process.env.FB_APP_SECRET || "").trim();
+
 function isFollowAllowed(raw) {
   if (!raw) return false;
   if (raw === "true") return true;
-  try {
-    return !!JSON.parse(raw)?.followed;
-  } catch {
-    return false;
-  }
+  try { return !!JSON.parse(raw)?.followed; } catch { return false; }
 }
 function timeout(ms) {
-  return new Promise((_, rej) =>
-    setTimeout(() => rej(new Error("Timeout " + ms + "ms")), ms)
-  );
+  return new Promise((_, rej) => setTimeout(() => rej(new Error("Timeout " + ms + "ms")), ms));
 }
 function noCache(res) {
-  res.setHeader(
-    "Cache-Control",
-    "no-store, no-cache, must-revalidate, proxy-revalidate"
-  );
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
   res.setHeader("Pragma", "no-cache");
   res.setHeader("Expires", "0");
   res.setHeader("Surrogate-Control", "no-store");
   res.setHeader("CDN-Cache-Control", "no-store");
   res.setHeader("Vercel-CDN-Cache-Control", "no-store");
 }
+function setCors(res) {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+}
+
+// Time-boxed SCAN helper
+async function scanKeys(r, pattern, { count = 500, limit = 5000, budgetMs = 900 } = {}) {
+  const keys = [];
+  let cursor = "0";
+  const deadline = Date.now() + budgetMs;
+
+  while (true) {
+    let reply;
+    try { reply = await r.scan(cursor, { MATCH: pattern, COUNT: count }); } catch { break; }
+
+    let nextCursor, batch;
+    if (Array.isArray(reply)) {
+      nextCursor = reply[0];
+      batch = reply[1] || [];
+    } else {
+      nextCursor = reply?.cursor ?? "0";
+      batch = reply?.keys ?? [];
+    }
+
+    for (const k of batch) {
+      if (typeof k === "string" && k) keys.push(k);
+      if (keys.length >= limit) break;
+    }
+    cursor = String(nextCursor || "0");
+    if (cursor === "0" || keys.length >= limit || Date.now() > deadline) break;
+  }
+  return keys;
+}
+
 function ensureLocalDir() {
-  try {
-    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-  } catch {}
+  try { if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true }); } catch {}
 }
 function readLocalLedgerSafe() {
   try {
@@ -183,18 +192,14 @@ function readLocalLedgerSafe() {
     const txt = fs.readFileSync(LOCAL_LEDGER_FILE, "utf8");
     const arr = JSON.parse(txt);
     return Array.isArray(arr) ? arr : [];
-  } catch {
-    return [];
-  }
+  } catch { return []; }
 }
 function writeLocalLedgerSafe(rows) {
   try {
     ensureLocalDir();
     fs.writeFileSync(LOCAL_LEDGER_FILE, JSON.stringify(rows, null, 2), "utf8");
     return true;
-  } catch {
-    return false;
-  }
+  } catch { return false; }
 }
 function appendLocalLedgerRow(row) {
   const arr = readLocalLedgerSafe();
@@ -204,19 +209,14 @@ function appendLocalLedgerRow(row) {
 }
 
 async function isShutdown(r) {
-  try {
-    const v = await r.get("shutdown");
-    return v === "1" || v === "true";
-  } catch {
-    return false;
-  }
+  try { const v = await r.get("shutdown"); return v === "1" || v === "true"; }
+  catch { return false; }
 }
 
 async function getWindowInfo(r) {
   let showName = "90 Surge";
   let startTime = null;
   let endTime = null;
-
   try {
     if (hasRedis(r)) {
       const [sn, st, et] = await Promise.all([
@@ -240,26 +240,12 @@ async function getWindowInfo(r) {
 
   if (!startTime || !endTime) {
     const now = new Date();
-    const start = new Date(
-      Date.UTC(
-        now.getUTCFullYear(),
-        now.getUTCMonth(),
-        now.getUTCDate(),
-        0,
-        0,
-        0
-      )
-    );
-    const end = new Date(
-      Date.UTC(
-        now.getUTCFullYear(),
-        now.getUTCMonth(),
-        now.getUTCDate() + 1,
-        0,
-        0,
-        0
-      )
-    );
+    const start = new Date(Date.UTC(
+      now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0
+    ));
+    const end = new Date(Date.UTC(
+      now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1, 0, 0, 0
+    ));
     startTime = start.toISOString();
     endTime = end.toISOString();
   }
@@ -271,7 +257,7 @@ async function getWindowInfo(r) {
   return { showName, startTime, endTime, windowKey, ttlSeconds };
 }
 
-// --- Auto-pick timing: 2h30m after show start ---
+// Auto-pick timing: 2h30m after show start
 const WINNER_DELAY_MS = 2.5 * 60 * 60 * 1000;
 function computeAutoPickAt(startTimeIso) {
   if (!startTimeIso) return null;
@@ -283,27 +269,19 @@ function computeAutoPickAt(startTimeIso) {
 async function appendWinnerRow(r, row) {
   MEM.winners.push(row);
   if (MEM.winners.length > 500) MEM.winners = MEM.winners.slice(-500);
-  let where = "memory";
   try {
     if (hasRedis(r)) {
       await r.rPush("raffle:winners:all", JSON.stringify(row));
       await r.lTrim("raffle:winners:all", -500, -1);
-      where = "redis";
       if (isLocal) appendLocalLedgerRow(row);
     } else if (isLocal) {
       appendLocalLedgerRow(row);
-      where = "file";
     }
-    console.log(`// DEBUG: appended winner row to ${where}`);
-    return { where };
-  } catch (e) {
-    console.error("// DEBUG: appendWinnerRow error:", e?.message || e);
-    if (isLocal) {
-      appendLocalLedgerRow(row);
-      where = "file (fallback)";
-    }
+    return { where: hasRedis(r) ? "redis" : isLocal ? "file" : "memory" };
+  } catch {
+    if (isLocal) appendLocalLedgerRow(row);
+    return { where: "file (fallback)" };
   }
-  return { where };
 }
 
 function normalizeSymbol(s) {
@@ -314,10 +292,7 @@ function normalizeSymbol(s) {
       .replace(/\s+/g, " ")
       .trim();
   } catch {
-    return String(s || "")
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, " ")
-      .trim();
+    return String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
   }
 }
 function detectJackpot(targets = [], clientFlag = false) {
@@ -332,11 +307,12 @@ function detectJackpot(targets = [], clientFlag = false) {
    Main handler
 ────────────────────────────────────────────────────────────── */
 export default async function handler(req, res) {
+  setCors(res);
+  if (req.method === "OPTIONS") return res.status(204).end();
+
   // tolerant JSON body parsing
   if (req.method === "POST") {
-    const isJson = (req.headers["content-type"] || "").includes(
-      "application/json"
-    );
+    const isJson = (req.headers["content-type"] || "").includes("application/json");
     try {
       if (isJson) {
         let body = "";
@@ -344,18 +320,12 @@ export default async function handler(req, res) {
           req.on("data", (c) => (body += c));
           req.on("end", resolve);
         });
-        try {
-          req.body = body ? JSON.parse(body) : {};
-        } catch {
-          console.warn("JSON parse failed; using {}");
-          req.body = {};
-        }
+        try { req.body = body ? JSON.parse(body) : {}; }
+        catch { req.body = {}; }
       } else {
         req.body = req.body && typeof req.body === "object" ? req.body : {};
       }
-    } catch {
-      req.body = {};
-    }
+    } catch { req.body = {}; }
   }
 
   const url = new URL(req.url || "", `http://${req.headers.host}`);
@@ -364,14 +334,18 @@ export default async function handler(req, res) {
   /* ───── AUTH ───── */
   if (action === "login" && req.method === "POST") {
     const { password } = req.body || {};
-    if (password === ADMIN_PASS)
-      return res.json({ success: true, role: "admin" });
-    if (password === MODERATOR_PASS)
-      return res.json({ success: true, role: "moderator" });
+    if (password === ADMIN_PASS) return res.json({ success: true, role: "admin" });
+    if (password === MODERATOR_PASS) return res.json({ success: true, role: "moderator" });
     return res.status(401).json({ success: false, error: "Invalid password" });
   }
 
-  /* ───── REDIS STATUS / WARM ───── */
+  /* ───── PING ───── */
+  if (req.method === "GET" && action === "ping") {
+    noCache(res);
+    return res.status(200).json({ ok: true, now: new Date().toISOString() });
+  }
+
+  /* ───── REDIS STATUS / WARM (optional) ───── */
   if (req.method === "GET" && action === "redis-status") {
     try {
       return await withRedis(async (r) => {
@@ -385,10 +359,7 @@ export default async function handler(req, res) {
           r.get("cache:hitRate").catch(() => null),
         ]);
         return res.status(200).json({
-          status: "active",
-          pingMs,
-          keyCount,
-          lastWarmAt,
+          status: "active", pingMs, keyCount, lastWarmAt,
           seeded: seeded === "true" ? true : seeded ?? null,
           hitRate: hitRate ? Number(hitRate) : null,
         });
@@ -398,18 +369,16 @@ export default async function handler(req, res) {
     }
   }
 
-  /* ───── WARM REDIS (admin only) ───── */
   if (req.method === "POST" && action === "warm-redis") {
     if (!isAdmin(req)) return res.status(403).json({ error: "Forbidden" });
     try {
       return await withRedis(async (r) => {
         const pong = await r.ping();
         await r.set("lastWarmAt", new Date().toISOString());
-        // optional, mark that a warm happened
         await r.set("warm_seeded", "true");
         return res.status(200).json({ success: true, pong });
       });
-    } catch (e) {
+    } catch {
       return res.status(503).json({ error: "Redis not ready" });
     }
   }
@@ -428,33 +397,25 @@ export default async function handler(req, res) {
             const endTime = cfg.endTime ?? null;
             const version = Number(cfg.version || 0);
             const autoPickAt = cfg.autoPickAt || "";
-            return res
-              .status(200)
-              .json({ showName, startTime, endTime, version, autoPickAt });
+            return res.status(200).json({ showName, startTime, endTime, version, autoPickAt });
           } catch {}
         }
         return await withRedis(async (r) => {
-          let [showName, startTime, endTime, version, autoPickAt] =
-            await Promise.race([
-              Promise.all([
-                r.get("showName").catch(() => ""),
-                r.get("startTime").catch(() => ""),
-                r.get("endTime").catch(() => ""),
-                r.get("config:version").catch(() => "0"),
-                r.get("autoPickAt").catch(() => ""),
-              ]),
-              timeout(10000),
-            ]);
+          let [showName, startTime, endTime, version, autoPickAt] = await Promise.race([
+            Promise.all([
+              r.get("showName").catch(() => ""),
+              r.get("startTime").catch(() => ""),
+              r.get("endTime").catch(() => ""),
+              r.get("config:version").catch(() => "0"),
+              r.get("autoPickAt").catch(() => ""),
+            ]),
+            timeout(3000),
+          ]);
           return res.status(200).json({
-            showName,
-            startTime,
-            endTime,
-            version: Number(version || 0),
-            autoPickAt,
+            showName, startTime, endTime, version: Number(version || 0), autoPickAt,
           });
-        });
-      } catch (err) {
-        console.error("❌ config GET:", err);
+        }, 3500);
+      } catch {
         return res.status(500).json({ error: "Failed to load config" });
       }
     }
@@ -466,44 +427,20 @@ export default async function handler(req, res) {
         try {
           if (startTime) {
             const t = new Date(startTime);
-            if (!isNaN(t))
-              computedAuto = new Date(
-                t.getTime() + 150 * 60 * 1000
-              ).toISOString();
+            if (!isNaN(t)) computedAuto = new Date(t.getTime() + 150 * 60 * 1000).toISOString();
           }
         } catch {}
         if (isLocal) {
           const filePath = path.join(process.cwd(), "config.json");
           let existing = {};
-          try {
-            existing = JSON.parse(fs.readFileSync(filePath, "utf8"));
-          } catch {}
+          try { existing = JSON.parse(fs.readFileSync(filePath, "utf8")); } catch {}
           const version = Number(existing.version || 0) + 1;
           fs.writeFileSync(
             filePath,
-            JSON.stringify(
-              {
-                showName,
-                startTime,
-                endTime,
-                version,
-                autoPickAt: computedAuto,
-              },
-              null,
-              2
-            )
+            JSON.stringify({ showName, startTime, endTime, version, autoPickAt: computedAuto }, null, 2)
           );
           noCache(res);
-          return res
-            .status(200)
-            .json({
-              success: true,
-              showName,
-              startTime,
-              endTime,
-              version,
-              autoPickAt: computedAuto,
-            });
+          return res.status(200).json({ success: true, showName, startTime, endTime, version, autoPickAt: computedAuto });
         }
         return await withRedis(async (r) => {
           await Promise.all([
@@ -514,39 +451,13 @@ export default async function handler(req, res) {
             r.set("autoPickArmed", computedAuto ? "true" : "false"),
           ]);
           const version = await r.incr("config:version");
-          try {
-            await r.publish(
-              "sse",
-              JSON.stringify({
-                type: "config",
-                config: {
-                  showName,
-                  startTime,
-                  endTime,
-                  version,
-                  autoPickAt: computedAuto,
-                },
-              })
-            );
-          } catch {}
           noCache(res);
-          return res
-            .status(200)
-            .json({
-              success: true,
-              showName,
-              startTime,
-              endTime,
-              version,
-              autoPickAt: computedAuto,
-            });
-        });
-      } catch (err) {
-        console.error("❌ config POST:", err);
+          return res.status(200).json({ success: true, showName, startTime, endTime, version, autoPickAt: computedAuto });
+        }, 4000);
+      } catch {
         return res.status(500).json({ error: "Failed to save config" });
       }
     }
-
     return res.status(405).json({ error: "Method not allowed" });
   }
 
@@ -561,14 +472,9 @@ export default async function handler(req, res) {
         const name = nameRaw.slice(0, 80);
 
         const rawSource = (req.body?.source || "").toString().toLowerCase();
-        const source = ["fb", "ig", "jackpot"].includes(rawSource)
-          ? rawSource
-          : "other";
+        const source = ["fb", "ig", "jackpot"].includes(rawSource) ? rawSource : "other";
 
-        const ip =
-          req.headers["x-forwarded-for"]?.split(",")[0]?.trim() ||
-          req.socket.remoteAddress ||
-          "unknown";
+        const ip = req.headers["x-forwarded-for"]?.split(",")[0]?.trim() || req.socket.remoteAddress || "unknown";
         const { windowKey, ttlSeconds } = await getWindowInfo(r);
 
         const setKey = `raffle:entered:${windowKey}:${source}`;
@@ -577,21 +483,15 @@ export default async function handler(req, res) {
         if (source === "jackpot") {
           const entry = {
             id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
-            name,
-            ip,
-            source,
+            name, ip, source,
             createdTime: new Date().toISOString(),
           };
           const jpKey = `raffle:jackpotCount:${windowKey}:${ip}`;
           const setKeyJp = `raffle:entered:${windowKey}:jackpot`;
-          await r
-            .multi()
-            .sAdd(setKeyJp, ip)
-            .expire(setKeyJp, ttlSeconds)
-            .rPush(listKey, JSON.stringify(entry))
-            .expire(listKey, ttlSeconds)
-            .incr(jpKey)
-            .expire(jpKey, ttlSeconds)
+          await r.multi()
+            .sAdd(setKeyJp, ip).expire(setKeyJp, ttlSeconds)
+            .rPush(listKey, JSON.stringify(entry)).expire(listKey, ttlSeconds)
+            .incr(jpKey).expire(jpKey, ttlSeconds)
             .exec();
           return res.status(200).json({ success: true, entry, jackpot: true });
         }
@@ -604,25 +504,18 @@ export default async function handler(req, res) {
             for (const s of tail) {
               try {
                 const e = JSON.parse(s);
-                if (e && e.ip === ip && e.source === source) {
-                  found = true;
-                  break;
-                }
+                if (e && e.ip === ip && e.source === source) { found = true; break; }
               } catch {}
             }
             if (!found) {
               const entry = {
                 id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
-                name,
-                ip,
-                source,
+                name, ip, source,
                 createdTime: new Date().toISOString(),
               };
               await r.rPush(listKey, JSON.stringify(entry));
               await r.expire(listKey, ttlSeconds);
-              return res
-                .status(200)
-                .json({ success: true, already: true, repaired: true, entry });
+              return res.status(200).json({ success: true, already: true, repaired: true, entry });
             }
           } catch {}
           return res.status(200).json({ success: true, already: true, source });
@@ -630,20 +523,15 @@ export default async function handler(req, res) {
 
         const entry = {
           id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
-          name,
-          ip,
-          source,
+          name, ip, source,
           createdTime: new Date().toISOString(),
         };
-        await r
-          .multi()
-          .sAdd(setKey, ip)
-          .expire(setKey, ttlSeconds)
-          .rPush(listKey, JSON.stringify(entry))
-          .expire(listKey, ttlSeconds)
+        await r.multi()
+          .sAdd(setKey, ip).expire(setKey, ttlSeconds)
+          .rPush(listKey, JSON.stringify(entry)).expire(listKey, ttlSeconds)
           .exec();
         return res.status(200).json({ success: true, entry });
-      });
+      }, 3000);
     } catch {
       return res.status(503).json({ error: "Redis not ready" });
     }
@@ -655,17 +543,9 @@ export default async function handler(req, res) {
         const { windowKey } = await getWindowInfo(r);
         const listKey = `raffle:entries:${windowKey}`;
         const raw = await r.lRange(listKey, 0, -1);
-        const entries = raw
-          .map((s) => {
-            try {
-              return JSON.parse(s);
-            } catch {
-              return null;
-            }
-          })
-          .filter(Boolean);
+        const entries = raw.map((s) => { try { return JSON.parse(s); } catch { return null; } }).filter(Boolean);
         return res.status(200).json({ entries, count: entries.length });
-      });
+      }, 2500);
     } catch {
       return res.status(200).json({ entries: [], count: 0 });
     }
@@ -675,10 +555,7 @@ export default async function handler(req, res) {
     try {
       return await withRedis(async (r) => {
         const { windowKey } = await getWindowInfo(r);
-        const ip =
-          req.headers["x-forwarded-for"]?.split(",")[0]?.trim() ||
-          req.socket.remoteAddress ||
-          "unknown";
+        const ip = req.headers["x-forwarded-for"]?.split(",")[0]?.trim() || req.socket.remoteAddress || "unknown";
 
         const setFb = `raffle:entered:${windowKey}:fb`;
         const setIg = `raffle:entered:${windowKey}:ig`;
@@ -686,7 +563,7 @@ export default async function handler(req, res) {
         const bonusKey = `raffle:bonus:${windowKey}:${ip}`;
         const listKey = `raffle:entries:${windowKey}`;
 
-        const [fb, ig, jp, total, bonusRaw] = await Promise.all([
+        const [fb, ig, jp, totalReal, bonusRaw] = await Promise.all([
           r.sIsMember(setFb, ip),
           r.sIsMember(setIg, ip),
           r.sIsMember(setJp, ip),
@@ -696,23 +573,18 @@ export default async function handler(req, res) {
 
         const bonus = Number(bonusRaw || 0) || 0;
         const mine = (fb ? 1 : 0) + (ig ? 1 : 0) + (jp ? 1 : 0) + bonus;
+        const total = Math.max(PUBLIC_TOTAL_FLOOR, Number(totalReal || 0));
 
         return res.status(200).json({
-          mine,
-          total: Number(total || 0),
-          sources: { fb: !!fb, ig: !!ig, jackpot: !!jp },
-          bonus,
+          mine, total, sources: { fb: !!fb, ig: !!ig, jackpot: !!jp }, bonus,
         });
-      });
+      }, 2500);
     } catch {
-      return res
-        .status(200)
-        .json({
-          mine: 0,
-          total: 0,
-          sources: { fb: false, ig: false, jackpot: false },
-          bonus: 0,
-        });
+      return res.status(200).json({
+        mine: 0, total: PUBLIC_TOTAL_FLOOR,
+        sources: { fb: false, ig: false, jackpot: false },
+        bonus: 0,
+      });
     }
   }
 
@@ -731,142 +603,43 @@ export default async function handler(req, res) {
             rowsMap.set(name, (rowsMap.get(name) || 0) + 1);
           } catch {}
         }
-        const rows = Array.from(rowsMap, ([name, entries]) => ({
-          name,
-          entries,
-        })).sort(
-          (a, b) => b.entries - a.entries || a.name.localeCompare(b.name)
-        );
+        const rows = Array.from(rowsMap, ([name, entries]) => ({ name, entries }))
+          .sort((a, b) => b.entries - a.entries || a.name.localeCompare(b.name));
         return res.status(200).json({ rows });
-      });
+      }, 2500);
     } catch {
       return res.status(200).json({ rows: [] });
     }
   }
 
   /* ────────────────────────────────────────────────────────────
-   RESET EVERYTHING (entries + winners + social)
-───────────────────────────────────────────────────────────── */
+   RESET RAFFLE ENTRIES ONLY (no winners, no poll)
+  ───────────────────────────────────────────────────────────── */
   if (action === "reset-entries" && req.method === "POST") {
     if (!isAdmin(req)) return res.status(403).json({ error: "Forbidden" });
-
     try {
       return await withRedis(async (r) => {
-        const safeScan = async (pattern) => {
-          try {
-            if (!r?.scanIterator) return [];
-            const out = [];
-            for await (const k of r.scanIterator({
-              MATCH: pattern,
-              COUNT: 1000,
-            })) {
-              if (typeof k === "string" && k) out.push(k);
-            }
-            return out;
-          } catch (e) {
-            console.warn("scan failed", pattern, e?.message || e);
-            return [];
-          }
-        };
-        const delKey = async (k) => {
-          if (!k || typeof k !== "string") return 0;
-          try {
-            return (await r.unlink(k)) || 0;
-          } catch {
-            try {
-              return (await r.del(k)) || 0;
-            } catch {
-              return 0;
-            }
-          }
-        };
-
         const { windowKey } = await getWindowInfo(r);
 
         const listKey = `raffle:entries:${windowKey}`;
-        const dedupes = await safeScan(`raffle:entered:${windowKey}:*`);
-        const bonuses = await safeScan(`raffle:bonus:${windowKey}:*`);
-        const socialIpsScoped = `social:ips:${windowKey}`;
-        const socialStates = await safeScan(`social:${windowKey}:*`);
-        const socialLocks = await safeScan(`social:lock:${windowKey}*`);
-        const jpCounts = await safeScan(`raffle:jackpotCount:${windowKey}:*`);
+        const dedupes = await scanKeys(r, `raffle:entered:${windowKey}:*`, { budgetMs: 800 });
+        const bonuses = await scanKeys(r, `raffle:bonus:${windowKey}:*`, { budgetMs: 800 });
+        const jpCounts = await scanKeys(r, `raffle:jackpotCount:${windowKey}*`, { budgetMs: 800 });
 
-        const winnersKey = "raffle:winners:all";
-        const winnerKey = "raffle_winner";
-        const socialIpsLegacy = "social:ips";
-
-        const votesAll = await safeScan(`votes:*`);
-        const entriesCaches = await safeScan(`entries:*`);
-
-        const toDelete = Array.from(
-          new Set([
-            listKey,
-            winnersKey,
-            winnerKey,
-            socialIpsScoped,
-            socialIpsLegacy,
-            ...dedupes,
-            ...bonuses,
-            ...socialStates,
-            ...socialLocks,
-            ...jpCounts,
-            ...votesAll,
-            ...entriesCaches,
-          ])
-        );
-
+        const toDelete = Array.from(new Set([listKey, ...dedupes, ...bonuses, ...jpCounts]));
         let deleted = 0;
-        for (const k of toDelete) deleted += await delKey(k);
-
-        MEM.winners = [];
-        MEM.currentWinner = null;
-
-        const [
-          remainingSocial,
-          remainingEntered,
-          remainingJp,
-          remainingVotes,
-          remainingEntries,
-        ] = await Promise.all([
-          safeScan(`social:${windowKey}:*`),
-          safeScan(`raffle:entered:${windowKey}:*`),
-          safeScan(`raffle:jackpotCount:${windowKey}:*`),
-          safeScan(`votes:*`),
-          safeScan(`entries:*`),
-        ]);
+        for (const k of toDelete) {
+          try { deleted += (await r.unlink(k)) || 0; }
+          catch { try { deleted += (await r.del(k)) || 0; } catch {} }
+        }
 
         return res.status(200).json({
-          success: true,
-          windowKey,
-          deletedKeys: deleted,
-          remaining: {
-            social: remainingSocial,
-            raffleEntered: remainingEntered,
-            jackpots: remainingJp,
-            votes: remainingVotes,
-            entries: remainingEntries,
-          },
+          success: true, windowKey, deletedKeys: deleted,
+          note: "Raffle entries cleared. Winners, social, and poll data left intact.",
         });
-      });
+      }, 6000);
     } catch {
-      // If Redis truly not ready, clear memory mirror only (dev convenience)
-      try {
-        MEM.winners = [];
-        MEM.currentWinner = null;
-      } catch {}
-      return res.status(200).json({
-        success: true,
-        windowKey: "(mem)",
-        deletedKeys: 0,
-        remaining: {
-          social: [],
-          raffleEntered: [],
-          jackpots: [],
-          votes: [],
-          entries: [],
-        },
-        _note: "Redis not ready; cleared memory mirror only",
-      });
+      return res.status(503).json({ ok: false, error: "Redis not ready" });
     }
   }
 
@@ -881,32 +654,23 @@ export default async function handler(req, res) {
         const ips = await r.sMembers(setKey);
 
         const entries = [];
-        let totalUnlocked = 0,
-          fbClicks = 0,
-          igClicks = 0;
+        let totalUnlocked = 0, fbClicks = 0, igClicks = 0;
 
         for (const ip of ips) {
           const key = `social:${windowKey}:${ip}`;
           const raw = await r.get(key);
           if (!raw) continue;
           let s;
-          try {
-            s = JSON.parse(raw);
-          } catch {
-            s = { followed: raw === "true", platforms: {} };
-          }
+          try { s = JSON.parse(raw); }
+          catch { s = { followed: raw === "true", platforms: {} }; }
           const ttlSeconds = await r.ttl(key);
           if (s.followed) totalUnlocked += 1;
           if (s.platforms?.fb) fbClicks += 1;
           if (s.platforms?.ig) igClicks += 1;
           entries.push({
-            ip,
-            firstSeen: s.firstSeen || null,
-            lastSeen: s.lastSeen || null,
-            followed: !!s.followed,
-            platforms: s.platforms || {},
-            count: s.count || 1,
-            ttlSeconds,
+            ip, firstSeen: s.firstSeen || null, lastSeen: s.lastSeen || null,
+            followed: !!s.followed, platforms: s.platforms || {},
+            count: s.count || 1, ttlSeconds,
           });
         }
 
@@ -919,17 +683,11 @@ export default async function handler(req, res) {
           },
           entries,
         });
-      });
+      }, 3500);
     } catch {
       return res.status(200).json({
-        totals: {
-          uniqueIPsTracked: 0,
-          unlocked: 0,
-          facebookClicks: 0,
-          instagramClicks: 0,
-        },
-        entries: [],
-        _fallback: true,
+        totals: { uniqueIPsTracked: 0, unlocked: 0, facebookClicks: 0, instagramClicks: 0 },
+        entries: [], _fallback: true,
       });
     }
   }
@@ -942,60 +700,32 @@ export default async function handler(req, res) {
       return await withRedis(async (r) => {
         const winner = await r.get("raffle_winner");
         return res.json({ winner: winner ? JSON.parse(winner) : null });
-      });
-    } catch (err) {
-      // fallback to memory mirror
-      return res.json({
-        winner: MEM.currentWinner ? { name: MEM.currentWinner } : null,
-        _fallback: true,
-      });
+      }, 2000);
+    } catch {
+      return res.json({ winner: MEM.currentWinner ? { name: MEM.currentWinner } : null, _fallback: true });
     }
   }
 
-  // AUTO PICK
-  if (
-    (req.method === "POST" || req.method === "GET") &&
-    action === "maybe-auto-pick"
-  ) {
+  if ((req.method === "POST" || req.method === "GET") && action === "maybe-auto-pick") {
     try {
       return await withRedis(async (r) => {
         const { windowKey, startTime } = await getWindowInfo(r);
         const pickAtMs = computeAutoPickAt(startTime);
-        if (!pickAtMs)
-          return res.status(200).json({ ok: false, reason: "no_start_time" });
+        if (!pickAtMs) return res.status(200).json({ ok: false, reason: "no_start_time" });
         const now = Date.now();
-        if (now < pickAtMs)
-          return res
-            .status(200)
-            .json({ ok: false, reason: "too_early", msLeft: pickAtMs - now });
+        if (now < pickAtMs) return res.status(200).json({ ok: false, reason: "too_early", msLeft: pickAtMs - now });
 
         const already = await r.get("raffle_winner").catch(() => null);
-        if (already)
-          return res
-            .status(200)
-            .json({ ok: true, already: true, winner: JSON.parse(already) });
+        if (already) return res.status(200).json({ ok: true, already: true, winner: JSON.parse(already) });
 
         const lockKey = `autoPick:lock:${windowKey}`;
-        const gotLock = await r.set(lockKey, String(now), {
-          NX: true,
-          PX: 8000,
-        });
-        if (!gotLock)
-          return res.status(200).json({ ok: false, reason: "locked" });
+        const gotLock = await r.set(lockKey, String(now), { NX: true, PX: 8000 });
+        if (!gotLock) return res.status(200).json({ ok: false, reason: "locked" });
 
         const listKey = `raffle:entries:${windowKey}`;
         const raw = await r.lRange(listKey, 0, -1);
-        const entries = raw
-          .map((s) => {
-            try {
-              return JSON.parse(s);
-            } catch {
-              return null;
-            }
-          })
-          .filter(Boolean);
-        if (!entries.length)
-          return res.status(200).json({ ok: false, reason: "no_entries" });
+        const entries = raw.map((s) => { try { return JSON.parse(s); } catch { return null; } }).filter(Boolean);
+        if (!entries.length) return res.status(200).json({ ok: false, reason: "no_entries" });
 
         const idx = Math.floor(Math.random() * entries.length);
         const w = entries[idx];
@@ -1006,103 +736,57 @@ export default async function handler(req, res) {
 
         const row = {
           id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
-          name: payload.name,
-          prize: "Raffle Winner — T-Shirt",
-          source: "raffle(auto)",
-          windowKey,
+          name: payload.name, prize: "Raffle Winner — T-Shirt",
+          source: "raffle(auto)", windowKey,
           ts: new Date().toISOString(),
         };
         await appendWinnerRow(r, row);
 
-        try {
-          await fetch("https://winner-sse-server.onrender.com/broadcast", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ winner: payload.name }),
-          });
-        } catch {}
-
-        return res
-          .status(200)
-          .json({ ok: true, autoPicked: true, winner: payload });
-      });
-    } catch (e) {
-      console.error("maybe-auto-pick failed:", e?.message || e);
+        return res.status(200).json({ ok: true, autoPicked: true, winner: payload });
+      }, 3500);
+    } catch {
       return res.status(503).json({ ok: false, error: "Redis not ready" });
     }
   }
 
   if (action === "pick-winner" && req.method === "POST") {
     const { role } = req.body || {};
-    if (role !== "admin" && role !== "moderator")
-      return res.status(401).json({ error: "Unauthorized" });
-
+    if (role !== "admin" && role !== "moderator") return res.status(401).json({ error: "Unauthorized" });
     try {
       return await withRedis(async (r) => {
         const { windowKey } = await getWindowInfo(r);
         const listKey = `raffle:entries:${windowKey}`;
         const raw = await r.lRange(listKey, 0, -1);
-        const entries = raw
-          .map((s) => {
-            try {
-              return JSON.parse(s);
-            } catch {
-              return null;
-            }
-          })
-          .filter(Boolean);
-        if (!entries.length)
-          return res.status(400).json({ error: "No eligible entries" });
+        const entries = raw.map((s) => { try { return JSON.parse(s); } catch { return null; } }).filter(Boolean);
+        if (!entries.length) return res.status(400).json({ error: "No eligible entries" });
 
         const idx = Math.floor(Math.random() * entries.length);
         const winner = entries[idx];
-        const payload = {
-          id: winner.id,
-          name: winner.name,
-          source: winner.source || null,
-        };
+        const payload = { id: winner.id, name: winner.name, source: winner.source || null };
 
         await r.set("raffle_winner", JSON.stringify(payload));
         MEM.currentWinner = payload.name;
 
         const row = {
           id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
-          name: payload.name,
-          prize: "Raffle Winner — T-Shirt",
-          source: "raffle",
-          windowKey,
+          name: payload.name, prize: "Raffle Winner — T-Shirt",
+          source: "raffle", windowKey,
           ts: new Date().toISOString(),
         };
         await appendWinnerRow(r, row);
 
-        try {
-          await fetch("https://winner-sse-server.onrender.com/broadcast", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ winner: payload.name }),
-          });
-        } catch {}
         return res.json({ success: true, winner: payload });
-      });
-    } catch (err) {
-      console.error("❌ pick-winner:", err);
+      }, 3500);
+    } catch {
       return res.status(503).json({ error: "Redis not ready" });
     }
   }
 
-  /* RESET CURRENT WINNER (+ optionally clear Winners Ledger) */
   if (action === "reset-winner" && req.method === "POST") {
     if (!isAdmin(req)) return res.status(403).json({ error: "Forbidden" });
-
-    const keepLedgerQP = /^true|1|yes$/i.test(
-      url.searchParams.get("keepLedger") || ""
-    );
-    const clearLedgerBody =
-      typeof req.body?.clearLedger === "boolean"
-        ? req.body.clearLedger
-        : undefined;
-    const clearLedger =
-      clearLedgerBody !== undefined ? clearLedgerBody : !keepLedgerQP;
+    const keepLedgerQP = /^true|1|yes$/i.test(url.searchParams.get("keepLedger") || "");
+    const clearLedgerBody = typeof req.body?.clearLedger === "boolean" ? req.body.clearLedger : undefined;
+    const clearLedger = clearLedgerBody !== undefined ? clearLedgerBody : !keepLedgerQP;
 
     try {
       return await withRedis(async (r) => {
@@ -1115,28 +799,12 @@ export default async function handler(req, res) {
             await r.del("raffle:winners:all");
             MEM.winners = [];
             try {
-              const localFilePath = path.join(
-                process.cwd(),
-                ".data",
-                "winners-local.json"
-              );
-              if (fs.existsSync(localFilePath))
-                fs.writeFileSync(localFilePath, "[]");
+              const localFilePath = path.join(process.cwd(), ".data", "winners-local.json");
+              if (fs.existsSync(localFilePath)) fs.writeFileSync(localFilePath, "[]");
             } catch {}
             ledgerCleared = true;
-          } catch (e) {
-            console.warn(
-              "reset-winner: clearing ledger failed:",
-              e?.message || e
-            );
-          }
+          } catch {}
         }
-
-        try {
-          await fetch("https://winner-sse-server.onrender.com/reset", {
-            method: "POST",
-          });
-        } catch {}
 
         return res.json({
           success: true,
@@ -1145,9 +813,8 @@ export default async function handler(req, res) {
             ? "Current winner and Winners Ledger cleared."
             : "Current winner cleared. Ledger kept.",
         });
-      });
-    } catch (err) {
-      console.error("❌ reset-winner:", err);
+      }, 3000);
+    } catch {
       return res.status(503).json({ success: false, error: "Redis not ready" });
     }
   }
@@ -1158,24 +825,20 @@ export default async function handler(req, res) {
     const { name, prize } = req.body || {};
     const cleanName = (name || "").toString().trim().slice(0, 120);
     const cleanPrize = (prize || "").toString().trim().slice(0, 160);
-    if (!cleanName || !cleanPrize)
-      return res.status(400).json({ error: "name and prize required" });
+    if (!cleanName || !cleanPrize) return res.status(400).json({ error: "name and prize required" });
 
     const row = {
       id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
-      name: cleanName,
-      prize: cleanPrize,
-      source: "manual",
-      ts: new Date().toISOString(),
+      name: cleanName, prize: cleanPrize,
+      source: "manual", ts: new Date().toISOString(),
     };
     try {
       return await withRedis(async (r) => {
         await appendWinnerRow(r, row);
         noCache(res);
         return res.status(200).json({ success: true, row });
-      });
-    } catch (e) {
-      console.error("winner-log failed:", e);
+      }, 2500);
+    } catch {
       return res.status(500).json({ error: "winner-log failed" });
     }
   }
@@ -1186,64 +849,183 @@ export default async function handler(req, res) {
       try {
         await withRedis(async (r) => {
           const raw = await r.lRange("raffle:winners:all", -400, -1);
-          redisRows = raw
-            .map((s) => {
-              try {
-                return JSON.parse(s);
-              } catch {
-                return null;
-              }
-            })
-            .filter(Boolean);
-        });
+          redisRows = raw.map((s) => { try { return JSON.parse(s); } catch { return null; } }).filter(Boolean);
+        }, 2500);
       } catch {}
       const memRows = Array.isArray(MEM.winners) ? MEM.winners : [];
       const fileRows = isLocal ? readLocalLedgerSafe() : [];
 
       const byId = new Map();
-      for (const ro of [...redisRows, ...fileRows, ...memRows]) {
-        if (ro && ro.id) byId.set(ro.id, ro);
-      }
+      for (const ro of [...redisRows, ...fileRows, ...memRows]) if (ro && ro.id) byId.set(ro.id, ro);
       const rows = Array.from(byId.values())
         .sort((a, b) => new Date(b.ts) - new Date(a.ts))
         .slice(0, 200);
 
       noCache(res);
       return res.status(200).json({ rows });
-    } catch (e) {
-      console.error("winner-logs failed:", e);
+    } catch {
       return res.status(500).json({ rows: [], error: "fetch failed" });
     }
   }
 
-  /* ────────────────────────────────────────────────────────────
-     FOLLOWERS / SOCIAL
-  ───────────────────────────────────────────────────────────── */
+  // ────────────────────────────────────────────────────────────
+  // FOLLOWERS / SOCIAL  (with dev fallback + cache)
+  // ────────────────────────────────────────────────────────────
   if (action === "followers" && req.method === "GET") {
+    const q = new URL(req.url, `http://${req.headers.host}`);
+    const debug = String(q.searchParams.get("debug") || "") === "1";
+    const reveal = String(q.searchParams.get("reveal") || "") === "1";
+
+    const timedFetch = async (url, ms = 6000) => {
+      const ctl = new AbortController();
+      const t = setTimeout(() => ctl.abort(), ms);
+      try {
+        const res2 = await fetch(url, { signal: ctl.signal });
+        const json = await res2.json().catch(() => ({}));
+        return { ok: res2.ok, status: res2.status, json };
+      } catch (e) {
+        return { ok: false, status: 0, json: { error: String(e?.message || e) } };
+      } finally { clearTimeout(t); }
+    };
+
+    const mask = (t) => (t ? `${t.slice(0, 6)}…${t.slice(-4)}` : "");
+    const tail = (t) => (t ? t.slice(-8) : "");
+
+    const readCache = async () => {
+      let fb = 0, ig = 0;
+      try {
+        await withRedis(async (r) => {
+          fb = Number(await r.get("cache:fbFollowers")) || 0;
+          ig = Number(await r.get("cache:igFollowers")) || 0;
+        }, 1200);
+      } catch {}
+      return { fb, ig };
+    };
+    const writeCache = async (fb, ig) => {
+      try {
+        await withRedis(async (r) => {
+          const ops = [];
+          if (Number.isFinite(fb) && fb > 0) ops.push(r.set("cache:fbFollowers", String(fb), { EX: 600 }));
+          if (Number.isFinite(ig) && ig > 0) ops.push(r.set("cache:igFollowers", String(ig), { EX: 600 }));
+          if (ops.length) await Promise.all(ops);
+        }, 1200);
+      } catch {}
+    };
+
     try {
-      const token = process.env.FB_PAGE_TOKEN;
-      const pageId = process.env.FB_PAGE_ID;
-      const igId = process.env.IG_ACCOUNT_ID;
-      if (!token || !pageId || !igId) {
-        return res
-          .status(200)
-          .json({ facebook: 0, instagram: 0, _note: "missing env" });
+      const token = (process.env.FB_PAGE_TOKEN || "").trim();
+      const pageId = (process.env.FB_PAGE_ID || "").trim();
+      let igId = (process.env.IG_ACCOUNT_ID || "").trim();
+
+      // ⬇️ Local dev fallback: no token/page → return sample numbers
+      if (isLocal && (!token || !pageId)) {
+        const fbDev = Number(process.env.DEV_FB_FOLLOWERS || q.searchParams.get("fb") || 1234) || 0;
+        const igDev = Number(process.env.DEV_IG_FOLLOWERS || q.searchParams.get("ig") || 567) || 0;
+        try {
+          await withRedis(async (r) => {
+            await Promise.all([
+              r.set("cache:fbFollowers", String(fbDev), { EX: 600 }),
+              r.set("cache:igFollowers", String(igDev), { EX: 600 }),
+            ]);
+          }, 1200);
+        } catch {}
+        return res.status(200).json({
+          facebook: fbDev, instagram: igDev, _dev: true,
+          note: "Local dev fallback (no FB_PAGE_TOKEN / FB_PAGE_ID set).",
+        });
       }
-      const fbRes = await fetch(
-        `https://graph.facebook.com/v19.0/${pageId}?fields=fan_count&access_token=${token}`
-      );
-      const igRes = await fetch(
-        `https://graph.facebook.com/v19.0/${igId}?fields=followers_count&access_token=${token}`
-      );
-      const fbJson = await fbRes.json().catch(() => ({}));
-      const igJson = await igRes.json().catch(() => ({}));
-      return res.status(200).json({
-        facebook: Number(fbJson?.fan_count || 0),
-        instagram: Number(igJson?.followers_count || 0),
-      });
+
+      const missing = [];
+      if (!token) missing.push("FB_PAGE_TOKEN");
+      if (!pageId) missing.push("FB_PAGE_ID");
+
+      if (missing.length) {
+        const cache = await readCache();
+        const out = {
+          facebook: cache.fb, instagram: cache.ig,
+          error: "missing_env", missing,
+          note: "Set env vars; IG id can be auto-discovered if the Page is linked.",
+        };
+        if (debug) out.tokenPreview = mask(token);
+        return res.status(200).json(out);
+      }
+
+      // appsecret_proof (recommended)
+      let proof = "";
+      if (APP_SECRET && token) {
+        proof = crypto.createHmac("sha256", APP_SECRET).update(token).digest("hex");
+      }
+      const ap = `access_token=${encodeURIComponent(token)}${proof ? `&appsecret_proof=${proof}` : ""}`;
+
+      // 1) Page call
+      const pageBase = `https://graph.facebook.com/v19.0/${encodeURIComponent(pageId)}`;
+      const urlFull = `${pageBase}?fields=fan_count,followers_count,instagram_business_account&${ap}`;
+      let pageRes = await timedFetch(urlFull, 6000);
+
+      // Fallback fields if 400
+      if (!pageRes.ok && pageRes.status === 400) {
+        const urlFans = `${pageBase}?fields=fan_count,instagram_business_account&${ap}`;
+        pageRes = await timedFetch(urlFans, 6000);
+      }
+
+      let facebookCount = 0;
+      let pageDiag = { status: pageRes.status };
+      if (pageRes.ok && pageRes.json) {
+        const pj = pageRes.json || {};
+        facebookCount = Number(pj.followers_count ?? pj.fan_count ?? 0) || 0;
+        if (!igId && pj.instagram_business_account?.id) igId = String(pj.instagram_business_account.id);
+        pageDiag = {
+          status: pageRes.status,
+          hasFollowers: "followers_count" in pj,
+          hasFans: "fan_count" in pj,
+          hasIGLink: !!igId,
+        };
+      } else {
+        const cache = await readCache();
+        const out = { facebook: cache.fb, instagram: cache.ig, error: "page_fetch_failed" };
+        if (debug) { out.pageURL = urlFull; out.tokenPreview = mask(token); out.details = pageRes.json; }
+        if (reveal && isAdmin(req)) out.usingTokenSuffix = tail(token);
+        return res.status(200).json(out);
+      }
+
+      // 2) IG call (if not linked, return FB count + hint)
+      if (!igId) {
+        await writeCache(facebookCount, 0);
+        const out = {
+          facebook: facebookCount, instagram: 0,
+          warn: "no_ig_account_id",
+          hint: "Link the Page to an Instagram Professional account or set IG_ACCOUNT_ID.",
+        };
+        if (debug) { out.pageDiag = pageDiag; out.tokenPreview = mask(token); }
+        if (reveal && isAdmin(req)) out.usingTokenSuffix = tail(token);
+        return res.status(200).json(out);
+      }
+
+      const igURL = `https://graph.facebook.com/v19.0/${encodeURIComponent(igId)}?fields=followers_count,username&${ap}`;
+      const igRes = await timedFetch(igURL, 6000);
+
+      let instagramCount = 0;
+      if (igRes.ok && igRes.json) {
+        instagramCount = Number(igRes.json.followers_count ?? 0) || 0;
+      } else {
+        const cache = await readCache();
+        const out = { facebook: facebookCount, instagram: cache.ig, error: "ig_fetch_failed" };
+        if (debug) { out.igURL = igURL; out.pageDiag = pageDiag; out.details = igRes.json; out.tokenPreview = mask(token); out.igId = igId; }
+        if (reveal && isAdmin(req)) out.usingTokenSuffix = tail(token);
+        return res.status(200).json(out);
+      }
+
+      await writeCache(facebookCount, instagramCount);
+      const out = { facebook: facebookCount, instagram: instagramCount };
+      if (debug) { out.pageDiag = pageDiag; out.igId = igId; }
+      if (reveal && isAdmin(req)) out.usingTokenSuffix = tail(token);
+      return res.status(200).json(out);
     } catch (err) {
-      console.error("❌ followers:", err?.message || err);
-      return res.status(200).json({ facebook: 0, instagram: 0 });
+      const cache = await readCache();
+      return res.status(200).json({
+        facebook: cache.fb, instagram: cache.ig,
+        error: "exception", message: String(err?.message || err),
+      });
     }
   }
 
@@ -1251,53 +1033,33 @@ export default async function handler(req, res) {
     try {
       return await withRedis(async (r) => {
         const { windowKey } = await getWindowInfo(r);
-        const ip =
-          req.headers["x-forwarded-for"]?.split(",")[0] ||
-          req.socket.remoteAddress ||
-          "unknown";
+        const ip = req.headers["x-forwarded-for"]?.split(",")[0] || req.socket.remoteAddress || "unknown";
         let raw = null;
-        try {
-          raw = await r.get(`social:${windowKey}:${ip}`);
-        } catch {}
-        if (!raw)
-          try {
-            raw = await r.get(`social:${ip}`);
-          } catch {}
+        try { raw = await r.get(`social:${windowKey}:${ip}`); } catch {}
+        if (!raw) try { raw = await r.get(`social:${ip}`); } catch {}
         return res.status(200).json({ allowed: isFollowAllowed(raw) });
-      });
+      }, 2000);
     } catch {
       return res.status(200).json({ allowed: false });
     }
   }
 
-  if (
-    (req.method === "POST" || req.method === "GET") &&
-    action === "mark-follow"
-  ) {
+  if ((req.method === "POST" || req.method === "GET") && action === "mark-follow") {
     try {
       return await withRedis(async (r) => {
         let platform =
-          new URL(req.url, `http://${req.headers.host}`).searchParams.get(
-            "platform"
-          ) ||
+          new URL(req.url, `http://${req.headers.host}`).searchParams.get("platform") ||
           (typeof req.body === "object" && req.body ? req.body.platform : null);
         platform = (platform || "").toString().trim().toLowerCase();
-
-        if (platform !== "fb" && platform !== "ig") {
-          return res.status(400).json({ error: "Invalid platform" });
-        }
+        if (platform !== "fb" && platform !== "ig") return res.status(400).json({ error: "Invalid platform" });
 
         const { windowKey, ttlSeconds } = await getWindowInfo(r);
-        const ip =
-          req.headers["x-forwarded-for"]?.split(",")[0]?.trim() ||
-          req.socket.remoteAddress ||
-          "unknown";
+        const ip = req.headers["x-forwarded-for"]?.split(",")[0]?.trim() || req.socket.remoteAddress || "unknown";
 
         const lockKey = `social:lock:${windowKey}:${ip}`;
         try {
           const got = await r.set(lockKey, platform, { NX: true, PX: 1000 });
-          if (!got)
-            return res.status(200).json({ success: true, throttled: true });
+          if (!got) return res.status(200).json({ success: true, throttled: true });
         } catch {}
 
         const key = `social:${windowKey}:${ip}`;
@@ -1305,13 +1067,9 @@ export default async function handler(req, res) {
         const now = new Date().toISOString();
 
         let state = {
-          firstSeen: now,
-          lastSeen: now,
-          followed: true,
-          count: 0,
+          firstSeen: now, lastSeen: now, followed: true, count: 0,
           platforms: { fb: false, ig: false },
         };
-
         try {
           const prev = await r.get(key);
           if (prev) {
@@ -1319,10 +1077,7 @@ export default async function handler(req, res) {
               const p = JSON.parse(prev);
               state.firstSeen = p.firstSeen || state.firstSeen;
               state.count = Number(p.count || 0);
-              state.platforms = {
-                fb: !!p.platforms?.fb,
-                ig: !!p.platforms?.ig,
-              };
+              state.platforms = { fb: !!p.platforms?.fb, ig: !!p.platforms?.ig };
             } catch {}
           }
         } catch {}
@@ -1336,7 +1091,7 @@ export default async function handler(req, res) {
         await r.sAdd(setKey, ip);
 
         return res.status(200).json({ success: true, state });
-      });
+      }, 2500);
     } catch {
       return res.status(503).json({ error: "Redis not ready" });
     }
@@ -1345,10 +1100,9 @@ export default async function handler(req, res) {
   if (action === "slot-spins-version" && req.method === "GET") {
     try {
       return await withRedis(async (r) => {
-        const v =
-          Number(await r.get("slot:spinsResetVersion").catch(() => 0)) || 0;
+        const v = Number(await r.get("slot:spinsResetVersion").catch(() => 0)) || 0;
         return res.status(200).json({ version: v });
-      });
+      }, 2000);
     } catch {
       return res.status(200).json({ version: 0 });
     }
@@ -1358,11 +1112,9 @@ export default async function handler(req, res) {
     try {
       return await withRedis(async (r) => {
         const version = await r.incr("slot:spinsResetVersion");
-        await r.set("slot:spinsResetAt", new Date().toISOString(), {
-          EX: 60 * 60 * 24 * 7,
-        });
+        await r.set("slot:spinsResetAt", new Date().toISOString(), { EX: 60 * 60 * 24 * 7 });
         return res.status(200).json({ success: true, version });
-      });
+      }, 2500);
     } catch {
       return res.status(503).json({ error: "Redis not ready" });
     }
@@ -1377,9 +1129,8 @@ export default async function handler(req, res) {
         const raw = await r.get("shutdown").catch(() => null);
         const isShutdownFlag = raw === "true";
         return res.status(200).json({ isShutdown: isShutdownFlag });
-      });
-    } catch (e) {
-      console.error("shutdown-status error:", e);
+      }, 2000);
+    } catch {
       return res.status(200).json({ isShutdown: false, _warning: "fallback" });
     }
   }
@@ -1392,7 +1143,7 @@ export default async function handler(req, res) {
         const newStatus = current !== "true";
         await r.set("shutdown", newStatus ? "true" : "false");
         return res.status(200).json({ success: true, isShutdown: newStatus });
-      });
+      }, 2500);
     } catch {
       return res.status(503).json({ error: "Redis not ready" });
     }
@@ -1403,11 +1154,8 @@ export default async function handler(req, res) {
     try {
       return await withRedis(async (r) => {
         let body = {};
-        try {
-          body = await readJson(req);
-        } catch {}
+        try { body = await readJson(req); } catch {}
         let { enabled, toggle } = body;
-
         if (typeof enabled === "undefined") {
           if (toggle) {
             const cur = await isShutdown(r);
@@ -1418,7 +1166,7 @@ export default async function handler(req, res) {
         }
         await r.set("shutdown", enabled ? "1" : "0");
         return res.status(200).json({ ok: true, enabled });
-      });
+      }, 2500);
     } catch {
       return res.status(503).json({ error: "Redis unavailable" });
     }
@@ -1437,18 +1185,14 @@ export default async function handler(req, res) {
           winner = w ? JSON.parse(w) : null;
         } catch {}
         return res.status(200).json({
-          autoPickAt,
-          armed: armed === "true",
+          autoPickAt, armed: armed === "true",
           now: new Date().toISOString(),
-          alreadyPicked: !!winner,
-          winner,
+          alreadyPicked: !!winner, winner,
         });
-      });
+      }, 2500);
     } catch {
       return res.status(200).json({
-        autoPickAt: "",
-        armed: false,
-        now: new Date().toISOString(),
+        autoPickAt: "", armed: false, now: new Date().toISOString(),
         alreadyPicked: !!MEM.currentWinner,
         winner: MEM.currentWinner ? { name: MEM.currentWinner } : null,
       });
@@ -1456,73 +1200,41 @@ export default async function handler(req, res) {
   }
 
   /* ────────────────────────────────────────────────────────────
-     SLOT → prize-log (WITH DEBUGGING)
+     SLOT → prize-log
   ───────────────────────────────────────────────────────────── */
-  if (
-    action === "prize-log" &&
-    (req.method === "POST" || req.method === "GET")
-  ) {
-    console.log("// DEBUG: Received request for prize-log.");
+  if (action === "prize-log" && (req.method === "POST" || req.method === "GET")) {
     try {
       return await withRedis(async (r) => {
         const { windowKey } = await getWindowInfo(r);
-
         const body = req.body && typeof req.body === "object" ? req.body : {};
-        console.log("// DEBUG: Request body received:", JSON.stringify(body));
 
         const name = (body.name || "(anonymous)").toString().slice(0, 80);
-        const targets = Array.isArray(body.targets)
-          ? body.targets.map(String)
-          : [];
+        const targets = Array.isArray(body.targets) ? body.targets.map(String) : [];
         const explicit = body.jackpot === true || body.jackpot === "true";
-
-        console.log(
-          `// DEBUG: Checking for jackpot. Explicit flag: ${explicit}, Targets: ${targets.join(
-            ", "
-          )}`
-        );
         const isJackpot = detectJackpot(targets, explicit);
 
         if (!isJackpot) {
-          console.log("// DEBUG: Not a jackpot. Ignoring.");
           noCache(res);
-          return res
-            .status(200)
-            .json({ success: true, ignored: true, isJackpot: false });
+          return res.status(200).json({ success: true, ignored: true, isJackpot: false });
         }
 
-        console.log("// DEBUG: Jackpot detected! Preparing to save winner.");
         const prizeName = targets[0]?.trim() || "Jackpot";
         const row = {
           id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
-          name,
-          prize: `${prizeName}`,
-          source: "slot",
-          windowKey,
+          name, prize: `${prizeName}`, source: "slot", windowKey,
           ts: new Date().toISOString(),
         };
 
-        try {
-          console.log(
-            "// DEBUG: Appending winner row to ledger:",
-            JSON.stringify(row)
-          );
-          await appendWinnerRow(r, row);
-          noCache(res);
-          return res.status(200).json({ success: true, isJackpot: true, row });
-        } catch (e) {
-          console.error("// DEBUG: prize-log failed during append:", e);
-          return res
-            .status(500)
-            .json({ success: false, error: "prize-log failed" });
-        }
-      });
+        await appendWinnerRow(r, row);
+        noCache(res);
+        return res.status(200).json({ success: true, isJackpot: true, row });
+      }, 3000);
     } catch {
       return res.status(503).json({ success: false, error: "Redis not ready" });
     }
   }
 
-  // BONUS ENTRY (non-deduped) — used for "Extra Entry" jackpots
+  // BONUS ENTRY — for "Extra Entry" jackpots
   if (action === "bonus-entry" && req.method === "POST") {
     try {
       return await withRedis(async (r) => {
@@ -1530,33 +1242,24 @@ export default async function handler(req, res) {
         if (!nameRaw) return res.status(400).json({ error: "Missing name" });
         const name = nameRaw.slice(0, 80);
 
-        const ip =
-          req.headers["x-forwarded-for"]?.split(",")[0]?.trim() ||
-          req.socket.remoteAddress ||
-          "unknown";
-
+        const ip = req.headers["x-forwarded-for"]?.split(",")[0]?.trim() || req.socket.remoteAddress || "unknown";
         const { windowKey, ttlSeconds } = await getWindowInfo(r);
         const listKey = `raffle:entries:${windowKey}`;
         const bonusKey = `raffle:bonus:${windowKey}:${ip}`;
 
         const entry = {
           id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
-          name,
-          ip,
-          source: "jackpot-bonus",
+          name, ip, source: "jackpot-bonus",
           createdTime: new Date().toISOString(),
         };
 
-        await r
-          .multi()
-          .rPush(listKey, JSON.stringify(entry))
-          .expire(listKey, ttlSeconds)
-          .incr(bonusKey)
-          .expire(bonusKey, ttlSeconds)
+        await r.multi()
+          .rPush(listKey, JSON.stringify(entry)).expire(listKey, ttlSeconds)
+          .incr(bonusKey).expire(bonusKey, ttlSeconds)
           .exec();
 
         return res.status(200).json({ success: true, entry });
-      });
+      }, 3000);
     } catch {
       return res.status(503).json({ error: "Redis not ready" });
     }
@@ -1566,20 +1269,13 @@ export default async function handler(req, res) {
   if (action === "poll" && req.method === "GET") {
     try {
       return await withRedis(async (r) => {
-        const pollId = String(
-          new URL(req.url, `http://${req.headers.host}`).searchParams.get(
-            "pollId"
-          ) || "top10"
-        );
+        const pollId = String(new URL(req.url, `http://${req.headers.host}`).searchParams.get("pollId") || "top10");
         const raw = await r.get(`poll:songs:${pollId}`);
         let songs = [];
-        try {
-          const v = JSON.parse(raw || "[]");
-          songs = Array.isArray(v) ? v : [];
-        } catch {}
+        try { const v = JSON.parse(raw || "[]"); songs = Array.isArray(v) ? v : []; } catch {}
         noCache(res);
         return res.status(200).json({ pollId, songs });
-      });
+      }, 2500);
     } catch {
       return res.status(200).json({ pollId: "top10", songs: [] });
     }
@@ -1592,18 +1288,11 @@ export default async function handler(req, res) {
       return await withRedis(async (r) => {
         const { pollId = "top10", songs = [] } = req.body || {};
         if (!Array.isArray(songs) || songs.length === 0)
-          return res
-            .status(400)
-            .json({ error: "songs must be a non-empty array" });
+          return res.status(400).json({ error: "songs must be a non-empty array" });
 
         const norm = songs
           .map((s, i) => ({
-            id: String(
-              s.id ??
-                s.slug ??
-                s.title?.toLowerCase().replace(/[^a-z0-9]+/g, "-") ??
-                i + 1
-            ),
+            id: String(s.id ?? s.slug ?? s.title?.toLowerCase().replace(/[^a-z0-9]+/g, "-") ?? i + 1),
             title: String(s.title || "").trim(),
             artist: s.artist ? String(s.artist).trim() : "",
           }))
@@ -1611,135 +1300,120 @@ export default async function handler(req, res) {
 
         await r.set(`poll:songs:${pollId}`, JSON.stringify(norm));
         noCache(res);
-        return res
-          .status(200)
-          .json({ ok: true, pollId, count: norm.length, songs: norm });
-      });
+        return res.status(200).json({ ok: true, pollId, count: norm.length, songs: norm });
+      }, 3000);
     } catch {
       return res.status(503).json({ error: "Redis not ready" });
     }
   }
 
-  /* POLL: vote (max 3 picks; dedup by IP or IP:clientId) + bonus raffle entry */
-  if (action === "poll-vote" && req.method === "POST") {
-    try {
-      return await withRedis(async (r) => {
-        const {
-          pollId = "top10",
-          picks,
-          songId,
-          clientId = "",
-          name = "",
-        } = req.body || {};
-        let chosen = Array.isArray(picks) ? picks.map(String) : [];
-        if (!chosen.length && songId) chosen = [String(songId)];
-        chosen = Array.from(new Set(chosen)).slice(0, 3);
-        if (chosen.length === 0)
-          return res.status(400).json({ error: "No picks" });
+  /* POLL: vote */
+if (action === "poll-vote" && req.method === "POST") {
+  try {
+    return await withRedis(async (r) => {
+      const {
+        pollId = "top10",
+        picks,
+        songId,
+        clientId = "",
+        name = "",
+      } = req.body || {};
+      let chosen = Array.isArray(picks) ? picks.map(String) : [];
+      if (!chosen.length && songId) chosen = [String(songId)];
+      chosen = Array.from(new Set(chosen)).slice(0, 3);
+      if (chosen.length === 0)
+        return res.status(400).json({ error: "No picks" });
 
-        // Validate picks against configured songs
-        let songs = [];
-        try {
-          const raw = await r.get(`poll:songs:${pollId}`);
-          const arr = JSON.parse(raw || "[]");
-          if (Array.isArray(arr)) songs = arr;
-        } catch {}
-        const valid = new Set(songs.map((s) => String(s.id || "")));
-        if (!chosen.every((id) => valid.has(id))) {
-          return res.status(400).json({ error: "Invalid pick(s)" });
-        }
+      // Validate picks against configured songs
+      let songs = [];
+      try {
+        const raw = await r.get(`poll:songs:${pollId}`);
+        const arr = JSON.parse(raw || "[]");
+        if (Array.isArray(arr)) songs = arr;
+      } catch {}
+      const valid = new Set(songs.map((s) => String(s.id || "")));
+      if (!chosen.every((id) => valid.has(id)))
+        return res.status(400).json({ error: "Invalid pick(s)" });
 
-        const ip =
-          req.headers["x-forwarded-for"]?.split(",")[0]?.trim() ||
-          req.socket.remoteAddress ||
-          "unknown";
-        const { windowKey, ttlSeconds } = await getWindowInfo(r);
-        const voterToken = clientId ? `${ip}:${clientId}` : ip;
+      const ip =
+        req.headers["x-forwarded-for"]?.split(",")[0]?.trim() ||
+        req.socket.remoteAddress ||
+        "unknown";
 
-        const dedupeKey = `poll:voted:${windowKey}:${pollId}`;
-        const already = await r.sIsMember(dedupeKey, voterToken);
-        if (already)
-          return res.status(200).json({ ok: true, alreadyVoted: true });
+      // Use configured show window
+      const { windowKey, ttlSeconds, startTime, endTime } = await getWindowInfo(r);
+      const now = Date.now();
+      const startMs = Date.parse(startTime || "");
+      const endMs   = Date.parse(endTime || "");
+      const IS_LIVE = Number.isFinite(startMs) && Number.isFinite(endMs) && now >= startMs && now <= endMs;
 
-        // Optional: fallback name from cookie if client didn’t send one
-        let cookieName = "";
-        try {
-          const m = (req.headers.cookie || "").match(
-            /(?:^|;\s*)raffle_name=([^;]+)/
-          );
-          cookieName = m ? decodeURIComponent(m[1]) : "";
-        } catch {}
-        const displayName = (name || cookieName || "")
-          .toString()
-          .trim()
-          .slice(0, 80);
+      const voterToken = clientId ? `${ip}:${clientId}` : ip;
 
-        const ballotsKey = `poll:ballots:${windowKey}:${pollId}`;
-        const listKey = `raffle:entries:${windowKey}`;
-        const bonusKey = `raffle:bonus:${windowKey}:${ip}`;
+      const dedupeKey  = `poll:voted:${windowKey}:${pollId}`;
+      const ballotsKey = `poll:ballots:${windowKey}:${pollId}`;
+      const listKey    = `raffle:entries:${windowKey}`;
+      const bonusKey   = `raffle:bonus:${windowKey}:${ip}`;
 
-        const pipe = r.multi();
+      const already = await r.sIsMember(dedupeKey, voterToken);
+      if (already)
+        return res.status(200).json({ ok: true, alreadyVoted: true });
 
-        // Tally votes
-        for (const id of chosen)
-          pipe.incr(`poll:votes:${windowKey}:${pollId}:${id}`);
+      // Optional display name (only used to award bonus if LIVE)
+      const displayName = (name || "").toString().trim().slice(0, 80);
 
-        // Dedupe this voter
-        pipe.sAdd(dedupeKey, voterToken);
-        pipe.expire(dedupeKey, ttlSeconds);
+      const pipe = r.multi();
 
-        // Store ballot
+      // increment vote counters (scoped to window) + TTL
+      for (const id of chosen) {
+        const vk = `poll:votes:${windowKey}:${pollId}:${id}`;
+        pipe.incr(vk);
+        pipe.expire(vk, ttlSeconds);
+      }
+
+      // lock this voter
+      pipe.sAdd(dedupeKey, voterToken);
+      pipe.expire(dedupeKey, ttlSeconds);
+
+      // store ballot (for audit)
+      pipe.rPush(
+        ballotsKey,
+        JSON.stringify({ at: new Date().toISOString(), ip, clientId, name: displayName, picks: chosen })
+      );
+      pipe.expire(ballotsKey, ttlSeconds);
+
+      // BONUS ENTRY ONLY DURING SHOW WINDOW
+      let bonusGranted = false;
+      if (IS_LIVE && displayName) {
         pipe.rPush(
-          ballotsKey,
+          listKey,
           JSON.stringify({
-            at: new Date().toISOString(),
-            ip,
-            clientId,
+            id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
             name: displayName,
-            picks: chosen,
+            ip,
+            source: "poll-bonus",
+            createdTime: new Date().toISOString(),
           })
         );
-        pipe.expire(ballotsKey, ttlSeconds);
+        pipe.expire(listKey, ttlSeconds);
+        pipe.incr(bonusKey);
+        pipe.expire(bonusKey, ttlSeconds);
+        bonusGranted = true;
+      }
 
-        // ★ BONUS: +1 raffle entry on first successful vote (if we have a name)
-        if (displayName) {
-          pipe.rPush(
-            listKey,
-            JSON.stringify({
-              id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
-              name: displayName,
-              ip,
-              source: "poll-bonus",
-              createdTime: new Date().toISOString(),
-            })
-          );
-          pipe.expire(listKey, ttlSeconds);
-          pipe.incr(bonusKey);
-          pipe.expire(bonusKey, ttlSeconds);
-        }
-
-        await pipe.exec();
-
-        noCache(res);
-        return res
-          .status(200)
-          .json({ ok: true, picks: chosen, bonus: !!displayName });
-      });
-    } catch {
-      return res.status(503).json({ error: "Redis not ready" });
-    }
+      await pipe.exec();
+      noCache(res);
+      return res.status(200).json({ ok: true, picks: chosen, bonus: bonusGranted });
+    }, 3500);
+  } catch {
+    return res.status(503).json({ error: "Redis not ready" });
   }
+}
 
   /* POLL: results */
   if (action === "poll-results" && req.method === "GET") {
     try {
       return await withRedis(async (r) => {
-        const pollId = String(
-          new URL(req.url, `http://${req.headers.host}`).searchParams.get(
-            "pollId"
-          ) || "top10"
-        );
-
+        const pollId = String(new URL(req.url, `http://${req.headers.host}`).searchParams.get("pollId") || "top10");
         let songs = [];
         try {
           const raw = await r.get(`poll:songs:${pollId}`);
@@ -1748,81 +1422,168 @@ export default async function handler(req, res) {
         } catch {}
 
         const { windowKey } = await getWindowInfo(r);
-
         let counts = {};
         if (songs.length) {
-          const keys = songs.map(
-            (s) => `poll:votes:${windowKey}:${pollId}:${s.id}`
-          );
+          const keys = songs.map((s) => `poll:votes:${windowKey}:${pollId}:${s.id}`);
           const vals = await r.mGet(keys);
-          counts = Object.fromEntries(
-            songs.map((s, i) => [s.id, Number(vals?.[i] || 0)])
-          );
+          counts = Object.fromEntries(songs.map((s, i) => [s.id, Number(vals?.[i] || 0)]));
         }
 
         const order = [...songs]
-          .sort(
-            (a, b) =>
-              Number(counts[b.id] || 0) - Number(counts[a.id] || 0) ||
-              a.title.localeCompare(b.title)
-          )
+          .sort((a, b) => Number(counts[b.id] || 0) - Number(counts[a.id] || 0) || a.title.localeCompare(b.title))
           .map((s) => s.id);
 
         noCache(res);
         return res.status(200).json({ pollId, counts, order, songs });
-      });
+      }, 2500);
     } catch {
-      return res
-        .status(200)
-        .json({ pollId: "top10", counts: {}, order: [], songs: [] });
+      return res.status(200).json({ pollId: "top10", counts: {}, order: [], songs: [] });
     }
   }
 
   /* POLL: reset voters ONLY (keep counts) */
   if (action === "poll-reset-voters" && req.method === "POST") {
     if (!isAdmin(req)) return res.status(403).json({ error: "Forbidden" });
-
     try {
       return await withRedis(async (r) => {
-        const {
-          pollId = "top10",
-          scope = "all",
-          clientId = "",
-        } = req.body || {};
+        const { pollId = "top10", scope = "all", clientId = "" } = req.body || {};
         const { windowKey } = await getWindowInfo(r);
         const dedupeKey = `poll:voted:${windowKey}:${pollId}`;
-        const ip =
-          req.headers["x-forwarded-for"]?.split(",")[0]?.trim() ||
-          req.socket.remoteAddress ||
-          "unknown";
+        const ip = req.headers["x-forwarded-for"]?.split(",")[0]?.trim() || req.socket.remoteAddress || "unknown";
 
         if (scope === "all") {
-          try {
-            await r.unlink(dedupeKey);
-          } catch {
-            await r.del(dedupeKey).catch(() => {});
-          }
-          return res
-            .status(200)
-            .json({ ok: true, scope: "all", pollId, windowKey });
+          try { await r.unlink(dedupeKey); } catch { await r.del(dedupeKey).catch(() => {}); }
+          return res.status(200).json({ ok: true, scope: "all", pollId, windowKey });
         }
         const token = scope === "token" && clientId ? `${ip}:${clientId}` : ip;
         const removed = await r.sRem(dedupeKey, token).catch(() => 0);
-        return res
-          .status(200)
-          .json({
-            ok: true,
-            scope: scope === "token" ? "token" : "ip",
-            removed,
-            pollId,
-            windowKey,
-            token,
-          });
-      });
-    } catch (e) {
-      console.error("poll-reset-voters error:", e?.message || e);
+        return res.status(200).json({ ok: true, scope: scope === "token" ? "token" : "ip", removed, pollId, windowKey, token });
+      }, 3000);
+    } catch {
       return res.status(503).json({ ok: false, error: "Redis not ready" });
     }
+  }
+
+  /* POLL: HARD RESET — delete legacy/broad vote keys (admin) */
+  if (action === "poll-hard-reset" && req.method === "POST") {
+    if (!isAdmin(req)) return res.status(403).json({ error: "Forbidden" });
+    try {
+      return await withRedis(async (r) => {
+        const patterns = [
+          "poll:votes:*", "poll:ballots:*", "poll:voted:*",
+          "poll:*vote*", "poll:*ballot*", "*poll*votes*", "*poll*voted*",
+          "votes:*", "ballots:*", "voted:*",
+        ];
+
+        const toDelete = new Set();
+        for (const p of patterns) {
+          const keys = await scanKeys(r, p, { budgetMs: 900, limit: 20000 });
+          for (const k of keys) if (!k.startsWith("poll:songs:")) toDelete.add(k);
+        }
+
+        let deleted = 0;
+        for (const k of toDelete) {
+          try { deleted += (await r.unlink(k)) || 0; }
+          catch { try { deleted += (await r.del(k)) || 0; } catch {} }
+        }
+
+        const [remVotes, remBallots, remVoted] = await Promise.all([
+          scanKeys(r, "*votes*", { budgetMs: 700 }),
+          scanKeys(r, "*ballot*", { budgetMs: 700 }),
+          scanKeys(r, "*voted*", { budgetMs: 700 }),
+        ]);
+
+        return res.status(200).json({
+          success: true, deletedKeys: deleted, matchedCount: toDelete.size,
+          remainingCounts: {
+            votes: remVotes.filter((k) => !k.startsWith("poll:songs:")).length,
+            ballots: remBallots.filter((k) => !k.startsWith("poll:songs:")).length,
+            votedLocks: remVoted.filter((k) => !k.startsWith("poll:songs:")).length,
+          },
+          note: "Legacy/broad poll keys cleared. poll:songs preserved.",
+        });
+      }, 8000);
+    } catch {
+      return res.status(503).json({ error: "Redis not ready" });
+    }
+  }
+
+  /* POLL: DUMP — broad scan */
+  if (action === "poll-dump" && req.method === "GET") {
+    if (!isAdmin(req)) return res.status(403).json({ error: "Forbidden" });
+    try {
+      return await withRedis(async (r) => {
+        const patterns = [
+          "poll:votes:*", "poll:ballots:*", "poll:voted:*",
+          "poll:*vote*", "poll:*ballot*", "*poll*votes*", "*poll*voted*",
+          "*poll*ballot*", "votes:*", "ballots:*", "voted:*",
+        ];
+
+        const found = new Set();
+        for (const p of patterns) {
+          const keys = await scanKeys(r, p, { budgetMs: 900, limit: 20000 });
+          for (const k of keys) found.add(k);
+        }
+
+        const describe = async (k) => {
+          let type = "unknown", ttl = null, size = null, sample = null;
+          try { type = await r.type(k); } catch {}
+          try { ttl = await r.ttl(k); } catch {}
+          try {
+            if (type === "string") {
+              sample = await r.get(k);
+              size = sample ? sample.length : 0;
+              if (sample && sample.length > 120) sample = sample.slice(0, 120) + "…";
+            } else if (type === "list") {
+              size = await r.lLen(k);
+              const head = await r.lRange(k, 0, 1);
+              sample = head && head[0] ? (head[0].length > 120 ? head[0].slice(0, 120) + "…" : head[0]) : null;
+            } else if (type === "set") {
+              size = await r.sCard(k);
+              const members = await r.sMembers(k);
+              sample = members && members[0] ? members[0] : null;
+            } else if (type === "zset") {
+              size = await r.zCard(k);
+            } else if (type === "hash") {
+              size = await r.hLen(k);
+            }
+          } catch {}
+          return { key: k, type, size, ttl, sample };
+        };
+
+        const all = Array.from(found);
+        const sampleDesc = [];
+        for (const k of all.slice(0, 50)) sampleDesc.push(await describe(k));
+
+        const counts = { votes: 0, ballots: 0, voted: 0, other: 0 };
+        for (const k of all) {
+          if (k.includes(":votes:") || /(^|:)votes(:|$)/.test(k)) counts.votes++;
+          else if (k.includes(":ballots:") || /(^|:)ballots(:|$)/.test(k)) counts.ballots++;
+          else if (k.includes(":voted:") || /(^|:)voted(:|$)/.test(k)) counts.voted++;
+          else counts.other++;
+        }
+
+        noCache(res);
+        return res.status(200).json({ totalKeys: all.length, counts, sample: sampleDesc });
+      }, 6000);
+    } catch {
+      return res.status(503).json({ error: "Redis not ready" });
+    }
+  }
+
+  if (req.method === "GET" && action === "env-dump") {
+    const mask = (t) => (t ? `${String(t).slice(0, 6)}…${String(t).slice(-4)}` : "");
+    return res.status(200).json({
+      envSeen: {
+        FB_PAGE_ID: process.env.FB_PAGE_ID || null,
+        IG_ACCOUNT_ID: process.env.IG_ACCOUNT_ID || null,
+        FB_PAGE_TOKEN_present: !!process.env.FB_PAGE_TOKEN,
+        FB_PAGE_TOKEN_preview: process.env.FB_PAGE_TOKEN ? mask(process.env.FB_PAGE_TOKEN) : null,
+        NODE_ENV: process.env.NODE_ENV,
+        VERCEL: !!process.env.VERCEL,
+        CWD: process.cwd(),
+      },
+    });
   }
 
   /* ───── UNKNOWN ───── */

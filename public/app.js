@@ -11,6 +11,16 @@
     document.documentElement.getAttribute("data-fb-page-id") ||
     "";
 
+  // Prefer the local Next API on 3000 when the page is served from a different port/origin.
+  const API_BASE =
+    (typeof window.API_BASE === "string" && window.API_BASE) ||
+    ((location.hostname === "localhost" || location.hostname === "127.0.0.1")
+      ? (location.port === "3000" ? "" : "http://localhost:3000")
+      : "");
+
+  // Helper to prefix relative /api/... paths with API_BASE when needed
+  const fullUrl = (u) => (u && u.startsWith("/api/") ? `${API_BASE}${u}` : u);
+
   const NAME_KEY = "raffle_display_name";
   const $ = (s, r = document) => r.querySelector(s);
 
@@ -82,7 +92,8 @@
   }
 
   async function postJSON(url, body, { keepalive = false } = {}) {
-    const res = await fetch(url, {
+    const full = fullUrl(url);
+    const res = await fetch(full, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       keepalive,
@@ -114,7 +125,7 @@
   function submitEntryOnceBeacon(source) {
     const name = getName();
     if (!name) return;
-    const url = "/api/admin?action=enter";
+    const url = fullUrl("/api/admin?action=enter");
     const data = JSON.stringify({ name, source });
     const blob = new Blob([data], { type: "application/json" });
     if (navigator.sendBeacon) {
@@ -135,7 +146,7 @@
   // Social mark
   // ──────────────────────────────────────────────────────────────
   async function markFollow(platform) {
-    const url = `/api/admin?action=mark-follow&platform=${encodeURIComponent(platform)}`;
+    const url = fullUrl(`/api/admin?action=mark-follow&platform=${encodeURIComponent(platform)}`);
     const res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -148,7 +159,7 @@
     }
   }
   function markFollowBeacon(platform) {
-    const url = `/api/admin?action=mark-follow&platform=${encodeURIComponent(platform)}`;
+    const url = fullUrl(`/api/admin?action=mark-follow&platform=${encodeURIComponent(platform)}`);
     const blob = new Blob([JSON.stringify({ platform })], { type: "application/json" });
     if (navigator.sendBeacon) {
       navigator.sendBeacon(url, blob);
@@ -162,16 +173,20 @@
   // ──────────────────────────────────────────────────────────────
   async function refreshFollowers() {
     const fbEl = $("#fb-followers"), igEl = $("#ig-followers");
+    const url = `${API_BASE}/api/admin?action=followers&debug=1&_=${Date.now()}`;
+
     try {
-      const res = await fetch("/api/admin?action=followers", { cache: "no-store" });
+      const res = await fetch(url, { cache: "no-store" });
       const j = await res.json().catch(() => ({}));
       const fb = Number(j?.facebook ?? 0);
       const ig = Number(j?.instagram ?? 0);
       if (fbEl) fbEl.textContent = Number.isFinite(fb) ? fb.toLocaleString() : "—";
       if (igEl) igEl.textContent = Number.isFinite(ig) ? ig.toLocaleString() : "—";
-    } catch {
+      console.log("[followers]", { url, ok: res.ok, status: res.status, data: j });
+    } catch (e) {
       if (fbEl) fbEl.textContent = "—";
       if (igEl) igEl.textContent = "—";
+      console.warn("[followers] fetch failed", e?.message || e);
     }
   }
 
@@ -230,7 +245,7 @@
     try {
       if ("sendBeacon" in navigator) {
         const blob = new Blob([JSON.stringify(payload)], { type: "application/json" });
-        sent = navigator.sendBeacon("/api/admin?action=prize-log", blob);
+        sent = navigator.sendBeacon(fullUrl("/api/admin?action=prize-log"), blob);
       }
     } catch {}
     if (sent) return;
@@ -262,7 +277,7 @@
     const totalEl = $("#total-entries-count");
 
     try {
-      const res = await fetch("/api/admin?action=my-entries", { cache: "no-store" });
+      const res = await fetch(fullUrl("/api/admin?action=my-entries"), { cache: "no-store" });
       if (res.ok) {
         const j = await res.json();
         let mine = Number(j?.mine ?? 0);
@@ -296,7 +311,7 @@
 
     // Fallback
     try {
-      const res = await fetch("/api/admin?action=entries", { cache: "no-store" });
+      const res = await fetch(fullUrl("/api/admin?action=entries"), { cache: "no-store" });
       const j = await res.json().catch(() => ({ entries: [], count: 0 }));
       const total = Number(j?.count || 0);
 
@@ -554,7 +569,7 @@
   function writeCfgCache(cfg) { try { sessionStorage.setItem(CFG_CACHE_KEY, JSON.stringify(cfg)); } catch {} }
 
   async function fetchConfigFresh() {
-    const res = await fetch(`/api/admin?action=config&_=${Date.now()}`, {
+    const res = await fetch(fullUrl(`/api/admin?action=config&_=${Date.now()}`), {
       cache: "no-store",
       headers: { "Cache-Control": "no-store", Pragma: "no-cache" },
     });
@@ -664,7 +679,7 @@
 
   async function triggerAutoPick() {
     try {
-      await fetch("/api/admin?action=maybe-auto-pick", { method: "POST", keepalive: true });
+      await fetch(fullUrl("/api/admin?action=maybe-auto-pick"), { method: "POST", keepalive: true });
     } catch {}
   }
 
@@ -867,7 +882,7 @@
   }
 
   async function fetchWinnerOnce() {
-    const res = await fetch("/api/admin?action=winner&_=" + Date.now(), { cache: "no-store" });
+    const res = await fetch(fullUrl("/api/admin?action=winner&_=" + Date.now()), { cache: "no-store" });
     if (!res.ok) return null;
     const j = await res.json().catch(() => ({}));
     return j?.winner?.name || null;
@@ -903,7 +918,7 @@
     const T = 4000;
     async function tick() {
       try {
-        const r = await fetch(`/api/admin?action=winner&_=${Date.now()}`, {
+        const r = await fetch(fullUrl(`/api/admin?action=winner&_=${Date.now()}`), {
           cache: "no-store",
           headers: { "Cache-Control": "no-store", Pragma: "no-cache" },
         });
