@@ -224,6 +224,13 @@
     return "";
   }
 
+  // HTML escape for safe winner injection
+  function escHtml(s) {
+    return String(s ?? '')
+      .replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;')
+      .replaceAll('"','&quot;').replaceAll("'",'&#39;');
+  }
+
   let __awardedExtraThisSpin = false;
   let __awardResetTimer = null;
   function markExtraAwardedOnce() {
@@ -822,7 +829,6 @@
   }
   function setWinnerBanner(name) {
     const el = winnerBannerEl();
-    if (!el) return;
     if (!el.getAttribute("data-default")) {
       el.setAttribute("data-default", el.textContent || "Free T-shirt raffle!");
     }
@@ -873,8 +879,33 @@
   function showWinnerModal(name) {
     const modal = ensureWinnerModal();
     if (!modal) { alert(`Winner: ${name}`); return; }
-    const nameSpans = modal.querySelectorAll(".winner-name, [data-winner-name]");
-    nameSpans.forEach((n) => (n.textContent = name));
+
+    // Set name
+    modal.querySelectorAll(".winner-name, [data-winner-name]").forEach((n) => (n.textContent = name || ""));
+
+    // Confetti burst
+    try {
+      const root = modal.querySelector(".confetti");
+      if (root) {
+        root.innerHTML = "";
+        const N = 80;
+        for (let i = 0; i < N; i++) {
+          const p = document.createElement("i");
+          p.className = "confetti-piece";
+          const size = 6 + Math.random() * 8;
+          p.style.width  = `${size}px`;
+          p.style.height = `${Math.max(3, size * 0.45)}px`;
+          p.style.left   = `${Math.random() * 100}%`;
+          p.style.background = `hsl(${Math.floor(Math.random()*360)}, 90%, 60%)`;
+          p.style.setProperty("--dur", `${2 + Math.random()*1.8}s`);
+          p.style.setProperty("--rot", `${(Math.random()*60 - 30)}deg`);
+          p.style.animationDelay = `${Math.random() * 0.2}s`;
+          root.appendChild(p);
+        }
+      }
+    } catch {}
+
+    // Show modal
     modal.classList.remove("hidden");
     modal.setAttribute("aria-hidden", "false");
     lockScroll();
@@ -909,8 +940,12 @@
     const already = localStorage.getItem(SHOWN_WINNER_KEY);
     if (already !== name) {
       localStorage.setItem(SHOWN_WINNER_KEY, name);
-      showWinnerModal(name);
+      showWinnerModal(name);           // 🎊 fun modal with confetti
     }
+
+    // 🔒 Immediately close the app UI and show thank-you + winner
+    showWinnerThanksGate(name);
+
     lastWinner = name;
   }
 
@@ -976,6 +1011,169 @@
   }
 
   // ──────────────────────────────────────────────────────────────
+  // LIVE-WINDOW GATE (open 1h before; close 1h after)
+  // ──────────────────────────────────────────────────────────────
+  const OPEN_BEFORE_MS = 60 * 60 * 1000; // 1h before start
+  const CLOSE_AFTER_MS = 60 * 60 * 1000; // 1h after end
+  let __gateTimer = null;
+  let __countdownToStartTimer = null;
+  let __gateWinnerFetched = false;
+
+  function parseISOms(t) {
+    const x = Date.parse(t || "");
+    return Number.isFinite(x) ? x : NaN;
+  }
+  function fmtLocalDateTime(ms) {
+    try {
+      return new Intl.DateTimeFormat(undefined, {
+        weekday: "short", month: "short", day: "numeric",
+        hour: "numeric", minute: "2-digit"
+      }).format(new Date(ms));
+    } catch {
+      return new Date(ms).toLocaleString();
+    }
+  }
+  function getShowTimesFromCfg() {
+    const c = cfgMem || readCfgCache() || {};
+    const s = parseISOms(c.startTime);
+    const e = parseISOms(c.endTime);
+    return { startMs: s, endMs: e };
+  }
+  function getShowPhase(now = Date.now()) {
+    const { startMs, endMs } = getShowTimesFromCfg();
+    if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) return "OPEN"; // permissive if missing
+    if (now < startMs - OPEN_BEFORE_MS) return "PRE";
+    if (now > endMs + CLOSE_AFTER_MS) return "POST";
+    return "OPEN";
+  }
+
+  function ensureGateUI() {
+    let gate = document.getElementById("app-gate");
+    if (!gate) {
+      gate = document.createElement("div");
+      gate.id = "app-gate";
+      gate.className = "hidden";
+      gate.innerHTML = `
+        <div class="gate-wrap">
+          <div class="gate-card" role="status" aria-live="polite">
+            <h2 id="gate-title" class="gate-title"></h2>
+            <div id="gate-body" class="gate-body"></div>
+          </div>
+        </div>`;
+      document.body.appendChild(gate);
+
+      const css = document.createElement("style");
+      css.textContent = `
+        #app-gate.hidden{display:none!important;}
+        #app-gate .gate-wrap{display:flex;align-items:center;justify-content:center;min-height:60vh;}
+        #app-gate .gate-card{
+          max-width:min(92vw,560px);
+          border-radius:16px;
+          padding:18px 20px;
+          background:linear-gradient(180deg,rgba(255,255,255,.05),rgba(255,255,255,.02));
+          border:1px solid rgba(255,255,255,.08);
+          color:#fff; text-align:center; box-shadow:0 18px 60px rgba(0,0,0,.35);
+        }
+        #app-gate .gate-title{margin:0 0 8px;font-size:22px;font-weight:900;}
+        #app-gate .gate-body{font-size:16px;opacity:.95}
+        #app-gate .gate-sub{margin-top:6px;opacity:.95}
+        #app-gate .gate-count{font-size:20px;font-weight:800;margin-top:6px}
+      `;
+      document.head.appendChild(css);
+    }
+    return gate;
+  }
+  function showGate({ title, html }) {
+    const gate = ensureGateUI();
+    const main = document.getElementById("app-main") || document.body;
+    if (main) main.style.display = "none";     // hide app
+    setCountdownVisible(false);                // hide winner countdown
+    gate.classList.remove("hidden");
+    const t = document.getElementById("gate-title");
+    const b = document.getElementById("gate-body");
+    if (t) t.textContent = title || "";
+    if (b) b.innerHTML = html || "";
+  }
+  function hideGate() {
+    const gate = ensureGateUI();
+    const main = document.getElementById("app-main") || document.body;
+    gate.classList.add("hidden");
+    if (main) main.style.display = "";
+    startWinnerCountdown(true); // restore countdown behavior
+  }
+  // 🔔 winner gate shown immediately after pick
+  function showWinnerThanksGate(name) {
+    const title = "Raffle closed 🎉";
+    const html  = `
+      <div>Thanks for tuning in! 🙌</div>
+      <div class="gate-sub">Tonight’s T-shirt winner is <strong>${escHtml(name)}</strong>.</div>
+    `;
+    showGate({ title, html });
+  }
+
+  function fmtCountdown(ms) {
+    if (!Number.isFinite(ms) || ms <= 0) return "0m 0s";
+    const sec = Math.floor(ms / 1000);
+    const d = Math.floor(sec / 86400);
+    const h = Math.floor((sec % 86400) / 3600);
+    const m = Math.floor((sec % 3600) / 60);
+    const s = sec % 60;
+    return d > 0 ? `${d}d ${h}h ${m}m ${s}s` : h > 0 ? `${h}h ${m}m ${s}s` : `${m}m ${s}s`;
+  }
+  async function updateGateUIOnce() {
+    if (!cfgMem) await refreshConfigAuthoritative();
+
+    const phase = getShowPhase();
+    const { startMs, endMs } = getShowTimesFromCfg();
+
+    if (__countdownToStartTimer) {
+      clearInterval(__countdownToStartTimer);
+      __countdownToStartTimer = null;
+    }
+
+    if (phase === "PRE") {
+      const openMs = Number.isFinite(startMs) ? (startMs - OPEN_BEFORE_MS) : NaN;
+      const showStr = Number.isFinite(startMs) ? fmtLocalDateTime(startMs) : "—";
+      const write = () => {
+        const now = Date.now();
+        const diffToOpen = Number.isFinite(openMs) ? (openMs - now) : NaN;
+        if (Number.isFinite(diffToOpen) && diffToOpen <= 0) { updateGateUIOnce(); return; }
+        const countdown = Number.isFinite(diffToOpen) ? fmtCountdown(diffToOpen) : "—";
+        const html = `
+          <div>Show is at <strong>${showStr}</strong>.</div>
+          <div class="gate-sub">The raffle will open in:</div>
+          <div class="gate-count" id="gate-open-eta">${countdown}</div>`;
+        showGate({ title: "We’re not live yet", html });
+      };
+      write();
+      __countdownToStartTimer = setInterval(write, 1000);
+      return;
+    }
+
+    if (phase === "POST") {
+      let name = lastWinner;
+      if (!name && !__gateWinnerFetched) {
+        try { name = await fetchWinnerOnce(); } catch {}
+        __gateWinnerFetched = true;
+      }
+      const label = name
+        ? `the last show’s T-shirt winner is <strong>${escHtml(name)}</strong>.`
+        : `we’ll post the winner shortly.`;
+      showGate({ title: "Thanks for tuning in! 🙌", html: `And ${label}` });
+      return;
+    }
+
+    hideGate(); // OPEN
+  }
+  function startGateLoop() {
+    if (__gateTimer) clearInterval(__gateTimer);
+    __gateTimer = setInterval(updateGateUIOnce, 15_000);
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") updateGateUIOnce();
+    });
+  }
+
+  // ──────────────────────────────────────────────────────────────
   // Boot
   // ──────────────────────────────────────────────────────────────
   async function boot() {
@@ -986,6 +1184,10 @@
     setInterval(refreshFollowers, 60_000);
 
     await refreshConfigAuthoritative();
+
+    // ▼ Gate the app based on show times
+    await updateGateUIOnce();
+    startGateLoop();
 
     setCountdownVisible(true);
     initWinnerRealtime();
@@ -998,13 +1200,14 @@
     // init slot AFTER slot.js is loaded (index.html loads slot.js before app.js now)
     initSlot();
 
-    // 👇 show countdown immediately (no 10s wait)
+    // show countdown immediately
     startWinnerCountdown(false);
 
     document.addEventListener("visibilitychange", () => {
       if (document.visibilityState === "visible") {
         initConfigHeadline(true);
         startWinnerCountdown(true);
+        updateGateUIOnce();
       }
     });
 

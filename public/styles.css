@@ -622,15 +622,17 @@ progress {
 
 /* Entry stats card */
 .entry-stats-card {
-  margin: 16px auto 28px;
+  display: flex;                  /* was inline-flex */
+  width: fit-content;             /* shrink to content */
+  margin: 16px auto;              /* centers horizontally */
   padding: 14px 16px;
   border-radius: 14px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.02));
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02));
+  border: 1px solid rgba(255,255,255,0.1);
   color: #eef2ff;
-  display: inline-flex;
   gap: 12px;
 }
+
 .entry-stat {
   display: grid;
   align-items: center;
@@ -955,3 +957,51 @@ body.winner-locked #app-main { display: none !important; }
   font-weight:600; opacity:.8; font-size:.95em;
 }
 #poll-leaderboard .leaders-meta{ margin-top:6px; text-align:center; }
+
+
+/* Winner modal look */
+.modal-card--winner {
+  background:
+    radial-gradient(1200px 600px at 50% -10%, rgba(255,255,255,0.12), rgba(255,255,255,0) 60%),
+    linear-gradient(180deg, rgba(255,215,0,0.15), rgba(124,77,255,0.10)),
+    #0b1222;
+  border: 1px solid rgba(255,255,255,0.12);
+  text-align: center;
+}
+.modal-card--winner .modal-title {
+  font-size: 22px;
+}
+.winner-line {
+  font-size: 20px;
+  font-weight: 900;
+  margin: 10px 0 6px;
+}
+.winner-sub {
+  opacity: .95;
+  margin: 0 0 4px;
+}
+
+/* Simple confetti */
+.winner-modal .confetti {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+.winner-modal .confetti-piece {
+  position: absolute;
+  top: -6vh;
+  width: 8px;
+  height: 4px;
+  border-radius: 2px;
+  opacity: .95;
+  animation: confetti-fall var(--dur, 2.4s) linear forwards;
+  transform: rotate(var(--rot, 0deg));
+}
+@keyframes confetti-fall {
+  to {
+    top: 110vh;
+    transform: translateY(100vh) rotate(720deg);
+    opacity: 0;
+  }
+}

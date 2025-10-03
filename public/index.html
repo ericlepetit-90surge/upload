@@ -51,17 +51,7 @@
           Winner picked in:<br> <span id="winner-countdown-text">—</span>
         </div>
 
-        <div class="entry-stats-card" id="entry-stats">
-          <div class="entry-stat">
-            <div class="entry-stat-label">Your entries</div>
-            <div class="entry-stat-value" id="your-entries-count">0</div>
-          </div>
-          <div class="entry-stat">
-            <div class="entry-stat-label">Total entries</div>
-            <div class="entry-stat-value" id="total-entries-count">0</div>
-          </div>
-        </div>
-
+       
         <h2 class="raffle raffle-title blink">
           <strong>ENTER OUR RAFFLE FOR A CHANCE TO WIN A 90 SURGE TEE!</strong>
         </h2>
@@ -90,8 +80,19 @@
             </div>
           </li>
 
-          <li>That's it. Come back on this page after the winner has been picked to find out if you are the lucky winner! Fingers crossed!</li>
+          <li>That's it. Come back on this page after the winner has been picked to find out if you are the lucky winner! Want more chances to win? Keep scrolling...</li>
         </ol>
+
+         <div class="entry-stats-card" id="entry-stats">
+          <div class="entry-stat">
+            <div class="entry-stat-label">Your entries</div>
+            <div class="entry-stat-value" id="your-entries-count">0</div>
+          </div>
+          <div class="entry-stat">
+            <div class="entry-stat-label">Total entries</div>
+            <div class="entry-stat-value" id="total-entries-count">0</div>
+          </div>
+        </div>
 
         <p style="color: rgb(255, 255, 0);font-size:20px;text-align:center;margin-top:40px;margin-bottom:30px">
           Want more chances to win?
@@ -181,6 +182,34 @@
       </div>
     </div>
   </div>
+
+  <!-- =========================
+     MODAL: RAFFLE WINNER (fun 🎉)
+========================== -->
+<div id="winner-modal" class="modal winner-modal hidden" role="dialog" aria-modal="true" aria-labelledby="winner-title">
+  <div class="modal-overlay" data-close="winner-modal" aria-hidden="true"></div>
+
+  <div class="modal-card modal-card--winner" role="document">
+    <button class="modal-close" data-close="winner-modal" type="button" aria-label="Close">
+      <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/>
+      </svg>
+    </button>
+
+    <!-- Confetti layer -->
+    <div class="confetti" aria-hidden="true"></div>
+
+    <h2 id="winner-title" class="modal-title">🎉 We have a winner! 🎉</h2>
+    <p class="winner-line">
+      Congrats, <strong class="winner-name">Someone Awesome</strong>! 🥳<br> Come see us to pick up your t-shirt!
+    </p>
+    <p class="winner-sub">Thanks for playing all — see you at the next show!</p>
+
+    <div class="modal-actions" style="display:flex;justify-content:center;margin-top:12px;">
+      <button class="btn" data-close="winner-modal" type="button">Awesome!</button>
+    </div>
+  </div>
+</div>
 
   <!-- =========================
        Modal Open/Close Script
