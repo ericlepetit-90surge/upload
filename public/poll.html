@@ -281,10 +281,33 @@
         </section>
     </div>
 
-    <!-- API base (dev-friendly) -->
-    <script>
-        window.API_BASE = window.API_BASE || (location.port === '3000' ? '' : 'http://localhost:3000');
-    </script>
+  <!-- API base (works on mobile & LAN) -->
+<script>
+  (function () {
+    // Allow manual override via global or ?apiBase=...
+    const url = new URL(location.href);
+    const hint = url.searchParams.get('apiBase');
+    let base = (typeof window.API_BASE === 'string' && window.API_BASE.trim()) ? window.API_BASE.trim() : '';
+
+    if (!base) {
+      if (hint) {
+        base = hint; // e.g. ?apiBase=http://192.168.1.50:3000
+      } else if (location.port === '3000') {
+        // Same-origin Next dev server (ideal)
+        base = '';
+      } else if (['localhost', '127.0.0.1', '::1'].includes(location.hostname)) {
+        // Only fall back to localhost when the *page* is on localhost
+        base = 'http://localhost:3000';
+      } else {
+        // Use the current host’s LAN/IP with port 3000 (works on phones on same Wi-Fi)
+        base = `${location.protocol}//${location.hostname}:3000`;
+      }
+    }
+
+    window.API_BASE = base.replace(/\/+$/,'');
+    console.log('[API_BASE]', window.API_BASE || '(same-origin)');
+  })();
+</script>
 
     <!-- Leaderboard (Top 3, no counts/percentages) -->
     <script type="module">
