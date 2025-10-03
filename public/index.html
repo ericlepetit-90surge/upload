@@ -27,6 +27,38 @@
       background:linear-gradient(180deg, rgba(16,185,129,.12), rgba(16,185,129,.03)), #0d1a11;
     }
 
+    /* 🎉 Winner modal styling */
+    .modal-card--winner{
+      background: radial-gradient(1200px 600px at 50% -10%, rgba(124,77,255,.25), rgba(124,77,255,0)) , #0b1222;
+      border:1px solid rgba(255,255,255,.12);
+      padding:20px 16px 24px;
+      text-align:center;
+    }
+    #winner-modal .modal-title{
+      font-size:22px; font-weight:900; margin:6px 0 8px;
+    }
+    #winner-modal .winner-line{
+      font-size:18px; line-height:1.35; margin:8px 0 6px;
+    }
+    #winner-modal .winner-sub{
+      opacity:.95; margin:2px 0 0;
+    }
+    #winner-modal .btn{
+      padding:10px 16px; border-radius:999px; border:1px solid rgba(255,255,255,.2); background:rgba(255,255,255,.08);
+      color:#fff; font-weight:700; cursor:pointer;
+    }
+    /* Confetti */
+    #winner-modal .confetti{position:absolute;inset:0;pointer-events:none;overflow:hidden;}
+    #winner-modal .confetti-piece{
+      position:absolute; top:-12px; width:8px; height:4px; border-radius:2px; opacity:.95;
+      animation:confetti-drop var(--dur,2.8s) linear forwards;
+      transform:rotate(var(--rot,0deg));
+    }
+    @keyframes confetti-drop{ to { top:110%; } }
+
+    /* Entry stats centering helper (if not in styles.css) */
+    .entry-stats-card{ margin:16px auto; display:inline-flex; gap:12px; }
+
     @media (max-width: 360px){
       .modal-card{width:94vw}
       .poll-iframe{min-height:520px;height:70vh}
@@ -51,7 +83,6 @@
           Winner picked in:<br> <span id="winner-countdown-text">—</span>
         </div>
 
-       
         <h2 class="raffle raffle-title blink">
           <strong>ENTER OUR RAFFLE FOR A CHANCE TO WIN A 90 SURGE TEE!</strong>
         </h2>
@@ -83,7 +114,7 @@
           <li>That's it. Come back on this page after the winner has been picked to find out if you are the lucky winner! Want more chances to win? Keep scrolling...</li>
         </ol>
 
-         <div class="entry-stats-card" id="entry-stats">
+        <div class="entry-stats-card" id="entry-stats">
           <div class="entry-stat">
             <div class="entry-stat-label">Your entries</div>
             <div class="entry-stat-value" id="your-entries-count">0</div>
@@ -129,7 +160,7 @@
     <div class="modal-overlay" data-close="poll-modal" aria-hidden="true"></div>
     <div class="modal-card" role="document">
       <div class="modal-header">
-        <h2 id="poll-title" class="modal-title"></h2>
+        <h2 id="poll-title" class="modal-title">Vote the Next Covers</h2>
         <button class="modal-close" data-close="poll-modal" type="button" aria-label="Close">
           <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
             <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/>
@@ -185,34 +216,34 @@
 
   <!-- =========================
      MODAL: RAFFLE WINNER (fun 🎉)
-========================== -->
-<div id="winner-modal" class="modal winner-modal hidden" role="dialog" aria-modal="true" aria-labelledby="winner-title">
-  <div class="modal-overlay" data-close="winner-modal" aria-hidden="true"></div>
+  ========================== -->
+  <div id="winner-modal" class="modal winner-modal hidden" role="dialog" aria-modal="true" aria-labelledby="winner-title">
+    <div class="modal-overlay" data-close="winner-modal" aria-hidden="true"></div>
 
-  <div class="modal-card modal-card--winner" role="document">
-    <button class="modal-close" data-close="winner-modal" type="button" aria-label="Close">
-      <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
-        <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/>
-      </svg>
-    </button>
+    <div class="modal-card modal-card--winner" role="document">
+      <button class="modal-close" data-close="winner-modal" type="button" aria-label="Close" style="position:absolute;top:10px;right:10px">
+        <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/>
+        </svg>
+      </button>
 
-    <!-- Confetti layer -->
-    <div class="confetti" aria-hidden="true"></div>
+      <!-- Confetti layer -->
+      <div class="confetti" aria-hidden="true"></div>
 
-    <h2 id="winner-title" class="modal-title">🎉 We have a winner! 🎉</h2>
-    <p class="winner-line">
-      Congrats, <strong class="winner-name">Someone Awesome</strong>! 🥳<br> Come see us to pick up your t-shirt!
-    </p>
-    <p class="winner-sub">Thanks for playing all — see you at the next show!</p>
+      <h2 id="winner-title" class="modal-title">🎉 We have a winner! 🎉</h2>
+      <p class="winner-line">
+        Congrats, <strong class="winner-name">Someone Awesome</strong>! 🥳<br> Come see us to pick up your t-shirt!
+      </p>
+      <p class="winner-sub">Thanks for playing all — see you at the next show!</p>
 
-    <div class="modal-actions" style="display:flex;justify-content:center;margin-top:12px;">
-      <button class="btn" data-close="winner-modal" type="button">Awesome!</button>
+      <div class="modal-actions" style="display:flex;justify-content:center;margin-top:12px;">
+        <button class="btn" data-close="winner-modal" type="button">Awesome!</button>
+      </div>
     </div>
   </div>
-</div>
 
   <!-- =========================
-       Modal Open/Close Script
+       Modal Open/Close + Poll Iframe helpers
   ========================== -->
   <script>
     window.addEventListener('DOMContentLoaded', () => {
@@ -226,8 +257,22 @@
         el.classList.remove('hidden');
         htmlEl.classList.add('modal-open');
         bodyEl.classList.add('modal-open');
+
+        // Init slots
         if(id==='slots-modal' && typeof window.initSlotMachine==='function'){
           window.initSlotMachine('#slot-root');
+        }
+
+        // Ensure poll iframe has apiBase param for mobile/LAN
+        if(id==='poll-modal'){
+          const ifr = document.getElementById('poll-embed');
+          try {
+            const u = new URL(ifr.getAttribute('src'), location.href);
+            if (window.API_BASE && !u.searchParams.get('apiBase')) {
+              u.searchParams.set('apiBase', window.API_BASE);
+              ifr.setAttribute('src', u.toString());
+            }
+          } catch {}
         }
       }
       function closeModal(id){
@@ -261,6 +306,19 @@
 
       if(location.hash==='#poll') openModal('poll-modal');
       if(location.hash==='#slots') openModal('slots-modal');
+
+      // 🔧 Auto-resize the embedded poll based on messages from poll.html
+      window.addEventListener('message', (evt) => {
+        const d = evt && evt.data;
+        if (!d || d.type !== 'poll:height') return;
+        const ifr = document.getElementById('poll-embed');
+        if (!ifr) return;
+        let h = parseInt(d.height, 10);
+        if (!Number.isFinite(h)) return;
+        // Add a little padding and clamp to viewport
+        h = Math.max(420, Math.min(h + 20, Math.floor(window.innerHeight * 0.9)));
+        ifr.style.height = h + 'px';
+      }, false);
     });
   </script>
 

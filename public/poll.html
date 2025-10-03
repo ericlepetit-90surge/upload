@@ -97,27 +97,30 @@
     }
   </style>
 
-  <!-- API base bootstrap (runs before modules; mobile/LAN safe) -->
   <script>
-    (function () {
-      const url = new URL(location.href);
-      const hint = url.searchParams.get('apiBase');
-      let base = (typeof window.API_BASE === 'string' && window.API_BASE.trim()) ? window.API_BASE.trim() : '';
-      if (!base) {
-        if (hint) base = hint;
-        else if (location.port === '3000') base = '';
-        else if (['localhost','127.0.0.1','::1'].includes(location.hostname)) base = 'http://localhost:3000';
-        else base = `${location.protocol}//${location.hostname}:3000`;
-      }
-      window.API_BASE = base.replace(/\/+$/,'');
-      window.__apiPing = async function (timeout=3000){
-        const ctrl = new AbortController(); const t = setTimeout(()=>ctrl.abort(), timeout);
-        try{ const r = await fetch(`${window.API_BASE}/api/admin?action=config&_=${Date.now()}`, {cache:'no-store', signal:ctrl.signal}); clearTimeout(t); return r.ok; }
-        catch{ clearTimeout(t); return false; }
-      };
-      console.log('[API_BASE]', window.API_BASE || '(same-origin)');
-    })();
-  </script>
+  (function () {
+    // Optional override: /public/poll.html?apiBase=https://api.yourhost.com
+    const url  = new URL(location.href);
+    const hint = url.searchParams.get('apiBase');
+
+    let base = '';
+
+    if (hint) {
+      // Respect explicit override
+      base = hint.trim();
+    } else if (/^(localhost|127\.0\.0\.1|::1)$/i.test(location.hostname)) {
+      // Local dev: use localhost:3000 when the page itself isn't already on :3000
+      base = (location.port === '3000') ? '' : 'http://localhost:3000';
+    } else {
+      // Production: same-origin (NO :3000)
+      base = '';
+    }
+
+    window.API_BASE = base.replace(/\/+$/, '');
+    console.log('[API_BASE]', window.API_BASE || '(same-origin)');
+  })();
+</script>
+
 </head>
 <body>
   <div class="wrap">
