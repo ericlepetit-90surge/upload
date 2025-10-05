@@ -82,7 +82,7 @@
         <div class="card col-12 admin-only-block">
           <div class="card-header">
             <div class="card-title">Controls</div>
-            <div class="card-subtle">Quick actions for the show</div>
+            <div class="card-subtle">Quick actions for the raffle</div>
           </div>
           <div class="card-body">
             <div class="inline-actions">
@@ -97,29 +97,21 @@
 
         <div class="card col-6 admin-only-block">
           <div class="card-header">
-            <div class="card-title">Show Config</div>
+            <div class="card-title">Raffle Config (Monthly)</div>
+            <div class="card-subtle">Pick the <strong>last day of the month</strong>. Winner auto-picks at <strong>12:00 local</strong> that day.</div>
           </div>
           <div class="card-body">
             <div class="field">
-              <label for="showName">Show Name</label>
-              <input class="input" type="text" id="showName" placeholder="Live!" />
+              <label for="showName">Raffle Name</label>
+              <input class="input" type="text" id="showName" placeholder="e.g., 90 Surge Monthly Raffle" />
             </div>
-            <div class="grid" style="grid-template-columns:repeat(2,1fr);gap:12px;">
-              <div class="field">
-                <label for="startDate">Start Date</label>
-                <input class="input" type="date" id="startDate" />
-              </div>
-              <div class="field">
-                <label for="startTimeClock">Start Time</label>
-                <input class="input" type="time" id="startTimeClock" step="60" />
-              </div>
-              <div class="field">
-                <label for="endDate">End Date</label>
-                <input class="input" type="date" id="endDate" />
-              </div>
+            <div class="field">
+              <label for="endDate">End Date (Pick @ 12:00)</label>
+              <input class="input" type="date" id="endDate" />
             </div>
-            <div class="inline-actions mt-12">
+            <div class="inline-actions mt-12" style="align-items:center;">
               <button class="btn primary admin-only" id="save-config-btn">Save Config</button>
+              <span id="next-pick-preview" class="chip">Next pick: —</span>
             </div>
           </div>
         </div>
@@ -212,7 +204,7 @@
           <div class="card-header">
             <div class="card-title">🎵 Song Poll (10 items, users pick 3)</div>
             <div class="inline-actions">
-              <a id="poll-open-link" class="chip" href="/?poll=top10" target="_blank" rel="noopener">Open poll</a>
+              <a id="poll-open-link" class="chip" href="/public/poll.html?pollId=top10" target="_blank" rel="noopener">Open poll</a>
             </div>
           </div>
           <div class="card-body">
@@ -259,7 +251,6 @@
 
                   <small id="poll-reset-note" class="card-subtle"></small>
 
-                  <!-- Debug viewer for reset response -->
                   <details id="poll-reset-debug-wrap" class="mt-12">
                     <summary class="chip">View reset response</summary>
                     <pre id="poll-reset-debug" class="muted" style="white-space:pre-wrap; overflow:auto; max-height:200px; border:1px solid rgba(255,255,255,.06); border-radius:12px; padding:10px;"></pre>
@@ -492,11 +483,11 @@
       const yyyy=d.getFullYear(), mm=String(d.getMonth()+1).padStart(2,"0"), dd=String(d.getDate()).padStart(2,"0");
       return `${yyyy}-${mm}-${dd}`;
     }
-    function toTimeInputValue(iso){
-      if (!iso) return "";
-      const d = new Date(iso);
-      const hh=String(d.getHours()).padStart(2,"0"), mm=String(d.getMinutes()).padStart(2,"0");
-      return `${hh}:${mm}`;
+    function setNextPickPreviewFromDateStr(dateStr){
+      const el = $('#next-pick-preview'); if (!el) return;
+      if (!dateStr){ el.textContent = 'Next pick: —'; return; }
+      const localNoon = new Date(`${dateStr}T12:00:00`);
+      el.textContent = 'Next pick: ' + (isNaN(localNoon.getTime()) ? '—' : localNoon.toLocaleString());
     }
     async function loadConfig(){
       try{
@@ -504,17 +495,15 @@
         try{ cached = JSON.parse(sessionStorage.getItem("cfg") || "null"); }catch{}
         if (cached){
           $('#showName').value = cached.showName || '';
-          $('#startDate').value = toDateInputValue(cached.startTime);
-          $('#startTimeClock').value = toTimeInputValue(cached.startTime);
           $('#endDate').value = toDateInputValue(cached.endTime);
+          setNextPickPreviewFromDateStr($('#endDate').value || '');
         }
         const res = await fetch(`/api/admin?action=config&v=${Date.now()}`, { cache:"no-store" });
         if (!res.ok) return;
         const fresh = await res.json();
         $('#showName').value = fresh.showName || '';
-        $('#startDate').value = toDateInputValue(fresh.startTime);
-        $('#startTimeClock').value = toTimeInputValue(fresh.startTime);
         $('#endDate').value = toDateInputValue(fresh.endTime);
+        setNextPickPreviewFromDateStr($('#endDate').value || '');
         sessionStorage.setItem("cfg", JSON.stringify(fresh));
       } catch(e){
         console.error("config load error", e);
@@ -523,19 +512,29 @@
     async function saveConfig(){
       const role = localStorage.getItem('role'); if (role !== 'admin') return;
       const showName = $('#showName').value.trim();
-      const startDate = $('#startDate').value; const endDate = $('#endDate').value;
-      if (!showName || !startDate || !endDate){ toast('Fill all fields','error'); return; }
-      const startClock = $('#startTimeClock').value || '00:00';
-      const start = new Date(`${startDate}T${startClock}:00`);
-      const end = new Date(`${endDate}T23:59:59.999`);
-      if (end < start){ toast('End date must be on or after start date','error'); return; }
+      const endDate = $('#endDate').value;
+      if (!showName || !endDate){ toast('Fill all fields','error'); return; }
+
+      // Compute monthly window from End Date:
+      // - startTime: first day of that month @ 00:00 local
+      // - endTime:   End Date @ 12:00 local
+      const end = new Date(`${endDate}T12:00:00`);
+      if (isNaN(end.getTime())) { toast('Invalid End Date','error'); return; }
+      const y=end.getFullYear(), m=end.getMonth();
+      const start = new Date(y, m, 1, 0, 0, 0, 0);
+
       const body = { showName, startTime:start.toISOString(), endTime:end.toISOString() };
       try{
         const res = await fetch('/api/admin?action=config',{
           method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)
         });
         const json = await res.json().catch(()=>({}));
-        if (res.ok){ toast('Config saved','success'); } else { throw new Error(json.error || 'Save failed'); }
+        if (res.ok){
+          toast('Config saved','success');
+          setNextPickPreviewFromDateStr(endDate);
+        } else {
+          throw new Error(json.error || 'Save failed');
+        }
       } catch(e){
         console.error("config save error", e);
         toast('Save failed','error');
@@ -588,7 +587,7 @@
       tbody.innerHTML = ""; tbody.appendChild(frag);
     }
     async function resetEntries(){
-      if (!confirm('Reset ALL raffle entries for THIS show window?\n(Does NOT touch poll data or current winner)')) return;
+      if (!confirm('Reset ALL raffle entries for THIS window?\n(Does NOT touch poll data or current winner)')) return;
       try{
         const res = await fetch('/api/admin?action=reset-entries',{
           method:'POST', headers:{ Authorization:'Bearer:super:' + (localStorage.getItem('adminKey')||'') }
@@ -679,6 +678,12 @@
         $('#reset-winner-btn')?.addEventListener('click', resetWinner);
       }
 
+      // live preview of next pick at 12:00 on End Date
+      $('#endDate')?.addEventListener('input', (e)=> {
+        const v = e.target.value || '';
+        setNextPickPreviewFromDateStr(v);
+      });
+
       await loadWinnerLogs();
       setInterval(loadWinnerLogs, 10000);
       await loadConfig();
@@ -696,7 +701,6 @@
 
   <!-- SONG POLL MODULE -->
   <script type="module">
-    // Use distinct helper names to avoid $/$$ redeclare errors
     const qs  = (sel, root=document) => root.querySelector(sel);
     const qsa = (sel, root=document) => Array.from(root.querySelectorAll(sel));
 
@@ -704,7 +708,7 @@
     const POLL_SET          = "/api/admin?action=poll-setup";
     const POLL_RESULTS      = "/api/admin?action=poll-results";
     const POLL_RESET_VOTERS = "/api/admin?action=poll-reset-voters";
-    const POLL_RESET_ALL    = "/api/admin?action=poll-reset-all";
+    const POLL_RESET_ALL    = "/api/admin?action=poll-hard-reset";
     const POLL_ID = "top10";
 
     function toast(msg, type="info"){
@@ -831,7 +835,6 @@
             'Content-Type':'application/json',
             'Authorization':'Bearer:super:' + adminKey
           },
-          // forceNoScan ensures the server performs a deterministic delete that works without SCAN/KEYS
           body: JSON.stringify({ pollId: POLL_ID, scope: 'all', forceNoScan: true })
         });
         const j = await res.json().catch(()=>({}));

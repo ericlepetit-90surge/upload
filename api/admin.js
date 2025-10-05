@@ -8,7 +8,7 @@ try { dns.setDefaultResultOrder?.("ipv4first"); } catch {}
 export const config = { runtime: "nodejs" };
 
 // Minimum total entries shown publicly
-const PUBLIC_TOTAL_FLOOR = 6;
+const PUBLIC_TOTAL_FLOOR = 12;
 
 /* ──────────────────────────────────────────────────────────────
    ENV + mode
@@ -108,7 +108,7 @@ async function withRedis(op, opTimeoutMs = 2000) {
    Helpers
 ────────────────────────────────────────────────────────────── */
 const g = globalThis;
-if (!g.__surgeMem) g.__surgeMem = { winners: [], currentWinner: null };
+if (!g.__surgeMem) g.__surgeMem = { winners: [], currentWinner: null, noWinner: false };
 const MEM = g.__surgeMem;
 
 function isAdmin(req) {
@@ -213,6 +213,29 @@ async function isShutdown(r) {
   catch { return false; }
 }
 
+/* ───────── Monthly window helpers ───────── */
+
+function parseMs(s) {
+  const t = Date.parse(s || "");
+  return Number.isFinite(t) ? t : NaN;
+}
+function toIso(d) { try { return new Date(d).toISOString(); } catch { return null; } }
+
+// Given an ISO `endTime`, derive the month start (local first day 00:00)
+function monthStartFromEnd(endTimeIso) {
+  const d = new Date(endTimeIso);
+  if (isNaN(d)) return null;
+  return new Date(d.getFullYear(), d.getMonth(), 1, 0, 0, 0, 0);
+}
+// Given an ISO `endTime`, compute pickAt at LOCAL noon of that date
+function computeMonthlyPickAtNoon(endTimeIso) {
+  if (!endTimeIso) return null;
+  const d = new Date(endTimeIso);
+  if (isNaN(d)) return null;
+  const noon = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 12, 0, 0, 0);
+  return noon.getTime();
+}
+
 async function getWindowInfo(r) {
   let showName = "90 Surge";
   let startTime = null;
@@ -238,16 +261,21 @@ async function getWindowInfo(r) {
     }
   } catch {}
 
+  // Monthly defaulting:
+  // If you provide only endTime (set to the last day of the month),
+  // we derive startTime as the first day of that month 00:00 local.
+  if (endTime && !startTime) {
+    const mStart = monthStartFromEnd(endTime);
+    if (mStart) startTime = toIso(mStart);
+  }
+
+  // If still missing, fallback to "today → tomorrow"
   if (!startTime || !endTime) {
     const now = new Date();
-    const start = new Date(Date.UTC(
-      now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0
-    ));
-    const end = new Date(Date.UTC(
-      now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1, 0, 0, 0
-    ));
-    startTime = start.toISOString();
-    endTime = end.toISOString();
+    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+    const end = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0, 0);
+    startTime = toIso(start);
+    endTime = toIso(end);
   }
 
   const windowKey = `${startTime}|${endTime}`;
@@ -255,14 +283,6 @@ async function getWindowInfo(r) {
   if (!Number.isFinite(ttlSeconds) || ttlSeconds <= 0) ttlSeconds = 8 * 60 * 60;
 
   return { showName, startTime, endTime, windowKey, ttlSeconds };
-}
-
-// Auto-pick timing: 2h30m after show start
-const WINNER_DELAY_MS = 2.5 * 60 * 60 * 1000;
-function computeAutoPickAt(startTimeIso) {
-  if (!startTimeIso) return null;
-  const t = Date.parse(startTimeIso);
-  return Number.isFinite(t) ? t + WINNER_DELAY_MS : null;
 }
 
 /* Winners persistence with robust fallback */
@@ -383,7 +403,7 @@ export default async function handler(req, res) {
     }
   }
 
-  /* ───── CONFIG ───── */
+  /* ───── CONFIG (monthly: compute autoPickAt = noon on endTime day) ───── */
   if (action === "config") {
     if (req.method === "GET") {
       noCache(res);
@@ -396,7 +416,11 @@ export default async function handler(req, res) {
             const startTime = cfg.startTime ?? null;
             const endTime = cfg.endTime ?? null;
             const version = Number(cfg.version || 0);
-            const autoPickAt = cfg.autoPickAt || "";
+            let autoPickAt = cfg.autoPickAt || "";
+            if (!autoPickAt && endTime) {
+              const ts = computeMonthlyPickAtNoon(endTime);
+              if (ts) autoPickAt = new Date(ts).toISOString();
+            }
             return res.status(200).json({ showName, startTime, endTime, version, autoPickAt });
           } catch {}
         }
@@ -411,6 +435,12 @@ export default async function handler(req, res) {
             ]),
             timeout(3000),
           ]);
+
+          if ((!autoPickAt || !autoPickAt.trim()) && endTime) {
+            const ts = computeMonthlyPickAtNoon(endTime);
+            if (ts) autoPickAt = new Date(ts).toISOString();
+          }
+
           return res.status(200).json({
             showName, startTime, endTime, version: Number(version || 0), autoPickAt,
           });
@@ -425,9 +455,9 @@ export default async function handler(req, res) {
       try {
         let computedAuto = "";
         try {
-          if (startTime) {
-            const t = new Date(startTime);
-            if (!isNaN(t)) computedAuto = new Date(t.getTime() + 150 * 60 * 1000).toISOString();
+          if (endTime) {
+            const ts = computeMonthlyPickAtNoon(endTime);
+            if (ts) computedAuto = new Date(ts).toISOString();
           }
         } catch {}
         if (isLocal) {
@@ -463,16 +493,24 @@ export default async function handler(req, res) {
 
   /* ────────────────────────────────────────────────────────────
      RAFFLE: enter / list / summary / my-entries
+     (name now optional; email allowed)
   ───────────────────────────────────────────────────────────── */
   if (action === "enter" && req.method === "POST") {
     try {
       return await withRedis(async (r) => {
-        const nameRaw = (req.body?.name || "").trim();
-        if (!nameRaw) return res.status(400).json({ error: "Missing name" });
-        const name = nameRaw.slice(0, 80);
+        const rawName = (req.body?.name || "").toString().trim();
+        const rawEmail = (req.body?.email || "").toString().trim().toLowerCase();
+        const consent = !!req.body?.consent;
+
+        if (!rawName && !rawEmail) return res.status(400).json({ error: "Missing name or email" });
+
+        let name = rawName.slice(0, 80);
+        if (!name && rawEmail) {
+          name = rawEmail.split("@")[0].slice(0, 80);
+        }
 
         const rawSource = (req.body?.source || "").toString().toLowerCase();
-        const source = ["fb", "ig", "jackpot"].includes(rawSource) ? rawSource : "other";
+        const source = ["fb", "ig", "jackpot", "poll-bonus", "other"].includes(rawSource) ? rawSource : "other";
 
         const ip = req.headers["x-forwarded-for"]?.split(",")[0]?.trim() || req.socket.remoteAddress || "unknown";
         const { windowKey, ttlSeconds } = await getWindowInfo(r);
@@ -483,7 +521,7 @@ export default async function handler(req, res) {
         if (source === "jackpot") {
           const entry = {
             id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
-            name, ip, source,
+            name, email: rawEmail || "", consent, ip, source,
             createdTime: new Date().toISOString(),
           };
           const jpKey = `raffle:jackpotCount:${windowKey}:${ip}`;
@@ -510,7 +548,7 @@ export default async function handler(req, res) {
             if (!found) {
               const entry = {
                 id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
-                name, ip, source,
+                name, email: rawEmail || "", consent, ip, source,
                 createdTime: new Date().toISOString(),
               };
               await r.rPush(listKey, JSON.stringify(entry));
@@ -523,7 +561,7 @@ export default async function handler(req, res) {
 
         const entry = {
           id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
-          name, ip, source,
+          name, email: rawEmail || "", consent, ip, source,
           createdTime: new Date().toISOString(),
         };
         await r.multi()
@@ -694,29 +732,43 @@ export default async function handler(req, res) {
 
   /* ────────────────────────────────────────────────────────────
      WINNER (current) + PICK + RESET
+     (auto-pick at noon on endTime date; record "no winner" flag)
   ───────────────────────────────────────────────────────────── */
   if (action === "winner" && req.method === "GET") {
     try {
       return await withRedis(async (r) => {
-        const winner = await r.get("raffle_winner");
-        return res.json({ winner: winner ? JSON.parse(winner) : null });
+        const [winnerStr, noneStr] = await Promise.all([
+          r.get("raffle_winner").catch(() => null),
+          r.get("raffle_no_winner").catch(() => null),
+        ]);
+        const noWinner = noneStr === "true";
+        return res.json({ winner: winnerStr ? JSON.parse(winnerStr) : null, noWinner });
       }, 2000);
     } catch {
-      return res.json({ winner: MEM.currentWinner ? { name: MEM.currentWinner } : null, _fallback: true });
+      return res.json({
+        winner: MEM.currentWinner ? { name: MEM.currentWinner } : null,
+        noWinner: !!MEM.noWinner,
+        _fallback: true
+      });
     }
   }
 
   if ((req.method === "POST" || req.method === "GET") && action === "maybe-auto-pick") {
     try {
       return await withRedis(async (r) => {
-        const { windowKey, startTime } = await getWindowInfo(r);
-        const pickAtMs = computeAutoPickAt(startTime);
-        if (!pickAtMs) return res.status(200).json({ ok: false, reason: "no_start_time" });
+        const { windowKey, endTime, ttlSeconds } = await getWindowInfo(r);
+        const pickAtMs = endTime ? computeMonthlyPickAtNoon(endTime) : null;
+        if (!pickAtMs) return res.status(200).json({ ok: false, reason: "no_end_time" });
+
         const now = Date.now();
         if (now < pickAtMs) return res.status(200).json({ ok: false, reason: "too_early", msLeft: pickAtMs - now });
 
         const already = await r.get("raffle_winner").catch(() => null);
-        if (already) return res.status(200).json({ ok: true, already: true, winner: JSON.parse(already) });
+        const flaggedNone = await r.get("raffle_no_winner").catch(() => null);
+        if (already || flaggedNone === "true") {
+          const winner = already ? JSON.parse(already) : null;
+          return res.status(200).json({ ok: true, already: true, winner, noWinner: flaggedNone === "true" });
+        }
 
         const lockKey = `autoPick:lock:${windowKey}`;
         const gotLock = await r.set(lockKey, String(now), { NX: true, PX: 8000 });
@@ -725,18 +777,25 @@ export default async function handler(req, res) {
         const listKey = `raffle:entries:${windowKey}`;
         const raw = await r.lRange(listKey, 0, -1);
         const entries = raw.map((s) => { try { return JSON.parse(s); } catch { return null; } }).filter(Boolean);
-        if (!entries.length) return res.status(200).json({ ok: false, reason: "no_entries" });
+
+        if (!entries.length) {
+          await r.set("raffle_no_winner", "true", { EX: Math.max(3600, ttlSeconds) });
+          MEM.noWinner = true;
+          return res.status(200).json({ ok: true, noWinner: true, reason: "no_entries" });
+        }
 
         const idx = Math.floor(Math.random() * entries.length);
         const w = entries[idx];
         const payload = { id: w.id, name: w.name, source: w.source || null };
 
         await r.set("raffle_winner", JSON.stringify(payload));
+        await r.del("raffle_no_winner").catch(() => {});
         MEM.currentWinner = payload.name;
+        MEM.noWinner = false;
 
         const row = {
           id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
-          name: payload.name, prize: "Raffle Winner — T-Shirt",
+          name: payload.name, prize: "Monthly Raffle Winner — T-Shirt",
           source: "raffle(auto)", windowKey,
           ts: new Date().toISOString(),
         };
@@ -765,11 +824,13 @@ export default async function handler(req, res) {
         const payload = { id: winner.id, name: winner.name, source: winner.source || null };
 
         await r.set("raffle_winner", JSON.stringify(payload));
+        await r.del("raffle_no_winner").catch(() => {});
         MEM.currentWinner = payload.name;
+        MEM.noWinner = false;
 
         const row = {
           id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
-          name: payload.name, prize: "Raffle Winner — T-Shirt",
+          name: payload.name, prize: "Monthly Raffle Winner — T-Shirt",
           source: "raffle", windowKey,
           ts: new Date().toISOString(),
         };
@@ -790,8 +851,9 @@ export default async function handler(req, res) {
 
     try {
       return await withRedis(async (r) => {
-        await r.del("raffle_winner");
+        await Promise.all([r.del("raffle_winner"), r.del("raffle_no_winner")]);
         MEM.currentWinner = null;
+        MEM.noWinner = false;
 
         let ledgerCleared = false;
         if (clearLedger) {
@@ -810,8 +872,8 @@ export default async function handler(req, res) {
           success: true,
           ledgerCleared,
           note: ledgerCleared
-            ? "Current winner and Winners Ledger cleared."
-            : "Current winner cleared. Ledger kept.",
+            ? "Current winner/no-winner flag and Winners Ledger cleared."
+            : "Current winner/no-winner flag cleared. Ledger kept.",
         });
       }, 3000);
     } catch {
@@ -984,7 +1046,6 @@ export default async function handler(req, res) {
         const cache = await readCache();
         const out = { facebook: cache.fb, instagram: cache.ig, error: "page_fetch_failed" };
         if (debug) { out.pageURL = urlFull; out.tokenPreview = mask(token); out.details = pageRes.json; }
-        if (reveal && isAdmin(req)) out.usingTokenSuffix = tail(token);
         return res.status(200).json(out);
       }
 
@@ -997,7 +1058,6 @@ export default async function handler(req, res) {
           hint: "Link the Page to an Instagram Professional account or set IG_ACCOUNT_ID.",
         };
         if (debug) { out.pageDiag = pageDiag; out.tokenPreview = mask(token); }
-        if (reveal && isAdmin(req)) out.usingTokenSuffix = tail(token);
         return res.status(200).json(out);
       }
 
@@ -1010,20 +1070,17 @@ export default async function handler(req, res) {
       } else {
         const cache = await readCache();
         const out = { facebook: facebookCount, instagram: cache.ig, error: "ig_fetch_failed" };
-        if (debug) { out.igURL = igURL; out.pageDiag = pageDiag; out.details = igRes.json; out.tokenPreview = mask(token); out.igId = igId; }
-        if (reveal && isAdmin(req)) out.usingTokenSuffix = tail(token);
+        if (debug) { out.igURL = igURL; out.pageDiag = pageDiag; out.details = igRes.json; }
         return res.status(200).json(out);
       }
 
       await writeCache(facebookCount, instagramCount);
       const out = { facebook: facebookCount, instagram: instagramCount };
       if (debug) { out.pageDiag = pageDiag; out.igId = igId; }
-      if (reveal && isAdmin(req)) out.usingTokenSuffix = tail(token);
       return res.status(200).json(out);
     } catch (err) {
-      const cache = await readCache();
       return res.status(200).json({
-        facebook: cache.fb, instagram: cache.ig,
+        facebook: 0, instagram: 0,
         error: "exception", message: String(err?.message || err),
       });
     }
@@ -1149,7 +1206,7 @@ export default async function handler(req, res) {
     }
   }
 
-  if (action === "shutdown" && req.method === "POST") {
+  if (req.method === "POST" && action === "shutdown") {
     if (!isSuperAdmin(req)) return res.status(403).json({ error: "Forbidden" });
     try {
       return await withRedis(async (r) => {
@@ -1175,7 +1232,7 @@ export default async function handler(req, res) {
   if (action === "auto-pick-status" && req.method === "GET") {
     try {
       return await withRedis(async (r) => {
-        let [autoPickAt, armed, winner] = ["", "false", null];
+        let [autoPickAt, armed, winner, noWinner] = ["", "false", null, false];
         [autoPickAt, armed] = await Promise.all([
           r.get("autoPickAt").catch(() => ""),
           r.get("autoPickArmed").catch(() => "false"),
@@ -1184,17 +1241,23 @@ export default async function handler(req, res) {
           const w = await r.get("raffle_winner");
           winner = w ? JSON.parse(w) : null;
         } catch {}
+        try {
+          const f = await r.get("raffle_no_winner");
+          noWinner = f === "true";
+        } catch {}
         return res.status(200).json({
           autoPickAt, armed: armed === "true",
           now: new Date().toISOString(),
-          alreadyPicked: !!winner, winner,
+          alreadyPicked: !!winner || noWinner,
+          winner, noWinner
         });
       }, 2500);
     } catch {
       return res.status(200).json({
         autoPickAt: "", armed: false, now: new Date().toISOString(),
-        alreadyPicked: !!MEM.currentWinner,
+        alreadyPicked: !!MEM.currentWinner || !!MEM.noWinner,
         winner: MEM.currentWinner ? { name: MEM.currentWinner } : null,
+        noWinner: !!MEM.noWinner
       });
     }
   }
@@ -1238,9 +1301,12 @@ export default async function handler(req, res) {
   if (action === "bonus-entry" && req.method === "POST") {
     try {
       return await withRedis(async (r) => {
-        const nameRaw = (req.body?.name || "").trim();
-        if (!nameRaw) return res.status(400).json({ error: "Missing name" });
-        const name = nameRaw.slice(0, 80);
+        const rawName = (req.body?.name || "").toString().trim();
+        const rawEmail = (req.body?.email || "").toString().trim().toLowerCase();
+        if (!rawName && !rawEmail) return res.status(400).json({ error: "Missing name or email" });
+
+        let name = rawName.slice(0, 80);
+        if (!name && rawEmail) name = rawEmail.split("@")[0].slice(0, 80);
 
         const ip = req.headers["x-forwarded-for"]?.split(",")[0]?.trim() || req.socket.remoteAddress || "unknown";
         const { windowKey, ttlSeconds } = await getWindowInfo(r);
@@ -1249,7 +1315,7 @@ export default async function handler(req, res) {
 
         const entry = {
           id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
-          name, ip, source: "jackpot-bonus",
+          name, email: rawEmail || "", ip, source: "jackpot-bonus",
           createdTime: new Date().toISOString(),
         };
 
@@ -1308,106 +1374,105 @@ export default async function handler(req, res) {
   }
 
   /* POLL: vote */
-if (action === "poll-vote" && req.method === "POST") {
-  try {
-    return await withRedis(async (r) => {
-      const {
-        pollId = "top10",
-        picks,
-        songId,
-        clientId = "",
-        name = "",
-      } = req.body || {};
-      let chosen = Array.isArray(picks) ? picks.map(String) : [];
-      if (!chosen.length && songId) chosen = [String(songId)];
-      chosen = Array.from(new Set(chosen)).slice(0, 3);
-      if (chosen.length === 0)
-        return res.status(400).json({ error: "No picks" });
+  if (action === "poll-vote" && req.method === "POST") {
+    try {
+      return await withRedis(async (r) => {
+        const {
+          pollId = "top10",
+          picks,
+          songId,
+          clientId = "",
+          name = "",
+        } = req.body || {};
+        let chosen = Array.isArray(picks) ? picks.map(String) : [];
+        if (!chosen.length && songId) chosen = [String(songId)];
+        chosen = Array.from(new Set(chosen)).slice(0, 3);
+        if (chosen.length === 0)
+          return res.status(400).json({ error: "No picks" });
 
-      // Validate picks against configured songs
-      let songs = [];
-      try {
-        const raw = await r.get(`poll:songs:${pollId}`);
-        const arr = JSON.parse(raw || "[]");
-        if (Array.isArray(arr)) songs = arr;
-      } catch {}
-      const valid = new Set(songs.map((s) => String(s.id || "")));
-      if (!chosen.every((id) => valid.has(id)))
-        return res.status(400).json({ error: "Invalid pick(s)" });
+        // Validate picks against configured songs
+        let songs = [];
+        try {
+          const raw = await r.get(`poll:songs:${pollId}`);
+          const arr = JSON.parse(raw || "[]");
+          if (Array.isArray(arr)) songs = arr;
+        } catch {}
+        const valid = new Set(songs.map((s) => String(s.id || "")));
+        if (!chosen.every((id) => valid.has(id)))
+          return res.status(400).json({ error: "Invalid pick(s)" });
 
-      const ip =
-        req.headers["x-forwarded-for"]?.split(",")[0]?.trim() ||
-        req.socket.remoteAddress ||
-        "unknown";
+        const ip =
+          req.headers["x-forwarded-for"]?.split(",")[0]?.trim() ||
+          req.socket.remoteAddress ||
+          "unknown";
 
-      // Use configured show window
-      const { windowKey, ttlSeconds, startTime, endTime } = await getWindowInfo(r);
-      const now = Date.now();
-      const startMs = Date.parse(startTime || "");
-      const endMs   = Date.parse(endTime || "");
-      const IS_LIVE = Number.isFinite(startMs) && Number.isFinite(endMs) && now >= startMs && now <= endMs;
+        // Use configured window
+        const { windowKey, ttlSeconds, startTime, endTime } = await getWindowInfo(r);
+        const now = Date.now();
+        const startMs = parseMs(startTime || "");
+        const endMs   = parseMs(endTime || "");
+        const IS_LIVE = Number.isFinite(startMs) && Number.isFinite(endMs) && now >= startMs && now <= endMs;
 
-      const voterToken = clientId ? `${ip}:${clientId}` : ip;
+        const voterToken = clientId ? `${ip}:${clientId}` : ip;
 
-      const dedupeKey  = `poll:voted:${windowKey}:${pollId}`;
-      const ballotsKey = `poll:ballots:${windowKey}:${pollId}`;
-      const listKey    = `raffle:entries:${windowKey}`;
-      const bonusKey   = `raffle:bonus:${windowKey}:${ip}`;
+        const dedupeKey  = `poll:voted:${windowKey}:${pollId}`;
+        const ballotsKey = `poll:ballots:${windowKey}:${pollId}`;
+        const listKey    = `raffle:entries:${windowKey}`;
+        const bonusKey   = `raffle:bonus:${windowKey}:${ip}`;
 
-      const already = await r.sIsMember(dedupeKey, voterToken);
-      if (already)
-        return res.status(200).json({ ok: true, alreadyVoted: true });
+        const already = await r.sIsMember(dedupeKey, voterToken);
+        if (already)
+          return res.status(200).json({ ok: true, alreadyVoted: true });
 
-      // Optional display name (only used to award bonus if LIVE)
-      const displayName = (name || "").toString().trim().slice(0, 80);
+        const displayName = (name || "").toString().trim().slice(0, 80);
 
-      const pipe = r.multi();
+        const pipe = r.multi();
 
-      // increment vote counters (scoped to window) + TTL
-      for (const id of chosen) {
-        const vk = `poll:votes:${windowKey}:${pollId}:${id}`;
-        pipe.incr(vk);
-        pipe.expire(vk, ttlSeconds);
-      }
+        // increment vote counters (scoped to window) + TTL
+        for (const id of chosen) {
+          const vk = `poll:votes:${windowKey}:${pollId}:${id}`;
+          pipe.incr(vk);
+          pipe.expire(vk, ttlSeconds);
+        }
 
-      // lock this voter
-      pipe.sAdd(dedupeKey, voterToken);
-      pipe.expire(dedupeKey, ttlSeconds);
+        // lock this voter
+        pipe.sAdd(dedupeKey, voterToken);
+        pipe.expire(dedupeKey, ttlSeconds);
 
-      // store ballot (for audit)
-      pipe.rPush(
-        ballotsKey,
-        JSON.stringify({ at: new Date().toISOString(), ip, clientId, name: displayName, picks: chosen })
-      );
-      pipe.expire(ballotsKey, ttlSeconds);
-
-      // BONUS ENTRY ONLY DURING SHOW WINDOW
-      let bonusGranted = false;
-      if (IS_LIVE && displayName) {
+        // store ballot (for audit)
         pipe.rPush(
-          listKey,
-          JSON.stringify({
-            id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
-            name: displayName,
-            ip,
-            source: "poll-bonus",
-            createdTime: new Date().toISOString(),
-          })
+          ballotsKey,
+          JSON.stringify({ at: new Date().toISOString(), ip, clientId, name: displayName, picks: chosen })
         );
-        pipe.expire(listKey, ttlSeconds);
-        pipe.incr(bonusKey);
-        pipe.expire(bonusKey, ttlSeconds);
-        bonusGranted = true;
-      }
+        pipe.expire(ballotsKey, ttlSeconds);
 
-      await pipe.exec();
-      noCache(res);
-      return res.status(200).json({ ok: true, picks: chosen, bonus: bonusGranted });
-    }, 3500);
-  } catch {
-    return res.status(503).json({ error: "Redis not ready" });
+        // BONUS ENTRY ONLY WHEN WITHIN WINDOW
+        let bonusGranted = false;
+        if (IS_LIVE && displayName) {
+          pipe.rPush(
+            listKey,
+            JSON.stringify({
+              id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
+              name: displayName,
+              ip,
+              source: "poll-bonus",
+              createdTime: new Date().toISOString(),
+            })
+          );
+          pipe.expire(listKey, ttlSeconds);
+          pipe.incr(bonusKey);
+          pipe.expire(bonusKey, ttlSeconds);
+          bonusGranted = true;
+        }
+
+        await pipe.exec();
+        noCache(res);
+        return res.status(200).json({ ok: true, picks: chosen, bonus: bonusGranted });
+      }, 3500);
+    } catch {
+      return res.status(503).json({ error: "Redis not ready" });
+    }
   }
-}
 
   /* POLL: results */
   if (action === "poll-results" && req.method === "GET") {

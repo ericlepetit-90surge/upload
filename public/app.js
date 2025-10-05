@@ -21,11 +21,25 @@
   // Helper to prefix relative /api/... paths with API_BASE when needed
   const fullUrl = (u) => (u && u.startsWith("/api/") ? `${API_BASE}${u}` : u);
 
+  // (Name kept for backward-compat if the input still exists on some pages, but it's no longer required.)
   const NAME_KEY = "raffle_display_name";
+  const EMAIL_KEY = "raffle_email";
+  const CONSENT_KEY = "raffle_marketing_consent";
+
   const $ = (s, r = document) => r.querySelector(s);
 
-  const nameEl = () => $("#user-display-name");
-  const getName = () => (nameEl()?.value || "").trim().slice(0, 80);
+  const nameEl    = () => $("#user-display-name"); // optional / may not exist anymore
+  const emailEl   = () => $("#user-email");        // REQUIRED input in index.html
+  const consentEl = () => $("#marketing-consent"); // optional checkbox
+
+  const getName   = () => (nameEl()?.value || "").trim().slice(0, 80);
+  const getEmail  = () => (emailEl()?.value || "").trim().slice(0, 120).toLowerCase();
+  const hasConsent = () => !!(consentEl()?.checked);
+
+  function isValidEmail(e) {
+    if (!e) return false;
+    return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(e);
+  }
 
   const WINNER_SSE_URL = ""; // optional SSE server
 
@@ -66,26 +80,50 @@
   }
 
   // ──────────────────────────────────────────────────────────────
-  // Name persistence
+  // Email persistence (mandatory); name is optional/ignored
   // ──────────────────────────────────────────────────────────────
-  function initNamePersistence() {
-    const el = nameEl();
-    if (!el) return;
-    const saved = localStorage.getItem(NAME_KEY);
-    if (saved) el.value = saved;
-    el.addEventListener("input", () => {
-      localStorage.setItem(NAME_KEY, getName());
-      debounceRefreshStats();
-    });
+  function initContactPersistence() {
+    const eEl = emailEl();
+    const cEl = consentEl();
+
+    // email (required)
+    if (eEl) {
+      const savedE = localStorage.getItem(EMAIL_KEY);
+      if (savedE) eEl.value = savedE;
+      eEl.addEventListener("input", () => {
+        const v = getEmail();
+        localStorage.setItem(EMAIL_KEY, v);
+      });
+    }
+
+    // consent (optional)
+    if (cEl) {
+      const savedC = localStorage.getItem(CONSENT_KEY);
+      if (savedC != null) cEl.checked = savedC === "1";
+      cEl.addEventListener("change", () => {
+        localStorage.setItem(CONSENT_KEY, cEl.checked ? "1" : "0");
+      });
+    }
+
+    // If a lingering name input exists on the page, we'll still persist it silently (not required).
+    const nEl = nameEl();
+    if (nEl) {
+      const savedN = localStorage.getItem(NAME_KEY);
+      if (savedN) nEl.value = savedN;
+      nEl.addEventListener("input", () => {
+        try { localStorage.setItem(NAME_KEY, getName()); } catch {}
+      });
+    }
   }
-  function requireName() {
-    const n = getName();
-    if (!n) {
+
+  function requireEmail() {
+    const e = getEmail();
+    if (!isValidEmail(e)) {
       try {
-        nameEl()?.focus();
-        nameEl()?.scrollIntoView({ behavior: "smooth", block: "center" });
+        emailEl()?.focus();
+        emailEl()?.scrollIntoView({ behavior: "smooth", block: "center" });
       } catch {}
-      alert("Please enter your name first 🙂");
+      alert("Please enter a valid email first 🙂");
       return false;
     }
     return true;
@@ -106,13 +144,18 @@
   }
 
   // ──────────────────────────────────────────────────────────────
-  // Entries submission
+  // Entries submission (email is mandatory)
   // ──────────────────────────────────────────────────────────────
   async function submitEntryOnce(source) {
-    const name = getName();
-    if (!name) return { ok: false, error: "Missing name" };
+    const email = getEmail();
+    if (!isValidEmail(email)) return { ok: false, error: "Missing or invalid email" };
+
+    const name = getName(); // optional
+    const consent = hasConsent();
+
     try {
-      const out = await postJSON("/api/admin?action=enter", { name, source });
+      const payload = { name: (name || ""), source, email, consent: !!consent };
+      const out = await postJSON("/api/admin?action=enter", payload);
       refreshEntryStats().catch(() => {});
       if (!__winnerLocked) startWinnerCountdown(true);
       if (out?.already) return { ok: true, already: true };
@@ -123,15 +166,19 @@
     }
   }
   function submitEntryOnceBeacon(source) {
-    const name = getName();
-    if (!name) return;
+    const email = getEmail();
+    if (!isValidEmail(email)) return;
+
+    const name = getName(); // optional
+    const consent = hasConsent();
+
     const url = fullUrl("/api/admin?action=enter");
-    const data = JSON.stringify({ name, source });
+    const data = JSON.stringify({ name: (name || ""), source, email, consent: !!consent });
     const blob = new Blob([data], { type: "application/json" });
     if (navigator.sendBeacon) {
       navigator.sendBeacon(url, blob);
     } else {
-      postJSON(url, { name, source }, { keepalive: true }).catch(() => {});
+      postJSON(url, JSON.parse(data), { keepalive: true }).catch(() => {});
     }
     setTimeout(() => {
       refreshEntryStats().catch(() => {});
@@ -140,7 +187,7 @@
   }
 
   window.submitEntryOnce = submitEntryOnce;
-  window.canSubmitFor = (source) => !!getName();
+  window.canSubmitFor = () => isValidEmail(getEmail());
 
   // ──────────────────────────────────────────────────────────────
   // Social mark
@@ -190,8 +237,25 @@
     }
   }
 
+  async function setEndDateLabel() {
+  const el = document.getElementById('end-date-label');
+  if (!el) return;
+
+  const res = await fetch('/api/admin?action=config', { cache: 'no-store' });
+  const cfg = await res.json().catch(() => ({}));
+  if (!cfg?.endTime) return;
+
+  const end = new Date(cfg.endTime);
+  el.textContent = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York',
+    month: 'long',
+    day: 'numeric'
+  }).format(end);
+}
+document.addEventListener('DOMContentLoaded', setEndDateLabel);
+
   // ──────────────────────────────────────────────────────────────
-  // Prize helpers + jackpot logging (STRICT from result only)
+  // Prize helpers + jackpot logging
   // ──────────────────────────────────────────────────────────────
   const KNOWN_PRIZES = new Set(["Sticker", "T-Shirt", "VIP Seat", "Extra Entry", "Jackpot"]);
   const EMOJI_MAP = new Map([
@@ -231,21 +295,14 @@
       .replaceAll('"','&quot;').replaceAll("'",'&#39;');
   }
 
-  let __awardedExtraThisSpin = false;
-  let __awardResetTimer = null;
-  function markExtraAwardedOnce() {
-    __awardedExtraThisSpin = true;
-    clearTimeout(__awardResetTimer);
-    __awardResetTimer = setTimeout(() => { __awardedExtraThisSpin = false; }, 5000);
-  }
-
   async function logSpin(targets, jackpot) {
     if (!jackpot) return;
     if (!Array.isArray(targets) || targets.length < 3) return;
 
-    const name = getName() || "(anonymous)";
+    const name = getName() || "";
+    const email = getEmail();
     const ts = Date.now();
-    const payload = { name, targets, jackpot: true, ts, source: "slot" };
+    const payload = { name, email: isValidEmail(email) ? email : "", targets, jackpot: true, ts, source: "slot" };
 
     // Beacon first
     let sent = false;
@@ -349,7 +406,7 @@
   }
 
   // ──────────────────────────────────────────────────────────────
-  // Device helpers + follow buttons
+  // Device helpers + follow buttons (email required)
   // ──────────────────────────────────────────────────────────────
   function isAndroid() { return /\bAndroid\b/i.test(navigator.userAgent); }
   function isIOS()     { return /\b(iPhone|iPad|iPod)\b/i.test(navigator.userAgent); }
@@ -425,7 +482,7 @@
   let globalFollowLock = false;
   function setDisabled(el, val) { if (!el) return; try { el.disabled = !!val; } catch {} el.classList.toggle("is-disabled", !!val); }
   async function handleFollow(platform, btn) {
-    if (!requireName()) return;
+    if (!requireEmail()) return;
     if (globalFollowLock) return;
     globalFollowLock = true;
     setDisabled(btn, true);
@@ -444,6 +501,7 @@
     }
   }
 
+  
   document.addEventListener("DOMContentLoaded", () => {
     document.querySelectorAll('a[href^="intent://"]').forEach((a) => {
       const href = a.getAttribute("href") || "";
@@ -615,11 +673,28 @@
   let cfgMem = null;
   let pickAtMem = null;
 
+  // Use local-flexible parser for robustness
+  function parseLocalFlexible(s) {
+    if (!s) return NaN;
+    s = String(s).trim();
+    const m = s.match(/^(\d{4}-\d{2}-\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?$/);
+    if (m && !/[zZ]|[+\-]\d{2}:\d{2}$/.test(s)) {
+      const y  = +m[1].slice(0, 4);
+      const mo = +m[1].slice(5, 7) - 1;
+      const d  = +m[1].slice(8,10);
+      const h  = +m[2];
+      const mi = +m[3];
+      const se = +(m[4] || 0);
+      return new Date(y, mo, d, h, mi, se).getTime();
+    }
+    const t = Date.parse(s);
+    return Number.isFinite(t) ? t : NaN;
+  }
+
   function parseStartMs(startTime) {
-    if (!startTime) return NaN;
-    let t = Date.parse(startTime);
+    const t = parseLocalFlexible(startTime);
     if (Number.isFinite(t)) return t;
-    const m = String(startTime).trim().match(/^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}(?::\d{2})?)$/);
+    const m = String(startTime || "").trim().match(/^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}(?::\d{2})?)$/);
     if (m) return new Date(`${m[1]}T${m[2]}`).getTime();
     return NaN;
   }
@@ -657,7 +732,6 @@
     return pinned;
   }
 
-  // Prefer server-provided autoPickAt when available; fallback to startTime + 2h30
   function computePickAtFromCfg(cfg) {
     const ap = Date.parse(cfg?.autoPickAt || "");
     if (Number.isFinite(ap)) return ap;
@@ -700,7 +774,6 @@
     }
   }
 
-  // After triggering, poll for the winner briefly to avoid “Picking…” hang
   async function verifyAndMaybeAutoPick() {
     await refreshConfigAuthoritative();
 
@@ -733,7 +806,12 @@
       await new Promise((r) => setTimeout(r, 750));
     }
 
-    // Still no winner — release guard so we can try again on the next tick
+    // If no winner & no entries, show "No winner this time"
+    if (prevTotal <= 0) {
+      maybeDisplayWinner("__NO_WINNER__");
+      return;
+    }
+
     if (triggered) autoPickGuard.delete(guardKey);
 
     const textEl =
@@ -744,7 +822,6 @@
     setTimeout(() => startWinnerCountdown(true), 3000);
   }
 
-  // ⬇️ TOP-LEVEL startWinnerCountdown (accessible to all callers)
   async function startWinnerCountdown(forceRefresh = false) {
     const textEl =
       document.getElementById("winner-countdown-text") ||
@@ -752,7 +829,6 @@
       document.getElementById("winner-countdown");
     if (!textEl) return;
 
-    // Only hide when an actual winner is on screen
     const hasWinner = !!lastWinner && __winnerLocked;
     if (hasWinner) {
       setCountdownVisible(false);
@@ -768,7 +844,6 @@
       pickAtMem = computePickAtFromCfg(cfgMem || {});
     }
 
-    // Always show the widget while counting down
     setCountdownVisible(true);
 
     if (!Number.isFinite(pickAtMem)) {
@@ -829,11 +904,15 @@
   }
   function setWinnerBanner(name) {
     const el = winnerBannerEl();
+    if (!el) return;
     if (!el.getAttribute("data-default")) {
       el.setAttribute("data-default", el.textContent || "Free T-shirt raffle!");
     }
-    if (name) {
-      el.textContent = `Woohooo! Tonight's winner is ${name}!`;
+    if (name && name !== "__NO_WINNER__") {
+      el.innerHTML = `Woohooo! Tonight's winner is ${escHtml(name)}!`;
+      el.classList.add("has-winner");
+    } else if (name === "__NO_WINNER__") {
+      el.textContent = `No winner this time.`;
       el.classList.add("has-winner");
     } else {
       const fallback = el.getAttribute("data-default") || "Free T-shirt raffle!";
@@ -878,34 +957,45 @@
 
   function showWinnerModal(name) {
     const modal = ensureWinnerModal();
-    if (!modal) { alert(`Winner: ${name}`); return; }
+    if (!modal) { alert(name && name !== "__NO_WINNER__" ? `Winner: ${name}` : "No winner this time."); return; }
 
-    // Set name
-    modal.querySelectorAll(".winner-name, [data-winner-name]").forEach((n) => (n.textContent = name || ""));
+    const titleEl = modal.querySelector("#winner-title") || modal.querySelector(".modal-title");
+    const lineEl  = modal.querySelector(".winner-line");
+    const subEl   = modal.querySelector(".winner-sub");
+    const confettiRoot = modal.querySelector(".confetti");
 
-    // Confetti burst
-    try {
-      const root = modal.querySelector(".confetti");
-      if (root) {
-        root.innerHTML = "";
-        const N = 80;
-        for (let i = 0; i < N; i++) {
-          const p = document.createElement("i");
-          p.className = "confetti-piece";
-          const size = 6 + Math.random() * 8;
-          p.style.width  = `${size}px`;
-          p.style.height = `${Math.max(3, size * 0.45)}px`;
-          p.style.left   = `${Math.random() * 100}%`;
-          p.style.background = `hsl(${Math.floor(Math.random()*360)}, 90%, 60%)`;
-          p.style.setProperty("--dur", `${2 + Math.random()*1.8}s`);
-          p.style.setProperty("--rot", `${(Math.random()*60 - 30)}deg`);
-          p.style.animationDelay = `${Math.random() * 0.2}s`;
-          root.appendChild(p);
+    if (name === "__NO_WINNER__") {
+      if (titleEl) titleEl.textContent = "No winner this time";
+      if (lineEl)  lineEl.innerHTML = `Looks like we had no entries this round.`;
+      if (subEl)   subEl.textContent = `Thanks for stopping by — see you at the next show!`;
+      if (confettiRoot) confettiRoot.innerHTML = "";
+    } else {
+      modal.querySelectorAll(".winner-name, [data-winner-name]").forEach((n) => (n.textContent = name || ""));
+      if (titleEl) titleEl.textContent = "🎉 We have a winner! 🎉";
+      if (lineEl)  lineEl.innerHTML = `Congrats, <strong class="winner-name">${escHtml(name || "")}</strong>! 🥳<br> Come see us to pick up your t-shirt!`;
+      if (subEl)   subEl.textContent = `Thanks for playing all — see you at the next show!`;
+
+      try {
+        if (confettiRoot) {
+          confettiRoot.innerHTML = "";
+          const N = 80;
+          for (let i = 0; i < N; i++) {
+            const p = document.createElement("i");
+            p.className = "confetti-piece";
+            const size = 6 + Math.random() * 8;
+            p.style.width  = `${size}px`;
+            p.style.height = `${Math.max(3, size * 0.45)}px`;
+            p.style.left   = `${Math.random() * 100}%`;
+            p.style.background = `hsl(${Math.floor(Math.random()*360)}, 90%, 60%)`;
+            p.style.setProperty("--dur", `${2 + Math.random()*1.8}s`);
+            p.style.setProperty("--rot", `${(Math.random()*60 - 30)}deg`);
+            p.style.animationDelay = `${Math.random() * 0.2}s`;
+            confettiRoot.appendChild(p);
+          }
         }
-      }
-    } catch {}
+      } catch {}
+    }
 
-    // Show modal
     modal.classList.remove("hidden");
     modal.setAttribute("aria-hidden", "false");
     lockScroll();
@@ -916,6 +1006,7 @@
     const res = await fetch(fullUrl("/api/admin?action=winner&_=" + Date.now()), { cache: "no-store" });
     if (!res.ok) return null;
     const j = await res.json().catch(() => ({}));
+    if (j?.noWinner || j?.none || j?.emptyRound) return "__NO_WINNER__";
     return j?.winner?.name || null;
   }
 
@@ -940,12 +1031,8 @@
     const already = localStorage.getItem(SHOWN_WINNER_KEY);
     if (already !== name) {
       localStorage.setItem(SHOWN_WINNER_KEY, name);
-      showWinnerModal(name);           // 🎊 fun modal with confetti
+      showWinnerModal(name);
     }
-
-    // 🔒 Immediately close the app UI and show thank-you + winner
-    showWinnerThanksGate(name);
-
     lastWinner = name;
   }
 
@@ -958,7 +1045,7 @@
           headers: { "Cache-Control": "no-store", Pragma: "no-cache" },
         });
         const j = await r.json().catch(() => ({}));
-        const name = j?.winner?.name || null;
+        const name = (j?.noWinner || j?.none || j?.emptyRound) ? "__NO_WINNER__" : (j?.winner?.name || null);
         maybeDisplayWinner(name);
       } catch {}
     }
@@ -984,6 +1071,8 @@
               setRoundStartOverride(Date.now());
             }
             maybeDisplayWinner(null);
+          } else if (data?.noWinner || data?.none || data?.emptyRound) {
+            maybeDisplayWinner("__NO_WINNER__");
           } else if (data?.winner || data?.name) {
             maybeDisplayWinner(data.winner || data.name);
           }
@@ -995,6 +1084,8 @@
               setRoundStartOverride(Date.now());
             }
             maybeDisplayWinner(null);
+          } else if (/^no[-\s]?winner$/i.test(raw)) {
+            maybeDisplayWinner("__NO_WINNER__");
           } else if (raw) {
             maybeDisplayWinner(raw);
           }
@@ -1019,10 +1110,6 @@
   let __countdownToStartTimer = null;
   let __gateWinnerFetched = false;
 
-  function parseISOms(t) {
-    const x = Date.parse(t || "");
-    return Number.isFinite(x) ? x : NaN;
-  }
   function fmtLocalDateTime(ms) {
     try {
       return new Intl.DateTimeFormat(undefined, {
@@ -1035,9 +1122,12 @@
   }
   function getShowTimesFromCfg() {
     const c = cfgMem || readCfgCache() || {};
-    const s = parseISOms(c.startTime);
-    const e = parseISOms(c.endTime);
-    return { startMs: s, endMs: e };
+    let startMs = parseLocalFlexible(c.startTime);
+    let endMs   = parseLocalFlexible(c.endTime);
+    if (Number.isFinite(startMs) && (!Number.isFinite(endMs) || endMs <= startMs)) {
+      endMs = startMs + 2 * 60 * 60 * 1000;
+    }
+    return { startMs, endMs };
   }
   function getShowPhase(now = Date.now()) {
     const { startMs, endMs } = getShowTimesFromCfg();
@@ -1086,8 +1176,8 @@
   function showGate({ title, html }) {
     const gate = ensureGateUI();
     const main = document.getElementById("app-main") || document.body;
-    if (main) main.style.display = "none";     // hide app
-    setCountdownVisible(false);                // hide winner countdown
+    if (main) main.style.display = "none";
+    setCountdownVisible(false);
     gate.classList.remove("hidden");
     const t = document.getElementById("gate-title");
     const b = document.getElementById("gate-body");
@@ -1099,18 +1189,8 @@
     const main = document.getElementById("app-main") || document.body;
     gate.classList.add("hidden");
     if (main) main.style.display = "";
-    startWinnerCountdown(true); // restore countdown behavior
+    startWinnerCountdown(true);
   }
-  // 🔔 winner gate shown immediately after pick
-  function showWinnerThanksGate(name) {
-    const title = "Raffle closed 🎉";
-    const html  = `
-      <div>Thanks for tuning in! 🙌</div>
-      <div class="gate-sub">Tonight’s T-shirt winner is <strong>${escHtml(name)}</strong>.</div>
-    `;
-    showGate({ title, html });
-  }
-
   function fmtCountdown(ms) {
     if (!Number.isFinite(ms) || ms <= 0) return "0m 0s";
     const sec = Math.floor(ms / 1000);
@@ -1157,9 +1237,11 @@
         __gateWinnerFetched = true;
       }
       const label = name
-        ? `the last show’s T-shirt winner is <strong>${escHtml(name)}</strong>.`
+        ? (name === "__NO_WINNER__"
+            ? `no winner this time.`
+            : `the last show’s T-shirt winner is <strong>${escHtml(name)}</strong>.`)
         : `we’ll post the winner shortly.`;
-      showGate({ title: "Thanks for tuning in! 🙌", html: `And ${label}` });
+      showGate({ title: "Thanks for tuning in! 🙌", html: `${label}` });
       return;
     }
 
@@ -1177,7 +1259,7 @@
   // Boot
   // ──────────────────────────────────────────────────────────────
   async function boot() {
-    initNamePersistence();
+    initContactPersistence();
     ensureEntryStatsUI();
 
     refreshFollowers();

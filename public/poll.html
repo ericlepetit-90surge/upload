@@ -84,11 +84,36 @@
     }
     .poll-status{ display:block; text-align:center; margin-top:8px; font-size:15px; min-height:20px; }
 
-    /* After vote: hide list + counter + submit; keep message */
+    /* After vote: hide list + counter + submit; keep message + CTA */
     .poll-inner.voted .poll-list,
     .poll-inner.voted .poll-actions,
     .poll-inner.voted .name-box{ display:none!important; }
     .poll-inner.voted .poll-status{ margin-top:0; min-height:unset; }
+
+    /* CTA after vote */
+    .after-vote-cta{
+      display:none;
+      margin-top:12px;
+      text-align:center;
+    }
+    .after-vote-cta .cta-copy{
+      margin:6px 0 10px;
+      opacity:.95;
+      font-size:15px;
+    }
+    .after-vote-cta .cta-btn{
+      display:inline-block;
+      padding:10px 14px;
+      border-radius:999px;
+      border:1px solid rgba(255,255,255,.2);
+      background:#7c4dff;
+      color:#fff;
+      text-decoration:none;
+      font-weight:900;
+      letter-spacing:.2px;
+    }
+    .after-vote-cta .cta-btn:hover{ filter:brightness(1.05); }
+    .after-vote-cta .cta-btn:active{ transform:translateY(1px); }
 
     /* 320px tweaks */
     @media (max-width:360px){
@@ -106,14 +131,11 @@
     let base = '';
 
     if (hint) {
-      // Respect explicit override
       base = hint.trim();
     } else if (/^(localhost|127\.0\.0\.1|::1)$/i.test(location.hostname)) {
-      // Local dev: use localhost:3000 when the page itself isn't already on :3000
       base = (location.port === '3000') ? '' : 'http://localhost:3000';
     } else {
-      // Production: same-origin (NO :3000)
-      base = '';
+      base = ''; // production: same-origin
     }
 
     window.API_BASE = base.replace(/\/+$/, '');
@@ -127,7 +149,7 @@
     <div class="logo">
       <img src="https://pub-d919971fb927454bab9481eee8a435e3.r2.dev/logo-horizontal-white.png" width="200" alt="90 Surge" />
     </div>
-    <div class="title">Vote the next covers 🎸</div>
+    <div class="title">Vote for our next covers 🎸</div>
 
     <!-- Live Ranking -->
     <section class="section section--leaders" id="poll-leaderboard" data-poll-id="top10" aria-labelledby="poll-leaderboard-title">
@@ -149,7 +171,14 @@
           <span id="song-poll-counter" class="chip">0 / 3 selected</span>
           <button id="song-poll-submit" type="button" disabled>Submit your vote</button>
         </div>
+
         <span id="song-poll-status" class="poll-status" aria-live="polite"></span>
+
+        <!-- CTA shown after vote / already voted -->
+        <div id="after-vote-cta" class="after-vote-cta">
+          <p class="cta-copy">Want to win a Free 90 Surge T-Shirt?</p>
+          <a id="cta-tshirt-btn" class="cta-btn" href="/" target="_top" rel="noopener">HELL YEAHHHHH!</a>
+        </div>
       </div>
     </section>
   </div>
@@ -242,6 +271,8 @@
         submit: $("#song-poll-submit"),
         counter:$("#song-poll-counter"),
         status: $("#song-poll-status"),
+        cta:    $("#after-vote-cta"),
+        ctaBtn: $("#cta-tshirt-btn"),
       };
       const pollInner = document.getElementById('poll-inner');
 
@@ -286,11 +317,26 @@
         });
       }
 
-      function finishAndHide(msg){
-        els.status.textContent = msg || "";
-        pollInner?.classList.add('voted');
-        resizeParent();
+      function showCTA(){
+        try{
+          els.cta?.classList?.remove('hidden');
+          els.cta && (els.cta.style.display = 'block');
+          // If embedded, try to tell parent to focus the raffle app (optional)
+          els.ctaBtn?.addEventListener('click', (e) => {
+            if (window !== window.top) {
+              try { window.parent.postMessage({ type:'raffle:open' }, '*'); } catch {}
+            }
+          }, { once:true });
+        } catch {}
       }
+
+   function finishAndHide(msg){
+  els.status.textContent = msg || "";
+  pollInner?.classList.add('voted');
+  document.getElementById('song-poll')?.classList.add('voted'); // hide the header too
+  showCTA();
+  resizeParent();
+}
 
       async function loadPoll(){
         try{
@@ -341,7 +387,7 @@
 
         els.list.appendChild(frag);
 
-        if (already) finishAndHide("You already voted. Thank you!");
+        if (already) finishAndHide("Already voted , thank you");
         else updateCounter();
 
         resizeParent();
@@ -378,11 +424,9 @@
           const out = await res.json().catch(() => ({}));
           if (!res.ok) throw new Error(out?.error || "vote failed");
 
-          if (out.alreadyVoted){ finishAndHide("You already voted. Thanks!"); return; }
-
+          // Regardless of first vote or duplicate, show the same message + CTA
           markVotedLocal();
-          if (includeName) finishAndHide("Vote recorded! 🎉 +1 raffle entry added.");
-          else             finishAndHide("Vote recorded. Thank you!");
+          finishAndHide("Already voted , thank you");
         }catch(e){
           els.status.textContent = "Could not submit vote. Please try again.";
           updateCounter();
@@ -400,7 +444,7 @@
     })();
   </script>
 
-  <!-- Friendly API reachability nudge (shows a helpful message instead of “nothing”) -->
+  <!-- Friendly API reachability nudge -->
   <script>
     document.addEventListener('DOMContentLoaded', async () => {
       if (typeof window.__apiPing === 'function') {

@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, viewport-fit=cover" />
@@ -8,60 +9,174 @@
   <link rel="stylesheet" href="/public/styles.css" />
 
   <style>
-    .hidden{display:none!important}
-    .modal{position:fixed;inset:0;z-index:10000;display:flex;align-items:center;justify-content:center}
-    .modal.hidden{display:none!important}
-    .modal-overlay{position:absolute;inset:0;background:rgba(0,0,0,.7);backdrop-filter:blur(2px)}
-    .modal-card{position:relative;width:min(92vw,720px);max-height:92vh;overflow:auto;border-radius:14px;padding:0;box-shadow:0 18px 60px rgba(0,0,0,.55);color:#fff;border:1px solid rgba(255,255,255,.08);background:#0b1222}
-    .modal-header{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border-bottom:1px solid rgba(255,255,255,.08)}
-    .modal-title{margin:0;font-size:17px;font-weight:800;line-height:22px;padding:6px 10px}
-    .modal-close{position:relative;padding:10px;margin:6px;place-items:center;width:42px;height:38px;border:1px solid rgba(255,255,255,.45);color:#fff;cursor:pointer}
-    .modal-close:hover{background:rgba(255,255,255,.16)}
-    .modal-body{padding:0}
-    .poll-iframe{display:block;width:100%;height:75vh;min-height:560px;border:0;border-radius:0 0 14px 14px}
+    .hidden {
+      display: none !important
+    }
 
-    html.modal-open, body.modal-open{overflow:hidden}
+    .modal {
+      position: fixed;
+      inset: 0;
+      z-index: 10000;
+      display: flex;
+      align-items: center;
+      justify-content: center
+    }
+
+    .modal.hidden {
+      display: none !important
+    }
+
+    .modal-overlay {
+      position: absolute;
+      inset: 0;
+      background: rgba(0, 0, 0, .7);
+      backdrop-filter: blur(2px)
+    }
+
+    .modal-card {
+      position: relative;
+      width: min(92vw, 720px);
+      max-height: 92vh;
+      overflow: auto;
+      border-radius: 14px;
+      padding: 0;
+      box-shadow: 0 18px 60px rgba(0, 0, 0, .55);
+      color: #fff;
+      border: 1px solid rgba(255, 255, 255, .08);
+      background: #0b1222
+    }
+
+    .modal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 12px;
+      border-bottom: 1px solid rgba(255, 255, 255, .08)
+    }
+
+    .modal-title {
+      margin: 0;
+      font-size: 17px;
+      font-weight: 800;
+      line-height: 22px;
+      padding: 6px 10px
+    }
+
+    .modal-close {
+      position: relative;
+      padding: 10px;
+      margin: 6px;
+      place-items: center;
+      width: 42px;
+      height: 38px;
+      border: 1px solid rgba(255, 255, 255, .45);
+      color: #fff;
+      cursor: pointer
+    }
+
+    .modal-close:hover {
+      background: rgba(255, 255, 255, .16)
+    }
+
+    .modal-body {
+      padding: 0
+    }
+
+    .poll-iframe {
+      display: block;
+      width: 100%;
+      height: 75vh;
+      min-height: 560px;
+      border: 0;
+      border-radius: 0 0 14px 14px
+    }
+
+    html.modal-open,
+    body.modal-open {
+      overflow: hidden
+    }
 
     /* Slots card style kept */
-    .modal-card--slots{
-      background:linear-gradient(180deg, rgba(16,185,129,.12), rgba(16,185,129,.03)), #0d1a11;
+    .modal-card--slots {
+      background: linear-gradient(180deg, rgba(16, 185, 129, .12), rgba(16, 185, 129, .03)), #0d1a11;
     }
 
     /* 🎉 Winner modal styling */
-    .modal-card--winner{
-      background: radial-gradient(1200px 600px at 50% -10%, rgba(124,77,255,.25), rgba(124,77,255,0)) , #0b1222;
-      border:1px solid rgba(255,255,255,.12);
-      padding:20px 16px 24px;
-      text-align:center;
+    .modal-card--winner {
+      background: radial-gradient(1200px 600px at 50% -10%, rgba(124, 77, 255, .25), rgba(124, 77, 255, 0)), #0b1222;
+      border: 1px solid rgba(255, 255, 255, .12);
+      padding: 20px 16px 24px;
+      text-align: center;
     }
-    #winner-modal .modal-title{
-      font-size:22px; font-weight:900; margin:6px 0 8px;
+
+    #winner-modal .modal-title {
+      font-size: 22px;
+      font-weight: 900;
+      margin: 6px 0 8px;
     }
-    #winner-modal .winner-line{
-      font-size:18px; line-height:1.35; margin:8px 0 6px;
+
+    #winner-modal .winner-line {
+      font-size: 18px;
+      line-height: 1.35;
+      margin: 8px 0 6px;
     }
-    #winner-modal .winner-sub{
-      opacity:.95; margin:2px 0 0;
+
+    #winner-modal .winner-sub {
+      opacity: .95;
+      margin: 2px 0 0;
     }
-    #winner-modal .btn{
-      padding:10px 16px; border-radius:999px; border:1px solid rgba(255,255,255,.2); background:rgba(255,255,255,.08);
-      color:#fff; font-weight:700; cursor:pointer;
+
+    #winner-modal .btn {
+      padding: 10px 16px;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, .2);
+      background: rgba(255, 255, 255, .08);
+      color: #fff;
+      font-weight: 700;
+      cursor: pointer;
     }
+
     /* Confetti */
-    #winner-modal .confetti{position:absolute;inset:0;pointer-events:none;overflow:hidden;}
-    #winner-modal .confetti-piece{
-      position:absolute; top:-12px; width:8px; height:4px; border-radius:2px; opacity:.95;
-      animation:confetti-drop var(--dur,2.8s) linear forwards;
-      transform:rotate(var(--rot,0deg));
+    #winner-modal .confetti {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      overflow: hidden;
     }
-    @keyframes confetti-drop{ to { top:110%; } }
+
+    #winner-modal .confetti-piece {
+      position: absolute;
+      top: -12px;
+      width: 8px;
+      height: 4px;
+      border-radius: 2px;
+      opacity: .95;
+      animation: confetti-drop var(--dur, 2.8s) linear forwards;
+      transform: rotate(var(--rot, 0deg));
+    }
+
+    @keyframes confetti-drop {
+      to {
+        top: 110%;
+      }
+    }
 
     /* Entry stats centering helper (if not in styles.css) */
-    .entry-stats-card{ margin:16px auto; display:inline-flex; gap:12px; }
+    .entry-stats-card {
+      margin: 16px auto;
+      display: inline-flex;
+      gap: 12px;
+    }
 
-    @media (max-width: 360px){
-      .modal-card{width:94vw}
-      .poll-iframe{min-height:520px;height:70vh}
+    @media (max-width: 360px) {
+      .modal-card {
+        width: 94vw
+      }
+
+      .poll-iframe {
+        min-height: 520px;
+        height: 70vh
+      }
     }
   </style>
 
@@ -73,32 +188,41 @@
   <form id="raffle-form" method="POST" novalidate>
     <div class="rules">
       <div class="logo-wrap">
-        <img src="https://pub-d919971fb927454bab9481eee8a435e3.r2.dev/logo-horizontal-white.png" width="200" height="auto" alt="90 Surge logo" />
+        <img src="https://pub-d919971fb927454bab9481eee8a435e3.r2.dev/logo-horizontal-white.png" width="200"
+          height="auto" alt="90 Surge logo" />
       </div>
 
       <h1 id="headline">LIVE TONIGHT</h1>
 
+      <h2 class="raffle raffle-title blink">
+        <strong>ENTER OUR MONTHLY RAFFLE FOR A CHANCE TO WIN A 90 SURGE TEE!</strong>
+      </h2>
+
       <div id="app-main">
         <div id="winner-countdown" class="countdown">
-          Winner picked in:<br> <span id="winner-countdown-text">—</span>
+
+          <span style="font-size: 16px; line-height: 16px;"> The winner will be picked on <span
+              id="end-date-label">—</span> at 12:00pm ET. </span> <br> That's in <br><span
+            id="winner-countdown-text">—</span>
         </div>
 
-        <h2 class="raffle raffle-title blink">
-          <strong>ENTER OUR RAFFLE FOR A CHANCE TO WIN A 90 SURGE TEE!</strong>
-        </h2>
+
 
         <div class="arrows blink">
           <span class="arrow-icon">&#8595; &#8595; &#8595; &#8595; &#8595;</span>
         </div>
 
         <ol>
+
           <li>
-            Drop your name
+            Your email (so that we can contact you if you win)<sup>*</sup>
             <div class="input-group">
-              <input type="text" id="user-display-name" name="user_display_name" required placeholder=""
-                autocomplete="off" inputmode="text" autocorrect="off" autocapitalize="none" spellcheck="false" />
+              <input type="email" id="user-email" name="user_email" placeholder="" autocomplete="email"
+                inputmode="email" autocorrect="off" autocapitalize="none" spellcheck="false" />
             </div>
+
           </li>
+
 
           <li>
             Follow us on Facebook or Instagram. <br />
@@ -111,7 +235,8 @@
             </div>
           </li>
 
-          <li>That's it. Come back on this page after the winner has been picked to find out if you are the lucky winner! Want more chances to win? Keep scrolling...</li>
+          <li>That's it. Come back on this page to find out if you are the lucky
+            winner or wait for the email! <br>Want more chances to win? Keep scrolling...</li>
         </ol>
 
         <div class="entry-stats-card" id="entry-stats">
@@ -141,11 +266,13 @@
         <!-- Social follower counts -->
         <div class="followers-wrapper">
           <div class="follower-block">
-            <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/c/c3/FB_Logo_PNG.png/640px-FB_Logo_PNG.png" width="16" alt="Facebook" />
+            <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/c/c3/FB_Logo_PNG.png/640px-FB_Logo_PNG.png"
+              width="16" alt="Facebook" />
             <span id="fb-followers">—</span><span> followers</span>
           </div>
           <div class="follower-block">
-            <img src="https://upload.wikimedia.org/wikipedia/commons/a/a5/Instagram_icon.png" width="16" alt="Instagram" />
+            <img src="https://upload.wikimedia.org/wikipedia/commons/a/a5/Instagram_icon.png" width="16"
+              alt="Instagram" />
             <span id="ig-followers">—</span><span> followers</span>
           </div>
         </div>
@@ -163,17 +290,13 @@
         <h2 id="poll-title" class="modal-title">Vote the Next Covers</h2>
         <button class="modal-close" data-close="poll-modal" type="button" aria-label="Close">
           <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/>
+            <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" />
           </svg>
         </button>
       </div>
       <div class="modal-body">
         <!-- One codebase: the standalone poll page, embedded here -->
-        <iframe
-          id="poll-embed"
-          class="poll-iframe"
-          src="/public/poll.html?embed=1&pollId=top10"
-          loading="lazy"
+        <iframe id="poll-embed" class="poll-iframe" src="/public/poll.html?embed=1&pollId=top10" loading="lazy"
           referrerpolicy="no-referrer">
         </iframe>
       </div>
@@ -186,21 +309,29 @@
   <div id="slots-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="slots-title">
     <div class="modal-overlay" data-close="slots-modal" aria-hidden="true"></div>
     <div class="modal-card modal-card--slots" role="document" style="padding:16px">
-      <button class="modal-close" data-close="slots-modal" type="button" aria-label="Close" style="position:absolute;top:10px;right:10px">
+      <button class="modal-close" data-close="slots-modal" type="button" aria-label="Close"
+        style="position:absolute;top:10px;right:10px">
         <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/>
+          <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" />
         </svg>
       </button>
 
       <h2 id="slots-title" class="modal-title" style="text-align:center;margin-top:8px;">Feeling lucky? 🎰</h2>
-      <p class="slots-hint" style="text-align:center;">Hit <strong>“Extra entry”</strong> to add <strong>+1 raffle entry</strong>.</p>
+      <p class="slots-hint" style="text-align:center;">Hit <strong>“Extra entry”</strong> to add <strong>+1 raffle
+          entry</strong>.</p>
 
       <div id="slot-root">
         <div class="slot-card">
           <div class="slot-machine">
-            <div class="slot-window"><div class="slot-reel" id="slot-reel-0"></div></div>
-            <div class="slot-window"><div class="slot-reel" id="slot-reel-1"></div></div>
-            <div class="slot-window"><div class="slot-reel" id="slot-reel-2"></div></div>
+            <div class="slot-window">
+              <div class="slot-reel" id="slot-reel-0"></div>
+            </div>
+            <div class="slot-window">
+              <div class="slot-reel" id="slot-reel-1"></div>
+            </div>
+            <div class="slot-window">
+              <div class="slot-reel" id="slot-reel-2"></div>
+            </div>
           </div>
 
           <div class="slot-controls">
@@ -212,18 +343,28 @@
         </div>
       </div>
     </div>
+
+  </div>
+  <div>
+    <label class="email-consent">
+      <span><sup>*</sup>By participating in the 90 Surge t-shirt raffle you automatically consent to receive occasional
+        marketing emails from 90 Surge. You can unsubscribe at any
+        time.</span>
+    </label>
   </div>
 
   <!-- =========================
      MODAL: RAFFLE WINNER (fun 🎉)
   ========================== -->
-  <div id="winner-modal" class="modal winner-modal hidden" role="dialog" aria-modal="true" aria-labelledby="winner-title">
+  <div id="winner-modal" class="modal winner-modal hidden" role="dialog" aria-modal="true"
+    aria-labelledby="winner-title">
     <div class="modal-overlay" data-close="winner-modal" aria-hidden="true"></div>
 
     <div class="modal-card modal-card--winner" role="document">
-      <button class="modal-close" data-close="winner-modal" type="button" aria-label="Close" style="position:absolute;top:10px;right:10px">
+      <button class="modal-close" data-close="winner-modal" type="button" aria-label="Close"
+        style="position:absolute;top:10px;right:10px">
         <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/>
+          <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" />
         </svg>
       </button>
 
@@ -232,9 +373,8 @@
 
       <h2 id="winner-title" class="modal-title">🎉 We have a winner! 🎉</h2>
       <p class="winner-line">
-        Congrats, <strong class="winner-name">Someone Awesome</strong>! 🥳<br> Come see us to pick up your t-shirt!
-      </p>
-      <p class="winner-sub">Thanks for playing all — see you at the next show!</p>
+        Congrats, <strong class="winner-name">Someone Awesome</strong>! 🥳 Thanks for playing all — see you at the next
+        show!</p>
 
       <div class="modal-actions" style="display:flex;justify-content:center;margin-top:12px;">
         <button class="btn" data-close="winner-modal" type="button">Awesome!</button>
@@ -250,21 +390,21 @@
       const htmlEl = document.documentElement;
       const bodyEl = document.body;
 
-      function anyOpen(){return [...document.querySelectorAll('.modal')].some(m=>!m.classList.contains('hidden'))}
-      function openModal(id){
-        const el=document.getElementById(id);
-        if(!el) return;
+      function anyOpen() { return [...document.querySelectorAll('.modal')].some(m => !m.classList.contains('hidden')) }
+      function openModal(id) {
+        const el = document.getElementById(id);
+        if (!el) return;
         el.classList.remove('hidden');
         htmlEl.classList.add('modal-open');
         bodyEl.classList.add('modal-open');
 
         // Init slots
-        if(id==='slots-modal' && typeof window.initSlotMachine==='function'){
+        if (id === 'slots-modal' && typeof window.initSlotMachine === 'function') {
           window.initSlotMachine('#slot-root');
         }
 
         // Ensure poll iframe has apiBase param for mobile/LAN
-        if(id==='poll-modal'){
+        if (id === 'poll-modal') {
           const ifr = document.getElementById('poll-embed');
           try {
             const u = new URL(ifr.getAttribute('src'), location.href);
@@ -272,40 +412,40 @@
               u.searchParams.set('apiBase', window.API_BASE);
               ifr.setAttribute('src', u.toString());
             }
-          } catch {}
+          } catch { }
         }
       }
-      function closeModal(id){
-        const el=document.getElementById(id);
-        if(!el) return;
+      function closeModal(id) {
+        const el = document.getElementById(id);
+        if (!el) return;
         el.classList.add('hidden');
-        if(!anyOpen()){ htmlEl.classList.remove('modal-open'); bodyEl.classList.remove('modal-open'); }
+        if (!anyOpen()) { htmlEl.classList.remove('modal-open'); bodyEl.classList.remove('modal-open'); }
       }
 
-      document.addEventListener('click',(e)=>{
-        const openBtn=e.target.closest('[data-open]');
-        const closeBtn=e.target.closest('[data-close]');
-        if(openBtn){ e.preventDefault(); openModal(openBtn.getAttribute('data-open')); }
-        if(closeBtn){ e.preventDefault(); closeModal(closeBtn.getAttribute('data-close')); }
+      document.addEventListener('click', (e) => {
+        const openBtn = e.target.closest('[data-open]');
+        const closeBtn = e.target.closest('[data-close]');
+        if (openBtn) { e.preventDefault(); openModal(openBtn.getAttribute('data-open')); }
+        if (closeBtn) { e.preventDefault(); closeModal(closeBtn.getAttribute('data-close')); }
       });
 
-      const pollBtn=document.getElementById('open-poll-modal');
-      const slotsBtn=document.getElementById('open-slots-modal');
-      if(pollBtn) pollBtn.addEventListener('click',(e)=>{e.preventDefault();openModal('poll-modal');});
-      if(slotsBtn) slotsBtn.addEventListener('click',(e)=>{e.preventDefault();openModal('slots-modal');});
+      const pollBtn = document.getElementById('open-poll-modal');
+      const slotsBtn = document.getElementById('open-slots-modal');
+      if (pollBtn) pollBtn.addEventListener('click', (e) => { e.preventDefault(); openModal('poll-modal'); });
+      if (slotsBtn) slotsBtn.addEventListener('click', (e) => { e.preventDefault(); openModal('slots-modal'); });
 
-      document.addEventListener('keydown',(e)=>{
-        if(e.key!=='Escape')return;
-        const openModals=[...document.querySelectorAll('.modal')].filter(m=>!m.classList.contains('hidden'));
-        const top=openModals.pop();
-        if(top){
+      document.addEventListener('keydown', (e) => {
+        if (e.key !== 'Escape') return;
+        const openModals = [...document.querySelectorAll('.modal')].filter(m => !m.classList.contains('hidden'));
+        const top = openModals.pop();
+        if (top) {
           top.classList.add('hidden');
-          if(openModals.length===0){ htmlEl.classList.remove('modal-open'); bodyEl.classList.remove('modal-open'); }
+          if (openModals.length === 0) { htmlEl.classList.remove('modal-open'); bodyEl.classList.remove('modal-open'); }
         }
       });
 
-      if(location.hash==='#poll') openModal('poll-modal');
-      if(location.hash==='#slots') openModal('slots-modal');
+      if (location.hash === '#poll') openModal('poll-modal');
+      if (location.hash === '#slots') openModal('slots-modal');
 
       // 🔧 Auto-resize the embedded poll based on messages from poll.html
       window.addEventListener('message', (evt) => {
@@ -322,6 +462,24 @@
     });
   </script>
 
+  <script>
+    (function () {
+      function hidePollCTA() {
+        const btn = document.getElementById('open-poll-modal');
+        if (btn) btn.classList.add('hidden'); // you already have .hidden in your CSS
+      }
+
+      const url = new URL(location.href);
+      const cameFromParam = ['from', 'src', 'ref', 'utm_source']
+        .some(k => (url.searchParams.get(k) || '').toLowerCase().includes('poll'));
+
+      const ref = document.referrer || '';
+      const cameFromRef = /\/(?:public\/)?poll(?:\.html)?(?:[?#]|$)/i.test(ref);
+
+      if (cameFromParam || cameFromRef) hidePollCTA();
+    })();
+  </script>
+
   <!-- ===== Followers refresher ===== -->
   <script>
     (function () {
@@ -329,18 +487,18 @@
       const igEl = document.getElementById('ig-followers');
       if (!fbEl && !igEl) return;
 
-      async function detectBase(){
+      async function detectBase() {
         if (window.API_BASE) return window.API_BASE;
-        const origin = location.origin.replace(/\/+$/,'');
+        const origin = location.origin.replace(/\/+$/, '');
         try {
-          const r = await fetch(origin + '/api/admin?action=ping', { cache:'no-store' });
+          const r = await fetch(origin + '/api/admin?action=ping', { cache: 'no-store' });
           if (r.ok) return window.API_BASE = origin;
-        } catch {}
+        } catch { }
         try {
           const b = 'http://localhost:3000';
-          const r = await fetch(b + '/api/admin?action=ping', { cache:'no-store' });
+          const r = await fetch(b + '/api/admin?action=ping', { cache: 'no-store' });
           if (r.ok) return window.API_BASE = b;
-        } catch {}
+        } catch { }
         return window.API_BASE = '';
       }
 
@@ -348,15 +506,16 @@
         const base = (await detectBase()) || '';
         const u = `${base}/api/admin?action=followers&_=${Date.now()}`;
         try {
-          const r = await fetch(u, { cache:'no-store' });
-          const j = await r.json().catch(()=>({}));
+          const r = await fetch(u, { cache: 'no-store' });
+          const j = await r.json().catch(() => ({}));
           const fb = Number(j.facebook), ig = Number(j.instagram);
           if (Number.isFinite(fb) && fbEl) fbEl.textContent = String(fb);
           if (Number.isFinite(ig) && igEl) igEl.textContent = String(ig);
-        } catch {}
+        } catch { }
       }
       getCounts(); setInterval(getCounts, 60_000);
     })();
   </script>
 </body>
+
 </html>
