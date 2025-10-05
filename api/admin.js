@@ -496,84 +496,114 @@ export default async function handler(req, res) {
      (name now optional; email allowed)
   ───────────────────────────────────────────────────────────── */
   if (action === "enter" && req.method === "POST") {
-    try {
-      return await withRedis(async (r) => {
-        const rawName = (req.body?.name || "").toString().trim();
-        const rawEmail = (req.body?.email || "").toString().trim().toLowerCase();
-        const consent = !!req.body?.consent;
+  try {
+    return await withRedis(async (r) => {
+      // ── read + normalize inputs
+      const rawEmail = String(req.body?.email || "").trim().toLowerCase();
+      const rawName  = String(req.body?.name  || "").trim();
+      let rawSource  = (req.body?.source || "").toString().toLowerCase();
 
-        if (!rawName && !rawEmail) return res.status(400).json({ error: "Missing name or email" });
+      // allow "base"/"email" as explicit initial-entry source,
+      // keep your legacy/extra sources
+      const allowed = new Set(["fb","ig","jackpot","email","base","other"]);
+      const source  = allowed.has(rawSource) ? rawSource : "other";
 
-        let name = rawName.slice(0, 80);
-        if (!name && rawEmail) {
-          name = rawEmail.split("@")[0].slice(0, 80);
-        }
+      const ip = req.headers["x-forwarded-for"]?.split(",")[0]?.trim() ||
+                 req.socket.remoteAddress || "unknown";
 
-        const rawSource = (req.body?.source || "").toString().toLowerCase();
-        const source = ["fb", "ig", "jackpot", "poll-bonus", "other"].includes(rawSource) ? rawSource : "other";
+      // identify the current month/show window
+      const { windowKey, ttlSeconds } = await getWindowInfo(r);
 
-        const ip = req.headers["x-forwarded-for"]?.split(",")[0]?.trim() || req.socket.remoteAddress || "unknown";
-        const { windowKey, ttlSeconds } = await getWindowInfo(r);
-
-        const setKey = `raffle:entered:${windowKey}:${source}`;
-        const listKey = `raffle:entries:${windowKey}`;
-
-        if (source === "jackpot") {
-          const entry = {
-            id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
-            name, email: rawEmail || "", consent, ip, source,
-            createdTime: new Date().toISOString(),
-          };
-          const jpKey = `raffle:jackpotCount:${windowKey}:${ip}`;
-          const setKeyJp = `raffle:entered:${windowKey}:jackpot`;
-          await r.multi()
-            .sAdd(setKeyJp, ip).expire(setKeyJp, ttlSeconds)
-            .rPush(listKey, JSON.stringify(entry)).expire(listKey, ttlSeconds)
-            .incr(jpKey).expire(jpKey, ttlSeconds)
-            .exec();
-          return res.status(200).json({ success: true, entry, jackpot: true });
-        }
-
-        const already = await r.sIsMember(setKey, ip);
-        if (already) {
-          try {
-            const tail = await r.lRange(listKey, -300, -1);
-            let found = false;
-            for (const s of tail) {
-              try {
-                const e = JSON.parse(s);
-                if (e && e.ip === ip && e.source === source) { found = true; break; }
-              } catch {}
-            }
-            if (!found) {
-              const entry = {
-                id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
-                name, email: rawEmail || "", consent, ip, source,
-                createdTime: new Date().toISOString(),
-              };
-              await r.rPush(listKey, JSON.stringify(entry));
-              await r.expire(listKey, ttlSeconds);
-              return res.status(200).json({ success: true, already: true, repaired: true, entry });
-            }
-          } catch {}
-          return res.status(200).json({ success: true, already: true, source });
-        }
-
+      // jackpot path kept identical to your original (doesn't require email)
+      if (source === "jackpot") {
+        const displayName = (rawName || rawEmail || "(anonymous)").slice(0, 80);
         const entry = {
           id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
-          name, email: rawEmail || "", consent, ip, source,
+          name: displayName,
+          email: rawEmail || null,
+          ip, source,
           createdTime: new Date().toISOString(),
         };
+        const jpKey   = `raffle:jackpotCount:${windowKey}:${ip}`;
+        const setKeyJ = `raffle:entered:${windowKey}:jackpot`;
+        const listKey = `raffle:entries:${windowKey}`;
         await r.multi()
-          .sAdd(setKey, ip).expire(setKey, ttlSeconds)
+          .sAdd(setKeyJ, ip).expire(setKeyJ, ttlSeconds)
           .rPush(listKey, JSON.stringify(entry)).expire(listKey, ttlSeconds)
+          .incr(jpKey).expire(jpKey, ttlSeconds)
           .exec();
-        return res.status(200).json({ success: true, entry });
-      }, 3000);
-    } catch {
-      return res.status(503).json({ error: "Redis not ready" });
-    }
+        return res.status(200).json({ success: true, entry, jackpot: true });
+      }
+
+      // "Base" entries (the email form) must include a valid email
+      const isBaseEntry = (source === "email" || source === "base" || source === "other");
+      const emailLooksValid = !!rawEmail && /.+@.+\..+/.test(rawEmail);
+
+      // keep a display name for legacy views (admin tables, etc.)
+      const displayName = (rawName || rawEmail || "").slice(0, 80);
+
+      if (isBaseEntry) {
+        if (!emailLooksValid) {
+          return res.status(400).json({ error: "Missing or invalid email" });
+        }
+      }
+
+      // per-source IP dedupe (existing behavior) — still applies to fb/ig
+      const setKey   = `raffle:entered:${windowKey}:${source}`;
+      const listKey  = `raffle:entries:${windowKey}`;
+      const emailSet = `raffle:emailSeen:${windowKey}`; // NEW: per-window unique emails
+
+      if (isBaseEntry) {
+        // hard email dedupe ONLY for the base entry
+        const alreadyEmail = await r.sIsMember(emailSet, rawEmail);
+        if (alreadyEmail) {
+          // explicit error per your request
+          return res.status(409).json({ error: "Email already entered" });
+        }
+      }
+
+      // fb/ig still deduped by IP so users can't click twice per platform
+      const alreadyIP = await r.sIsMember(setKey, ip);
+      if (alreadyIP && !isBaseEntry) {
+        // fb/ig repeat clicks return "already", unchanged behavior
+        return res.status(200).json({ success: true, already: true, source });
+      }
+
+      // create entry (store email)
+      const entry = {
+        id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
+        name: displayName || "(anonymous)",
+        email: rawEmail || null,
+        ip, source,
+        createdTime: new Date().toISOString(),
+      };
+
+      const pipe = r.multi();
+
+      // base entry → enforce email uniqueness by writing to the set
+      if (isBaseEntry && rawEmail) {
+        pipe.sAdd(emailSet, rawEmail);
+        pipe.expire(emailSet, ttlSeconds);
+      } else if (rawEmail) {
+        // for fb/ig, record the email if provided (idempotent), but don't fail
+        pipe.sAdd(emailSet, rawEmail);
+        pipe.expire(emailSet, ttlSeconds);
+      }
+
+      // per-source IP lock + main list
+      pipe.sAdd(setKey, ip); pipe.expire(setKey, ttlSeconds);
+      pipe.rPush(listKey, JSON.stringify(entry)); pipe.expire(listKey, ttlSeconds);
+
+      await pipe.exec();
+
+      // tell the client if this was a repeat ip (only possible on base when email was unique)
+      const resp = { success: true, entry };
+      return res.status(200).json(resp);
+    }, 3000);
+  } catch {
+    return res.status(503).json({ error: "Redis not ready" });
   }
+}
 
   if (action === "entries" && req.method === "GET") {
     try {

@@ -335,6 +335,7 @@ progress {
 .section-title {
   text-align: center;
   color: #ff5900;
+  padding-top: 10px;
 }
 .gallery-title {
   margin: 1rem 0;
@@ -586,9 +587,9 @@ progress {
 
 /* Entry stats card */
 .entry-stats-card {
-  display: flex;                  /* was inline-flex */
-  width: fit-content;             /* shrink to content */
-  margin: 16px auto;              /* centers horizontally */
+  display: flex;                  
+  width: fit-content;           
+  margin: 50px auto;          
   padding: 14px 16px;
   border-radius: 14px;
   background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02));

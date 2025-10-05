@@ -161,13 +161,6 @@
       }
     }
 
-    /* Entry stats centering helper (if not in styles.css) */
-    .entry-stats-card {
-      margin: 16px auto;
-      display: inline-flex;
-      gap: 12px;
-    }
-
     @media (max-width: 360px) {
       .modal-card {
         width: 94vw
@@ -195,15 +188,16 @@
       <h1 id="headline">LIVE TONIGHT</h1>
 
       <h2 class="raffle raffle-title blink">
-        <strong>ENTER OUR MONTHLY RAFFLE FOR A CHANCE TO WIN A 90 SURGE TEE!</strong>
+        <strong>ENTER OUR MONTHLY RAFFLE FOR A CHANCE TO WIN A 90&nbsp;SURGE TEE!</strong>
       </h2>
 
       <div id="app-main">
         <div id="winner-countdown" class="countdown">
 
-          <span style="font-size: 16px; line-height: 16px;"> The winner will be picked on <span
-              id="end-date-label">—</span> at 12:00pm ET. </span> <br> That's in <br><span
-            id="winner-countdown-text">—</span>
+          <span style="font-size: 16px; line-height: 14px;"> The winner will be revealed on <br><span
+              id="end-date-label">—</span> at 12:00pm ET in </span><br><span
+            id="winner-countdown-text">—</span><br>
+          <span style="font-size: 13px;line-height: 11px">Prize must be picked up at one of our shows - no shipping</span>
         </div>
 
 
@@ -214,8 +208,7 @@
 
         <ol>
 
-          <li>
-            Your email (so that we can contact you if you win)<sup>*</sup>
+          <li>Drop your email <span style="font-size: 14px;">(so that we can contact you if you win)<sup>*</sup></span>
             <div class="input-group">
               <input type="email" id="user-email" name="user_email" placeholder="" autocomplete="email"
                 inputmode="email" autocorrect="off" autocapitalize="none" spellcheck="false" />

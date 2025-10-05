@@ -21,19 +21,19 @@
   // Helper to prefix relative /api/... paths with API_BASE when needed
   const fullUrl = (u) => (u && u.startsWith("/api/") ? `${API_BASE}${u}` : u);
 
-  // (Name kept for backward-compat if the input still exists on some pages, but it's no longer required.)
+  // Keys (name input may not exist anymore; harmless if missing)
   const NAME_KEY = "raffle_display_name";
   const EMAIL_KEY = "raffle_email";
   const CONSENT_KEY = "raffle_marketing_consent";
 
   const $ = (s, r = document) => r.querySelector(s);
 
-  const nameEl    = () => $("#user-display-name"); // optional / may not exist anymore
+  const nameEl    = () => $("#user-display-name"); // optional
   const emailEl   = () => $("#user-email");        // REQUIRED input in index.html
   const consentEl = () => $("#marketing-consent"); // optional checkbox
 
-  const getName   = () => (nameEl()?.value || "").trim().slice(0, 80);
-  const getEmail  = () => (emailEl()?.value || "").trim().slice(0, 120).toLowerCase();
+  const getName    = () => (nameEl()?.value || "").trim().slice(0, 80);
+  const getEmail   = () => (emailEl()?.value || "").trim().slice(0, 120).toLowerCase();
   const hasConsent = () => !!(consentEl()?.checked);
 
   function isValidEmail(e) {
@@ -59,7 +59,7 @@
     clearEffectiveStartPin();
   }
 
-  // Smooth, iOS-safe scroll lock for modals
+  // Smooth, iOS-safe scroll lock for winner modal
   let __scrollY_at_lock = 0;
   function lockScroll() {
     __scrollY_at_lock = window.scrollY || document.documentElement.scrollTop || 0;
@@ -80,23 +80,45 @@
   }
 
   // ──────────────────────────────────────────────────────────────
+  // Inline error helper (next to email input)
+  // ──────────────────────────────────────────────────────────────
+  function showInlineError(msg) {
+    const email = emailEl?.();
+    if (!email) { alert(msg); return; }
+    let el = document.getElementById("email-inline-error");
+    if (!el) {
+      el = document.createElement("div");
+      el.id = "email-inline-error";
+      el.style.color = "#ff6b6b";
+      el.style.fontWeight = "700";
+      el.style.marginTop = "6px";
+      const holder = email.closest(".input-group") || email.parentElement || email;
+      holder.parentNode.insertBefore(el, holder.nextSibling);
+    }
+    el.textContent = msg || "";
+  }
+  function clearInlineError() {
+    const el = document.getElementById("email-inline-error");
+    if (el) el.textContent = "";
+  }
+
+  // ──────────────────────────────────────────────────────────────
   // Email persistence (mandatory); name is optional/ignored
   // ──────────────────────────────────────────────────────────────
   function initContactPersistence() {
     const eEl = emailEl();
     const cEl = consentEl();
 
-    // email (required)
     if (eEl) {
       const savedE = localStorage.getItem(EMAIL_KEY);
       if (savedE) eEl.value = savedE;
       eEl.addEventListener("input", () => {
         const v = getEmail();
         localStorage.setItem(EMAIL_KEY, v);
+        clearInlineError();
       });
     }
 
-    // consent (optional)
     if (cEl) {
       const savedC = localStorage.getItem(CONSENT_KEY);
       if (savedC != null) cEl.checked = savedC === "1";
@@ -105,7 +127,7 @@
       });
     }
 
-    // If a lingering name input exists on the page, we'll still persist it silently (not required).
+    // Optional: carry old name field if present
     const nEl = nameEl();
     if (nEl) {
       const savedN = localStorage.getItem(NAME_KEY);
@@ -123,9 +145,10 @@
         emailEl()?.focus();
         emailEl()?.scrollIntoView({ behavior: "smooth", block: "center" });
       } catch {}
-      alert("Please enter a valid email first 🙂");
+      showInlineError("Please enter a valid email first 🙂");
       return false;
     }
+    clearInlineError();
     return true;
   }
 
@@ -137,14 +160,19 @@
       keepalive,
       body: JSON.stringify(body || {}),
     });
-    let json = {};
+    let json = null;
     try { json = await res.json(); } catch {}
-    if (!res.ok) throw new Error(json?.error || `Request failed (${res.status})`);
-    return json;
+    if (!res.ok) {
+      const err = new Error((json && json.error) || `Request failed (${res.status})`);
+      err.status = res.status;
+      err.response = json;
+      throw err;
+    }
+    return json || {};
   }
 
   // ──────────────────────────────────────────────────────────────
-  // Entries submission (email is mandatory)
+  // Entries submission (email is mandatory) + duplicate handling
   // ──────────────────────────────────────────────────────────────
   async function submitEntryOnce(source) {
     const email = getEmail();
@@ -161,7 +189,13 @@
       if (out?.already) return { ok: true, already: true };
       return { ok: true, already: false };
     } catch (e) {
+      // NEW: surface duplicate email (409) clearly
+      if (e && e.status === 409) {
+        showInlineError("That email already entered this month. Follow us or play the slots for extra entries!");
+        return { ok: false, duplicate: true, error: "Email already entered" };
+      }
       console.error(`[entry] failed ${source}:`, e?.message || e);
+      showInlineError(e?.message || "Could not submit. Please try again.");
       return { ok: false, error: e?.message || "submit failed" };
     }
   }
@@ -190,7 +224,7 @@
   window.canSubmitFor = () => isValidEmail(getEmail());
 
   // ──────────────────────────────────────────────────────────────
-  // Social mark
+  // Social mark (requires email)
   // ──────────────────────────────────────────────────────────────
   async function markFollow(platform) {
     const url = fullUrl(`/api/admin?action=mark-follow&platform=${encodeURIComponent(platform)}`);
@@ -237,25 +271,25 @@
     }
   }
 
+  // End date label (“The winner will be picked on …”)
   async function setEndDateLabel() {
-  const el = document.getElementById('end-date-label');
-  if (!el) return;
-
-  const res = await fetch('/api/admin?action=config', { cache: 'no-store' });
-  const cfg = await res.json().catch(() => ({}));
-  if (!cfg?.endTime) return;
-
-  const end = new Date(cfg.endTime);
-  el.textContent = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'America/New_York',
-    month: 'long',
-    day: 'numeric'
-  }).format(end);
-}
-document.addEventListener('DOMContentLoaded', setEndDateLabel);
+    const el = document.getElementById('end-date-label');
+    if (!el) return;
+    try {
+      const res = await fetch('/api/admin?action=config', { cache: 'no-store' });
+      const cfg = await res.json().catch(() => ({}));
+      if (!cfg?.endTime) return;
+      const end = new Date(cfg.endTime);
+      el.textContent = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'America/New_York',
+        month: 'long',
+        day: 'numeric'
+      }).format(end);
+    } catch {}
+  }
 
   // ──────────────────────────────────────────────────────────────
-  // Prize helpers + jackpot logging
+  // Prize helpers + jackpot logging (no custom modal needed)
   // ──────────────────────────────────────────────────────────────
   const KNOWN_PRIZES = new Set(["Sticker", "T-Shirt", "VIP Seat", "Extra Entry", "Jackpot"]);
   const EMOJI_MAP = new Map([
@@ -399,12 +433,6 @@ document.addEventListener('DOMContentLoaded', setEndDateLabel);
     }
   }
 
-  let _nameDebounce;
-  function debounceRefreshStats() {
-    clearTimeout(_nameDebounce);
-    _nameDebounce = setTimeout(refreshEntryStats, 250);
-  }
-
   // ──────────────────────────────────────────────────────────────
   // Device helpers + follow buttons (email required)
   // ──────────────────────────────────────────────────────────────
@@ -501,7 +529,7 @@ document.addEventListener('DOMContentLoaded', setEndDateLabel);
     }
   }
 
-  
+  // Replace intent:// anchors on DOM ready (defensive)
   document.addEventListener("DOMContentLoaded", () => {
     document.querySelectorAll('a[href^="intent://"]').forEach((a) => {
       const href = a.getAttribute("href") || "";
@@ -511,7 +539,7 @@ document.addEventListener('DOMContentLoaded', setEndDateLabel);
     });
   }, { once: true });
 
-  // unified delegated click listener
+  // unified delegated click listener for follow buttons
   document.addEventListener("click", (e) => {
     const fbSel = '.follow-btn-fb, a[href*="facebook.com"]';
     const igSel = '.follow-btn-ig, a[href*="instagram.com"]';
@@ -524,58 +552,8 @@ document.addEventListener('DOMContentLoaded', setEndDateLabel);
     handleFollow(isFb ? "fb" : "ig", a);
   }, true);
 
-  window.openFacebook = (ev) => { ev?.preventDefault?.(); const el = document.querySelector(".follow-btn-fb") || document.querySelector('a[href*="facebook.com"]'); if (el) handleFollow("fb", el); return false; };
-  window.openInstagram = (ev) => { ev?.preventDefault?.(); const el = document.querySelector(".follow-btn-ig") || document.querySelector('a[href*="instagram.com"]'); if (el) handleFollow("ig", el); return false; };
-
-  // --- Jackpot modal wiring ---
-  function ensureJackpotModal() {
-    const modal = document.getElementById("jackpot-modal");
-    if (!modal) return null;
-    if (modal.__wired) return modal;
-    modal.__wired = true;
-
-    const close = () => {
-      modal.classList.add("hidden");
-      modal.setAttribute("aria-hidden", "true");
-      unlockScroll();
-    };
-
-    modal.addEventListener("click", (e) => {
-      if (
-        e.target.classList.contains("modal-overlay") ||
-        e.target.matches("[data-close]") ||
-        e.target.closest?.("[data-close]")
-      ) {
-        e.preventDefault();
-        close();
-      }
-    }, true);
-
-    document.addEventListener("keydown", (e) => {
-      if (e.key === "Escape" && !modal.classList.contains("hidden")) close();
-    });
-
-    modal.__close = close;
-    return modal;
-  }
-
-  function showJackpotModal(label, message) {
-    const modal = ensureJackpotModal();
-    if (!modal) { alert(`🎰 JACKPOT!\n${label}\n\n${message || ""}`); return; }
-    const prizeEl = document.getElementById("jackpot-prize");
-    const msgEl   = document.getElementById("jackpot-message");
-    if (prizeEl) prizeEl.textContent = label || "";
-    if (msgEl)   msgEl.textContent = message || "";
-    modal.classList.remove("hidden");
-    modal.setAttribute("aria-hidden", "false");
-    lockScroll();
-    try { modal.querySelector("[data-close]")?.focus(); } catch {}
-  }
-
-  window.__showJackpotModal = showJackpotModal;
-
   // ──────────────────────────────────────────────────────────────
-  // Slot hookup (modal instead of inline)
+  // Slot hookup (use inline result UI; still log jackpots & refresh stats)
   // ──────────────────────────────────────────────────────────────
   function initSlot() {
     if (typeof window.initSlotMachine !== "function") {
@@ -606,14 +584,6 @@ document.addEventListener('DOMContentLoaded', setEndDateLabel);
 
         // Log jackpot (server ledger)
         await logSpin(triple, true);
-
-        // Grab inline text that slot.js wrote, then clear it
-        const resultEl = document.getElementById("slot-result");
-        const inlineMsg = (resultEl?.textContent || "").trim();
-        if (resultEl) resultEl.textContent = ""; // hide inline
-
-        // Show modal with whatever message slot.js produced
-        window.__showJackpotModal(primary, inlineMsg || `${primary}`);
 
         if (primary === "Extra Entry") {
           refreshEntryStats().catch(() => {});
@@ -1256,6 +1226,18 @@ document.addEventListener('DOMContentLoaded', setEndDateLabel);
   }
 
   // ──────────────────────────────────────────────────────────────
+  // Hide poll CTA on index if user came from standalone poll.html
+  // ──────────────────────────────────────────────────────────────
+  function hidePollCTAIfStandaloneReferrer() {
+    const ref = (document.referrer || "").toLowerCase();
+    if (!ref) return;
+    if (/\bpoll\.html(\?|#|$)/i.test(ref)) {
+      const btn = document.getElementById("open-poll-modal");
+      if (btn) btn.style.display = "none";
+    }
+  }
+
+  // ──────────────────────────────────────────────────────────────
   // Boot
   // ──────────────────────────────────────────────────────────────
   async function boot() {
@@ -1278,12 +1260,14 @@ document.addEventListener('DOMContentLoaded', setEndDateLabel);
     setInterval(refreshEntryStats, 15_000);
 
     initConfigHeadline();
-
-    // init slot AFTER slot.js is loaded (index.html loads slot.js before app.js now)
     initSlot();
+    setEndDateLabel();
 
     // show countdown immediately
     startWinnerCountdown(false);
+
+    // Hide poll CTA if user came from standalone poll page
+    hidePollCTAIfStandaloneReferrer();
 
     document.addEventListener("visibilitychange", () => {
       if (document.visibilityState === "visible") {
