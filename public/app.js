@@ -18,8 +18,9 @@
       ? (location.port === "3000" ? "" : "http://localhost:3000")
       : "");
 
-  // Helper to prefix relative /api/... paths with API_BASE when needed
+  // Helpers
   const fullUrl = (u) => (u && u.startsWith("/api/") ? `${API_BASE}${u}` : u);
+  const bust = (u) => u + (u.includes("?") ? "&" : "?") + "_=" + Date.now();
 
   // Keys (name input may not exist anymore; harmless if missing)
   const NAME_KEY = "raffle_display_name";
@@ -158,6 +159,7 @@
       method: "POST",
       headers: { "Content-Type": "application/json" },
       keepalive,
+      cache: "no-store",
       body: JSON.stringify(body || {}),
     });
     let json = null;
@@ -169,6 +171,65 @@
       throw err;
     }
     return json || {};
+  }
+
+  // Small fetch helper that prefers POST (bust caches), falls back to GET
+  async function fetchJSONPreferPost(url) {
+    const target = fullUrl(url);
+    // Try POST first
+    try {
+      const r = await fetch(target, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+        cache: "no-store",
+        body: "{}"
+      });
+      if (r.ok) return await r.json().catch(() => ({}));
+    } catch {}
+    // Fallback to GET with cache buster
+    try {
+      const r2 = await fetch(bust(target), {
+        method: "GET",
+        headers: { "Cache-Control": "no-store", Pragma: "no-cache" },
+        cache: "no-store"
+      });
+      if (r2.ok) return await r2.json().catch(() => ({}));
+    } catch {}
+    return {};
+  }
+
+  // ──────────────────────────────────────────────────────────────
+  // Optimistic UI bump for entries
+  // ──────────────────────────────────────────────────────────────
+  let prevYour = 0, prevTotal = 0;
+
+  function bump(el) {
+    if (!el) return;
+    el.classList.remove("entry-bump");
+    el.offsetWidth; // reflow
+    el.classList.add("entry-bump");
+    setTimeout(() => el.classList.remove("entry-bump"), 400);
+  }
+
+  function incEntriesUI(deltaMine = 1, deltaTotal = 1) {
+    const yourEl = $("#your-entries-count") || $("#raffle-entries");
+    const totalEl = $("#total-entries-count");
+
+    if (yourEl) {
+      const cur = parseInt(String(yourEl.textContent).replace(/,/g, ""), 10) || 0;
+      const next = Math.max(0, cur + deltaMine);
+      yourEl.textContent = next.toLocaleString();
+      prevYour = next;
+      bump(yourEl);
+    }
+
+    if (totalEl) {
+      const curT = parseInt(String(totalEl.textContent).replace(/,/g, ""), 10) || 0;
+      const nextT = Math.max(0, curT + deltaTotal);
+      totalEl.textContent = nextT.toLocaleString();
+      prevTotal = nextT;
+      bump(totalEl);
+    }
   }
 
   // ──────────────────────────────────────────────────────────────
@@ -184,12 +245,21 @@
     try {
       const payload = { name: (name || ""), source, email, consent: !!consent };
       const out = await postJSON("/api/admin?action=enter", payload);
+
+      // Optimistic bump if this was a NEW entry (not 'already')
+      if (!out?.already) {
+        incEntriesUI(1, 1);
+      }
+
+      // Reconcile with server a bit later (in case of write lag)
       refreshEntryStats().catch(() => {});
+      setTimeout(() => refreshEntryStats().catch(()=>{}), 1200);
+      setTimeout(() => refreshEntryStats().catch(()=>{}), 4000);
+
       if (!__winnerLocked) startWinnerCountdown(true);
       if (out?.already) return { ok: true, already: true };
       return { ok: true, already: false };
     } catch (e) {
-      // NEW: surface duplicate email (409) clearly
       if (e && e.status === 409) {
         showInlineError("That email already entered this month. Follow us or play the slots for extra entries!");
         return { ok: false, duplicate: true, error: "Email already entered" };
@@ -199,6 +269,7 @@
       return { ok: false, error: e?.message || "submit failed" };
     }
   }
+
   function submitEntryOnceBeacon(source) {
     const email = getEmail();
     if (!isValidEmail(email)) return;
@@ -214,23 +285,24 @@
     } else {
       postJSON(url, JSON.parse(data), { keepalive: true }).catch(() => {});
     }
-    setTimeout(() => {
-      refreshEntryStats().catch(() => {});
-      if (!__winnerLocked) startWinnerCountdown(true);
-    }, 600);
+    // Reconcile later (beacon has no response to tell us if 'already')
+    setTimeout(() => refreshEntryStats().catch(() => {}), 1200);
+    setTimeout(() => refreshEntryStats().catch(() => {}), 4000);
+    if (!__winnerLocked) startWinnerCountdown(true);
   }
 
   window.submitEntryOnce = submitEntryOnce;
   window.canSubmitFor = () => isValidEmail(getEmail());
 
   // ──────────────────────────────────────────────────────────────
-  // Social mark (requires email)
+  // Social mark (requires email to CREDIT, but click always opens)
   // ──────────────────────────────────────────────────────────────
   async function markFollow(platform) {
     const url = fullUrl(`/api/admin?action=mark-follow&platform=${encodeURIComponent(platform)}`);
     const res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      cache: "no-store",
       body: JSON.stringify({ platform }),
     });
     if (!res.ok) {
@@ -254,7 +326,7 @@
   // ──────────────────────────────────────────────────────────────
   async function refreshFollowers() {
     const fbEl = $("#fb-followers"), igEl = $("#ig-followers");
-    const url = `${API_BASE}/api/admin?action=followers&debug=1&_=${Date.now()}`;
+    const url = bust(`${API_BASE}/api/admin?action=followers&debug=1`);
 
     try {
       const res = await fetch(url, { cache: "no-store" });
@@ -263,7 +335,6 @@
       const ig = Number(j?.instagram ?? 0);
       if (fbEl) fbEl.textContent = Number.isFinite(fb) ? fb.toLocaleString() : "—";
       if (igEl) igEl.textContent = Number.isFinite(ig) ? ig.toLocaleString() : "—";
-      console.log("[followers]", { url, ok: res.ok, status: res.status, data: j });
     } catch (e) {
       if (fbEl) fbEl.textContent = "—";
       if (igEl) igEl.textContent = "—";
@@ -276,7 +347,7 @@
     const el = document.getElementById('end-date-label');
     if (!el) return;
     try {
-      const res = await fetch('/api/admin?action=config', { cache: 'no-store' });
+      const res = await fetch(bust('/api/admin?action=config'), { cache: 'no-store' });
       const cfg = await res.json().catch(() => ({}));
       if (!cfg?.endTime) return;
       const end = new Date(cfg.endTime);
@@ -353,88 +424,79 @@
   }
 
   // ──────────────────────────────────────────────────────────────
-  // Entry Stats
+  // Entry Stats  ← POST-first (anti-cache) + MONOTONIC CLAMP
   // ──────────────────────────────────────────────────────────────
   function ensureEntryStatsUI() {
     if (!$("#entry-stats")) console.warn("[entry-stats] #entry-stats container not found.");
   }
 
-  let prevYour = 0, prevTotal = 0;
-
-  function bump(el) {
-    if (!el) return;
-    el.classList.remove("entry-bump");
-    el.offsetWidth; // reflow
-    el.classList.add("entry-bump");
-    setTimeout(() => el.classList.remove("entry-bump"), 400);
-  }
-
   async function refreshEntryStats() {
     ensureEntryStatsUI();
-    const yourEl = $("#your-entries-count") || $("#raffle-entries");
+    const yourEl  = $("#your-entries-count") || $("#raffle-entries");
     const totalEl = $("#total-entries-count");
 
+    let mineCandidate = NaN;
+    let totalCandidate = NaN;
+
     try {
-      const res = await fetch(fullUrl("/api/admin?action=my-entries"), { cache: "no-store" });
-      if (res.ok) {
-        const j = await res.json();
-        let mine = Number(j?.mine ?? 0);
-        let total = Number(j?.total ?? 0);
-        if (!Number.isFinite(mine)) mine = 0;
-        if (!Number.isFinite(total)) total = 0;
-        if (total <= 0) mine = 0;
-        else if (mine > total) mine = total;
+      const [jMy, jAll] = await Promise.all([
+        fetchJSONPreferPost("/api/admin?action=my-entries"),
+        fetchJSONPreferPost("/api/admin?action=entries"),
+      ]);
 
-        const cfg = cfgMem || readCfgCache();
-        const serverStartOk = Number.isFinite(parseStartMs(cfg?.startTime));
-        if (!serverStartOk && total === 0 && !lastWinner && !getRoundStartOverride()) {
-          setRoundStartOverride(Date.now());
+      // /my-entries
+      const m  = Number(jMy?.mine);
+      const tt = Number(jMy?.total);
+      if (Number.isFinite(m))  mineCandidate = m;
+      if (Number.isFinite(tt)) totalCandidate = tt;
+
+      // /entries
+      const candidates = [jAll?.count, jAll?.total, Array.isArray(jAll?.entries) ? jAll.entries.length : NaN]
+        .map((x) => Number(x))
+        .filter((x) => Number.isFinite(x));
+      if (candidates.length) {
+        const best = Math.max(...candidates);
+        if (!Number.isFinite(totalCandidate) || best > totalCandidate) {
+          totalCandidate = best;
         }
-
-        if (totalEl) {
-          const old = prevTotal;
-          totalEl.textContent = total.toLocaleString();
-          if (total > old) bump(totalEl);
-          prevTotal = total;
-        }
-        if (yourEl) {
-          const old = prevYour;
-          yourEl.textContent = mine.toLocaleString();
-          if (mine > old) bump(yourEl);
-          prevYour = mine;
-        }
-        return;
       }
-    } catch {}
 
-    // Fallback
-    try {
-      const res = await fetch(fullUrl("/api/admin?action=entries"), { cache: "no-store" });
-      const j = await res.json().catch(() => ({ entries: [], count: 0 }));
-      const total = Number(j?.count || 0);
+    } catch (e) {
+      // ignore and use previous values
+    }
 
-      const totalEl2 = $("#total-entries-count");
-      if (totalEl2) {
-        const old = prevTotal;
-        totalEl2.textContent = total.toLocaleString();
-        if (total > old) bump(totalEl2);
-        prevTotal = total;
-      }
-      const yourEl2 = $("#your-entries-count") || $("#raffle-entries");
-      if (yourEl2) {
-        if (total === 0) prevYour = 0;
-        yourEl2.textContent = prevYour.toLocaleString();
-      }
-    } catch {
-      const totalEl2 = $("#total-entries-count");
-      if (totalEl2) totalEl2.textContent = "—";
-      const yourEl2 = $("#your-entries-count") || $("#raffle-entries");
-      if (yourEl2) yourEl2.textContent = "0";
+    // MONOTONIC: never let UI counts go down during the session
+    const mineFinal  = Number.isFinite(mineCandidate)  ? Math.max(prevYour,  mineCandidate)  : prevYour;
+    const totalFinal = Number.isFinite(totalCandidate) ? Math.max(prevTotal, totalCandidate) : prevTotal;
+
+    if (totalEl) {
+      const old = prevTotal;
+      totalEl.textContent = Number(totalFinal).toLocaleString();
+      if (totalFinal > old) bump(totalEl);
+    }
+    if (yourEl) {
+      const old = prevYour;
+      yourEl.textContent = Number(mineFinal || 0).toLocaleString();
+      if ((mineFinal || 0) > old) bump(yourEl);
+    }
+
+    // update prevs after clamping
+    prevYour  = Number(mineFinal || 0);
+    prevTotal = Number(totalFinal || 0);
+
+    // Maintain round-start override if server hasn't provided times yet
+    const cfg = cfgMem || readCfgCache();
+    const serverStartOk = Number.isFinite(parseStartMs(cfg?.startTime));
+    if (!serverStartOk && prevTotal === 0 && !lastWinner && !getRoundStartOverride()) {
+      setRoundStartOverride(Date.now());
     }
   }
 
+  // Expose manual trigger for quick debugging
+  window.forceStats = refreshEntryStats;
+
   // ──────────────────────────────────────────────────────────────
-  // Device helpers + follow buttons (email required)
+  // Device helpers + follow buttons (always open; credit if email)
   // ──────────────────────────────────────────────────────────────
   function isAndroid() { return /\bAndroid\b/i.test(navigator.userAgent); }
   function isIOS()     { return /\b(iPhone|iPad|iPod)\b/i.test(navigator.userAgent); }
@@ -509,21 +571,42 @@
 
   let globalFollowLock = false;
   function setDisabled(el, val) { if (!el) return; try { el.disabled = !!val; } catch {} el.classList.toggle("is-disabled", !!val); }
+
   async function handleFollow(platform, btn) {
-    if (!requireEmail()) return;
+    const hasEmail = isValidEmail(getEmail());
+    const webUrl = platform === "fb" ? FACEBOOK_URL : INSTAGRAM_URL;
+
     if (globalFollowLock) return;
     globalFollowLock = true;
     setDisabled(btn, true);
+
     try {
       if (isAndroid() || isIOS()) {
-        await openAppAndTrack(platform);
+        const opened = await openAppAndTrack(platform);
+        if (!opened) {
+          try { window.open(webUrl, "_blank", "noopener"); } catch {}
+          if (hasEmail) {
+            await markFollow(platform);
+            await submitEntryOnce(platform); // optimistic bump happens inside
+          } else {
+            showInlineError("Add your email so we can credit your +1 entry 🙂");
+          }
+        } else {
+          if (!hasEmail) {
+            showInlineError("Add your email so we can credit your +1 entry 🙂");
+          }
+        }
       } else {
-        try { const url = platform === "fb" ? FACEBOOK_URL : INSTAGRAM_URL; if (url) window.open(url, "_blank", "noopener"); } catch {}
-        await markFollow(platform);
-        await submitEntryOnce(platform);
+        try { window.open(webUrl, "_blank", "noopener"); } catch {}
+        if (hasEmail) {
+          await markFollow(platform);
+          await submitEntryOnce(platform); // optimistic bump happens inside
+        } else {
+          showInlineError("Add your email so we can credit your +1 entry 🙂");
+        }
       }
     } catch (err) {
-      console.warn(`[follow] ${platform} flow error:`, err?.message || err);
+      console.warn(`[follow] ${platform} flow error:", ${err?.message || err}`);
     } finally {
       setTimeout(() => { globalFollowLock = false; setDisabled(btn, false); }, 700);
     }
@@ -543,17 +626,20 @@
   document.addEventListener("click", (e) => {
     const fbSel = '.follow-btn-fb, a[href*="facebook.com"]';
     const igSel = '.follow-btn-ig, a[href*="instagram.com"]';
-    const a = e.target.closest(fbSel) || e.target.closest(igSel) || null;
-    if (!a) return;
-    const isFb = !!e.target.closest(fbSel) || /facebook|katana|\/profile\//i.test(a.getAttribute("href") || "");
+    const el = e.target.closest(fbSel) || e.target.closest(igSel);
+    if (!el) return;
+
+    const isFbMatch = !!e.target.closest(fbSel);
+    const href = (el.getAttribute("href") || "");
+    const isFb = isFbMatch || /facebook|katana|\/profile\//i.test(href);
+
     e.preventDefault();
-    e.stopImmediatePropagation();
     e.stopPropagation();
-    handleFollow(isFb ? "fb" : "ig", a);
+    handleFollow(isFb ? "fb" : "ig", el);
   }, true);
 
   // ──────────────────────────────────────────────────────────────
-  // Slot hookup (use inline result UI; still log jackpots & refresh stats)
+  // Slot hookup (log jackpots & refresh stats) + optimistic bump
   // ──────────────────────────────────────────────────────────────
   function initSlot() {
     if (typeof window.initSlotMachine !== "function") {
@@ -586,7 +672,10 @@
         await logSpin(triple, true);
 
         if (primary === "Extra Entry") {
-          refreshEntryStats().catch(() => {});
+          // Optimistic bump immediately, then reconcile
+          incEntriesUI(1, 1);
+          setTimeout(() => refreshEntryStats().catch(()=>{}), 1200);
+          setTimeout(() => refreshEntryStats().catch(()=>{}), 4000);
         }
       } catch (err) {
         console.warn("[slot] handleResult error:", err?.message || err);
@@ -604,7 +693,7 @@
   function writeCfgCache(cfg) { try { sessionStorage.setItem(CFG_CACHE_KEY, JSON.stringify(cfg)); } catch {} }
 
   async function fetchConfigFresh() {
-    const res = await fetch(fullUrl(`/api/admin?action=config&_=${Date.now()}`), {
+    const res = await fetch(bust(fullUrl(`/api/admin?action=config`)), {
       cache: "no-store",
       headers: { "Cache-Control": "no-store", Pragma: "no-cache" },
     });
@@ -769,14 +858,12 @@
       triggered = true;
     }
 
-    // Fast local poll: up to ~6s total
     for (let i = 0; i < 8; i++) {
       const name = await fetchWinnerOnce();
       if (name) { maybeDisplayWinner(name); return; }
       await new Promise((r) => setTimeout(r, 750));
     }
 
-    // If no winner & no entries, show "No winner this time"
     if (prevTotal <= 0) {
       maybeDisplayWinner("__NO_WINNER__");
       return;
@@ -973,7 +1060,7 @@
   }
 
   async function fetchWinnerOnce() {
-    const res = await fetch(fullUrl("/api/admin?action=winner&_=" + Date.now()), { cache: "no-store" });
+    const res = await fetch(bust(fullUrl("/api/admin?action=winner")), { cache: "no-store" });
     if (!res.ok) return null;
     const j = await res.json().catch(() => ({}));
     if (j?.noWinner || j?.none || j?.emptyRound) return "__NO_WINNER__";
@@ -1010,7 +1097,7 @@
     const T = 4000;
     async function tick() {
       try {
-        const r = await fetch(fullUrl(`/api/admin?action=winner&_=${Date.now()}`), {
+        const r = await fetch(bust(fullUrl(`/api/admin?action=winner`)), {
           cache: "no-store",
           headers: { "Cache-Control": "no-store", Pragma: "no-cache" },
         });
@@ -1274,6 +1361,8 @@
         initConfigHeadline(true);
         startWinnerCountdown(true);
         updateGateUIOnce();
+        refreshEntryStats();
+        refreshFollowers();
       }
     });
 
