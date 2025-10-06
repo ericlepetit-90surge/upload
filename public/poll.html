@@ -1,160 +1,307 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, viewport-fit=cover" />
   <title>Vote the Next 90 Surge Cover</title>
   <link rel="stylesheet" href="/public/styles.css" />
   <style>
-    :root{
-      --card-bg: rgba(255,255,255,0.06);
-      --line:    rgba(255,255,255,0.08);
-      --bg:      #0b1222;
-      --leader-bg: linear-gradient(180deg, rgba(16,185,129,0.12), rgba(16,185,129,0.03)), #0b1222;
-      --poll-bg:   linear-gradient(180deg, rgba(124,77,255,0.12), rgba(124,77,255,0.03)), #0b1222;
+    :root {
+      --card-bg: rgba(255, 255, 255, 0.06);
+      --line: rgba(255, 255, 255, 0.08);
+      --bg: #0b1222;
+      --leader-bg: linear-gradient(180deg, rgba(16, 185, 129, 0.12), rgba(16, 185, 129, 0.03)), #0b1222;
+      --poll-bg: linear-gradient(180deg, rgba(124, 77, 255, 0.12), rgba(124, 77, 255, 0.03)), #0b1222;
     }
-    *,*::before,*::after{ box-sizing:border-box; }
-    html,body{ height:100%; }
-    body{ margin:0; color:#fff; background:var(--bg); }
 
-    .wrap{ max-width:720px; margin:0 auto; padding:20px 14px 40px; }
-    .logo{ text-align:center; margin:6px 0 0px; }
-    .title{ text-align:center; font-size:26px; font-weight:900; margin:6px 0 2px; }
-    .muted{ opacity:.85; }
-    .hidden{ display:none!important; }
+    *,
+    *::before,
+    *::after {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      height: 100%;
+    }
+
+    body {
+      margin: 0;
+      color: #fff;
+      background: var(--bg);
+    }
+
+    .wrap {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 20px 14px 40px;
+    }
+
+    .logo {
+      text-align: center;
+      margin: 6px 0 0px;
+    }
+
+    .title {
+      text-align: center;
+      font-size: 26px;
+      font-weight: 900;
+      margin: 6px 0 2px;
+    }
+
+    .muted {
+      opacity: .85;
+    }
+
+    .hidden {
+      display: none !important;
+    }
 
     /* Sections for clear visual separation */
-    .section{
-      border:1px solid var(--line);
-      border-radius:14px;
-      overflow:hidden;
-      margin-top:10px;
+    .section {
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      overflow: hidden;
+      margin-top: 10px;
     }
-    .section--leaders{ background:var(--leader-bg); }
-    .section--poll{ background:var(--poll-bg); }
-    .section-header{
-      display:flex; align-items:center; justify-content:center; gap:8px;
-      padding:10px 12px; border-bottom:1px solid var(--line);
-      font-weight:900; text-align:center;
+
+    .section--leaders {
+      background: var(--leader-bg);
+    }
+
+    .section--poll {
+      background: var(--poll-bg);
+    }
+
+    .section-header {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--line);
+      font-weight: 900;
+      text-align: center;
     }
 
     /* Leaderboard (Top 3) */
-    .leaders{ list-style:none; margin:0; padding:12px; display:grid; gap:8px; }
-    .leader-row{
-      display:grid; grid-template-columns:28px 1fr; align-items:center; gap:10px;
-      padding:10px 12px; border-radius:12px; background:var(--card-bg);
-      border:1px solid var(--line); min-width:0;
+    .leaders {
+      list-style: none;
+      margin: 0;
+      padding: 12px;
+      display: grid;
+      gap: 8px;
     }
-    .leader-row .idx{ font-weight:800; text-align:center; }
+
+    .leader-row {
+      display: grid;
+      grid-template-columns: 28px 1fr auto;
+      /* idx | title | % */
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: var(--card-bg);
+      border: 1px solid var(--line);
+      min-width: 0;
+    }
+
+    .leader-row .pct {
+      font-weight: 800;
+      opacity: .9;
+    }
+
+
+    .leader-row .idx {
+      font-weight: 800;
+      text-align: center;
+    }
 
     /* Robust 2-line wrap, NO ellipsis */
-    .leader-row .song{
-      font-weight:700; min-width:0;
-      white-space:normal !important;
-      text-overflow:clip !important;
-      overflow-wrap:anywhere; word-break:break-word;
-      display:block; line-height:1.25; max-height:2.5em; overflow:hidden;
+    .leader-row .song {
+      font-weight: 700;
+      min-width: 0;
+      white-space: normal !important;
+      text-overflow: clip !important;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+      display: block;
+      line-height: 1.25;
+      max-height: 2.5em;
+      overflow: hidden;
     }
 
     /* Poll UI */
-    .poll-card{ padding:0; }
-    .poll-inner{ padding:14px; }
-    .poll-head{ font-size:18px; font-weight:900; text-align:center; margin:6px 0 8px; }
-    .poll-list{ list-style:none; margin:0; padding:0; display:grid; gap:8px; }
-    .poll-row{
-      display:flex; align-items:center; gap:10px; padding:9px 10px;
-      border-radius:10px; background:rgba(0,0,0,0.25); border:1px solid var(--line);
-      min-width:0;
+    .poll-card {
+      padding: 0;
     }
-    .poll-row input[type=checkbox]{ width:18px; height:18px; flex:0 0 auto; }
-    .poll-row label{
-      flex:1 1 auto; min-width:0; white-space:normal; font-size:14px; line-height:1.25;
+
+    .poll-inner {
+      padding: 14px;
+    }
+
+    .poll-head {
+      font-size: 18px;
+      font-weight: 900;
+      text-align: center;
+      margin: 6px 0 8px;
+    }
+
+    .poll-list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      display: grid;
+      gap: 8px;
+    }
+
+    .poll-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 9px 10px;
+      border-radius: 10px;
+      background: rgba(0, 0, 0, 0.25);
+      border: 1px solid var(--line);
+      min-width: 0;
+    }
+
+    .poll-row input[type=checkbox] {
+      width: 18px;
+      height: 18px;
+      flex: 0 0 auto;
+    }
+
+    .poll-row label {
+      flex: 1 1 auto;
+      min-width: 0;
+      white-space: normal;
+      font-size: 14px;
+      line-height: 1.25;
     }
 
     /* Name always hidden (standalone & embed) */
-    .name-box{ display:none!important; }
+    .name-box {
+      display: none !important;
+    }
 
     /* Actions stacked */
-    .poll-actions{
-      display:flex; flex-direction:column; align-items:stretch; gap:10px; margin-top:12px;
+    .poll-actions {
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      gap: 10px;
+      margin-top: 12px;
     }
-    .chip{
-      display:block; text-align:center; padding:6px 10px; border-radius:999px;
-      border:1px solid rgba(255,255,255,0.18); background:rgba(255,255,255,0.08); font-size:12px;
+
+    .chip {
+      display: block;
+      text-align: center;
+      padding: 6px 10px;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      background: rgba(255, 255, 255, 0.08);
+      font-size: 12px;
     }
 
 
     /* After vote: hide list + counter + submit; keep message + CTA */
     .poll-inner.voted .poll-list,
     .poll-inner.voted .poll-actions,
-    .poll-inner.voted .name-box{ display:none!important; }
-    .poll-inner.voted .poll-status{ margin-top:0; min-height:unset; }
+    .poll-inner.voted .name-box {
+      display: none !important;
+    }
+
+    .poll-inner.voted .poll-status {
+      margin-top: 0;
+      min-height: unset;
+    }
 
     /* CTA after vote */
-    .after-vote-cta{
-      display:none;
-      margin-top:12px;
-      text-align:center;
+    .after-vote-cta {
+      display: none;
+      margin-top: 12px;
+      text-align: center;
     }
-    .after-vote-cta .cta-copy{
-      margin:6px 0 15px;
-      opacity:.95;
-      font-size:15px;
+
+    .after-vote-cta .cta-copy {
+      margin: 6px 0 15px;
+      opacity: .95;
+      font-size: 15px;
     }
-    .after-vote-cta .cta-btn{
-      display:inline-block;
-      padding:10px 14px;
-      border-radius:20px;
-      border:1px solid rgba(255,255,255,.2);
-      background:#7c4dff;
-      color:#fff;
-      text-decoration:none;
-      font-weight:900;
-      letter-spacing:.2px;
+
+    .after-vote-cta .cta-btn {
+      display: inline-block;
+      padding: 10px 14px;
+      border-radius: 20px;
+      border: 1px solid rgba(255, 255, 255, .2);
+      background: #7c4dff;
+      color: #fff;
+      text-decoration: none;
+      font-weight: 900;
+      letter-spacing: .2px;
     }
-    .after-vote-cta .cta-btn:hover{ filter:brightness(1.05); }
-    .after-vote-cta .cta-btn:active{ transform:translateY(1px); }
+
+    .after-vote-cta .cta-btn:hover {
+      filter: brightness(1.05);
+    }
+
+    .after-vote-cta .cta-btn:active {
+      transform: translateY(1px);
+    }
 
     /* 320px tweaks */
-    @media (max-width:360px){
-      .wrap{ padding:16px 10px 28px; }
-      .title{ font-size:22px; }
+    @media (max-width:360px) {
+      .wrap {
+        padding: 16px 10px 28px;
+      }
+
+      .title {
+        font-size: 22px;
+      }
     }
   </style>
 
   <script>
-  (function () {
-    // Optional override: /public/poll.html?apiBase=https://api.yourhost.com
-    const url  = new URL(location.href);
-    const hint = url.searchParams.get('apiBase');
+    (function () {
+      // Optional override: /public/poll.html?apiBase=https://api.yourhost.com
+      const url = new URL(location.href);
+      const hint = url.searchParams.get('apiBase');
 
-    let base = '';
+      let base = '';
 
-    if (hint) {
-      base = hint.trim();
-    } else if (/^(localhost|127\.0\.0\.1|::1)$/i.test(location.hostname)) {
-      base = (location.port === '3000') ? '' : 'http://localhost:3000';
-    } else {
-      base = ''; // production: same-origin
-    }
+      if (hint) {
+        base = hint.trim();
+      } else if (/^(localhost|127\.0\.0\.1|::1)$/i.test(location.hostname)) {
+        base = (location.port === '3000') ? '' : 'http://localhost:3000';
+      } else {
+        base = ''; // production: same-origin
+      }
 
-    window.API_BASE = base.replace(/\/+$/, '');
-    console.log('[API_BASE]', window.API_BASE || '(same-origin)');
-  })();
-</script>
+      window.API_BASE = base.replace(/\/+$/, '');
+      console.log('[API_BASE]', window.API_BASE || '(same-origin)');
+    })();
+  </script>
 
 </head>
+
 <body>
   <div class="wrap">
     <div class="logo">
-      <img src="https://pub-d919971fb927454bab9481eee8a435e3.r2.dev/logo-horizontal-white.png" width="200" alt="90 Surge" />
+      <img src="https://pub-d919971fb927454bab9481eee8a435e3.r2.dev/logo-horizontal-white.png" width="200"
+        alt="90 Surge" />
     </div>
     <div class="sublogo">Next show: Cage Brewing 10/18 - St Petersburg</div>
     <div class="title">Vote for our<br>next 3 covers 🎸</div>
 
+  
+
+
     <!-- Live Ranking -->
-    <section class="section section--leaders" id="poll-leaderboard" data-poll-id="top10" aria-labelledby="poll-leaderboard-title">
-      <div class="section-header" id="poll-leaderboard-title">Live ranking – Top 3</div>
+    <section class="section section--leaders" id="poll-leaderboard" data-poll-id="top10"
+      aria-labelledby="poll-leaderboard-title">
+  <div class="section-header" id="poll-leaderboard-title">Live ranking – Top 5</div>
       <ol id="poll-leaders-list" class="leaders"></ol>
     </section>
 
@@ -163,7 +310,8 @@
       <div class="section-header" id="poll-title">Pick your 3 favorite songs</div>
       <div class="poll-inner" id="poll-inner">
         <div class="name-box">
-          <input type="text" id="user-display-name" placeholder="Your name (hidden)" autocomplete="off" inputmode="text" />
+          <input type="text" id="user-display-name" placeholder="Your name (hidden)" autocomplete="off"
+            inputmode="text" />
         </div>
 
         <ol id="song-poll-list" class="poll-list"></ol>
@@ -184,79 +332,91 @@
     </section>
   </div>
 
-  <!-- Leaderboard (Top 3, no counts/percentages) -->
+  <!-- Leaderboard (Top 5 w/ percentages) -->
   <script type="module">
-    (() => {
-      const root  = document.getElementById('poll-leaderboard');
-      if (!root) return;
+  (() => {
+    const root  = document.getElementById('poll-leaderboard');
+    if (!root) return;
 
-      const urlQ   = new URL(location.href);
-      const POLL_ID = urlQ.searchParams.get('pollId') || root.dataset.pollId || 'top10';
-      const API     = `${(window.API_BASE || '').replace(/\/+$/,'')}/api/admin?action=poll-results&pollId=${encodeURIComponent(POLL_ID)}`;
-      const listEl  = document.getElementById('poll-leaders-list');
+    const urlQ    = new URL(location.href);
+    const POLL_ID = urlQ.searchParams.get('pollId') || root.dataset.pollId || 'top10';
+    const API     = `${(window.API_BASE || '').replace(/\/+$/,'')}/api/admin?action=poll-results&pollId=${encodeURIComponent(POLL_ID)}`;
+    const listEl  = document.getElementById('poll-leaders-list');
 
-      const esc = (s) => String(s ?? '')
-        .replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;')
-        .replaceAll('"','&quot;').replaceAll("'",'&#39;');
+    const esc = (s) => String(s ?? '')
+      .replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;')
+      .replaceAll('"','&quot;').replaceAll("'",'&#39;');
 
-      function resizeParent(){
-        try{
-          const h = document.documentElement.scrollHeight || document.body.scrollHeight || 560;
-          window.parent.postMessage({ type:'poll:height', height:h }, location.origin);
-        }catch{}
-      }
+    function resizeParent(){
+      try{
+        const h = document.documentElement.scrollHeight || document.body.scrollHeight || 560;
+        window.parent.postMessage({ type:'poll:height', height:h }, location.origin);
+      }catch{}
+    }
 
-      async function refresh(){
-        try{
-          const res = await fetch(`${API}&_=${Date.now()}`, { cache:'no-store' });
-          const j   = await res.json().catch(() => ({}));
-          const songs  = Array.isArray(j.songs) ? j.songs : [];
-          const counts = j.counts || {};
+    function fmtPct(p){
+      // 0 or >=10% -> integer; small values -> 1 decimal
+      if (!Number.isFinite(p) || p <= 0) return '0%';
+      return (p >= 10 ? Math.round(p) : Math.round(p*10)/10) + '%';
+    }
 
-          const sorted = [...songs].sort((a,b) =>
-            (Number(counts[b.id]||0) - Number(counts[a.id]||0)) ||
-            a.title.localeCompare(b.title)
-          );
+    async function refresh(){
+      try{
+        const res = await fetch(`${API}&_=${Date.now()}`, { cache:'no-store' });
+        const j   = await res.json().catch(() => ({}));
+        const songs  = Array.isArray(j.songs) ? j.songs : [];
+        const counts = j.counts || {};
 
-          const top = sorted.slice(0,3);
-          if (!top.length){
-            listEl.innerHTML = `<li class="muted" style="padding:10px 12px;">No votes yet.</li>`;
-            resizeParent();
-            return;
-          }
+        const sorted = [...songs].sort((a,b) =>
+          (Number(counts[b.id]||0) - Number(counts[a.id]||0)) ||
+          a.title.localeCompare(b.title)
+        );
 
-          listEl.innerHTML = top.map((s,i) => {
-            const label = `${esc(s.title)}${s.artist ? ' — ' + esc(s.artist) : ''}`;
-            return `
-              <li class="leader-row">
-                <span class="idx">${i+1}</span>
-                <span class="song">${label}</span>
-              </li>`;
-          }).join('');
-        }catch{
-          listEl.innerHTML = `<li class="muted" style="padding:10px 12px;">Could not load live ranking.</li>`;
+        const totalVotes = sorted.reduce((sum, s) => sum + (Number(counts[s.id]||0) || 0), 0);
+        const top = sorted.slice(0,5);
+
+        if (!top.length){
+          listEl.innerHTML = `<li class="muted" style="padding:10px 12px;">No votes yet.</li>`;
+          resizeParent();
+          return;
         }
-        resizeParent();
-      }
 
-      if ((new URL(location.href)).searchParams.get('embed') === '1') {
-        document.documentElement.classList.add('is-embed');
-        document.body.classList.add('is-embed');
+        listEl.innerHTML = top.map((s,i) => {
+          const label = `${esc(s.title)}${s.artist ? ' — ' + esc(s.artist) : ''}`;
+          const c     = Number(counts[s.id] || 0);
+          const pct   = totalVotes > 0 ? (c / totalVotes) * 100 : 0;
+          return `
+            <li class="leader-row">
+              <span class="idx">${i+1}</span>
+              <span class="song">${label}</span>
+              <span class="pct">${fmtPct(pct)}</span>
+            </li>`;
+        }).join('');
+      }catch{
+        listEl.innerHTML = `<li class="muted" style="padding:10px 12px;">Could not load live ranking.</li>`;
       }
+      resizeParent();
+    }
 
-      refresh();
-      document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
-      setInterval(refresh, 15000);
-      window.addEventListener('load', refresh);
-    })();
-  </script>
+    if ((new URL(location.href)).searchParams.get('embed') === '1') {
+      document.documentElement.classList.add('is-embed');
+      document.body.classList.add('is-embed');
+    }
+
+    refresh();
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
+    setInterval(refresh, 15000);
+    window.addEventListener('load', refresh);
+  })();
+</script>
+
 
   <!-- Poll logic; bonus only when EMBEDDED + LIVE -->
   <script type="module">
     (() => {
       const POLL_API = "/api/admin?action=poll";
       const VOTE_API = "/api/admin?action=poll-vote";
-      const CFG_API  = "/api/admin?action=config";
+      const CFG_API = "/api/admin?action=config";
       const NAME_KEY = "raffle_display_name";
 
       const urlQ = new URL(location.href);
@@ -264,51 +424,51 @@
       const isEmbedded = urlQ.searchParams.get('embed') === '1' || (window !== window.top);
       const MAX = 3;
 
-      const $  = (s, r=document) => r.querySelector(s);
-      const $$ = (s, r=document) => Array.from(r.querySelectorAll(s));
+      const $ = (s, r = document) => r.querySelector(s);
+      const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
 
       const els = {
-        list:   $("#song-poll-list"),
+        list: $("#song-poll-list"),
         submit: $("#song-poll-submit"),
-        counter:$("#song-poll-counter"),
+        counter: $("#song-poll-counter"),
         status: $("#song-poll-status"),
-        cta:    $("#after-vote-cta"),
+        cta: $("#after-vote-cta"),
         ctaBtn: $("#cta-tshirt-btn"),
       };
       const pollInner = document.getElementById('poll-inner');
 
-      function resizeParent(){
-        try{
+      function resizeParent() {
+        try {
           const h = document.documentElement.scrollHeight || document.body.scrollHeight || 560;
-          window.parent.postMessage({ type:'poll:height', height:h }, location.origin);
-        }catch{}
+          window.parent.postMessage({ type: 'poll:height', height: h }, location.origin);
+        } catch { }
       }
 
       // Live window detection
       let __isLive = false;
       const parseISO = (t) => { const x = Date.parse(t || ''); return Number.isFinite(x) ? x : NaN; };
-      async function determineLive(){
-        try{
-          const base = (window.API_BASE || '').replace(/\/+$/,'');
-          const r = await fetch(`${base}${CFG_API}&_=${Date.now()}`, { cache:'no-store' });
+      async function determineLive() {
+        try {
+          const base = (window.API_BASE || '').replace(/\/+$/, '');
+          const r = await fetch(`${base}${CFG_API}&_=${Date.now()}`, { cache: 'no-store' });
           const j = await r.json().catch(() => ({}));
           const s = parseISO(j.startTime);
           const e = parseISO(j.endTime);
           const now = Date.now();
           __isLive = Number.isFinite(s) && Number.isFinite(e) && now >= s && now <= e;
           return __isLive;
-        }catch{ __isLive = false; return __isLive; }
+        } catch { __isLive = false; return __isLive; }
       }
 
-      function getSavedName(){
-        try{ return (localStorage.getItem(NAME_KEY) || '').trim().slice(0,80); }catch{ return ''; }
+      function getSavedName() {
+        try { return (localStorage.getItem(NAME_KEY) || '').trim().slice(0, 80); } catch { return ''; }
       }
 
-      const votedLocal     = () => localStorage.getItem("poll_voted_" + POLL_ID) === "1";
+      const votedLocal = () => localStorage.getItem("poll_voted_" + POLL_ID) === "1";
       const markVotedLocal = () => localStorage.setItem("poll_voted_" + POLL_ID, "1");
       const state = { songs: [], picks: new Set() };
 
-      function updateCounter(){
+      function updateCounter() {
         els.counter.textContent = `${state.picks.size} / ${MAX} selected`;
         const voted = votedLocal();
         els.submit.disabled = voted || state.picks.size !== MAX;
@@ -318,41 +478,41 @@
         });
       }
 
-      function showCTA(){
-        try{
+      function showCTA() {
+        try {
           els.cta?.classList?.remove('hidden');
           els.cta && (els.cta.style.display = 'block');
           // If embedded, try to tell parent to focus the raffle app (optional)
           els.ctaBtn?.addEventListener('click', (e) => {
             if (window !== window.top) {
-              try { window.parent.postMessage({ type:'raffle:open' }, '*'); } catch {}
+              try { window.parent.postMessage({ type: 'raffle:open' }, '*'); } catch { }
             }
-          }, { once:true });
-        } catch {}
+          }, { once: true });
+        } catch { }
       }
 
-   function finishAndHide(msg){
-  els.status.textContent = msg || "";
-  pollInner?.classList.add('voted');
-  document.getElementById('song-poll')?.classList.add('voted'); // hide the header too
-  showCTA();
-  resizeParent();
-}
+      function finishAndHide(msg) {
+        els.status.textContent = msg || "";
+        pollInner?.classList.add('voted');
+        document.getElementById('song-poll')?.classList.add('voted'); // hide the header too
+        showCTA();
+        resizeParent();
+      }
 
-      async function loadPoll(){
-        try{
-          const base = (window.API_BASE || '').replace(/\/+$/,'');
-          const res  = await fetch(`${base}${POLL_API}&pollId=${encodeURIComponent(POLL_ID)}&_=${Date.now()}`, { cache:"no-store" });
+      async function loadPoll() {
+        try {
+          const base = (window.API_BASE || '').replace(/\/+$/, '');
+          const res = await fetch(`${base}${POLL_API}&pollId=${encodeURIComponent(POLL_ID)}&_=${Date.now()}`, { cache: "no-store" });
           const data = await res.json().catch(() => ({}));
-          state.songs = Array.isArray(data.songs) ? data.songs.slice(0,10) : [];
+          state.songs = Array.isArray(data.songs) ? data.songs.slice(0, 10) : [];
           render();
-        }catch{
+        } catch {
           els.list.innerHTML = `<li class="poll-row muted" style="justify-content:center;text-align:center">Could not load songs.</li>`;
           resizeParent();
         }
       }
 
-      function render(){
+      function render() {
         els.list.innerHTML = "";
         state.picks.clear();
 
@@ -370,15 +530,15 @@
             </label>`;
           const cb = li.querySelector("input");
           cb.addEventListener("change", () => {
-            if (cb.checked){
-              if (state.picks.size >= MAX){
+            if (cb.checked) {
+              if (state.picks.size >= MAX) {
                 cb.checked = false;
                 li.classList.add("shake");
                 setTimeout(() => li.classList.remove("shake"), 300);
                 return;
               }
               state.picks.add(cb.value);
-            }else{
+            } else {
               state.picks.delete(cb.value);
             }
             updateCounter();
@@ -394,21 +554,21 @@
         resizeParent();
       }
 
-      function getClientId(){
+      function getClientId() {
         const KEY = "client_id_poll_v2";
         let id = localStorage.getItem(KEY);
-        if (!id){ id = crypto?.randomUUID?.() || (Date.now() + Math.random()).toString(36); localStorage.setItem(KEY, id); }
+        if (!id) { id = crypto?.randomUUID?.() || (Date.now() + Math.random()).toString(36); localStorage.setItem(KEY, id); }
         return id;
       }
 
-      async function submitVote(){
+      async function submitVote() {
         if (state.picks.size !== MAX) return;
         els.status.textContent = "Submitting…";
-        try{
+        try {
           await determineLive();
 
           // Bonus only when embedded + live + name present
-          const savedName   = getSavedName();
+          const savedName = getSavedName();
           const includeName = isEmbedded && __isLive && !!savedName;
 
           const payload = {
@@ -418,9 +578,9 @@
             name: includeName ? savedName : ""
           };
 
-          const base = (window.API_BASE || '').replace(/\/+$/,'');
-          const res  = await fetch(`${base}${VOTE_API}`, {
-            method:"POST", headers:{ "Content-Type":"application/json" }, body:JSON.stringify(payload)
+          const base = (window.API_BASE || '').replace(/\/+$/, '');
+          const res = await fetch(`${base}${VOTE_API}`, {
+            method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload)
           });
           const out = await res.json().catch(() => ({}));
           if (!res.ok) throw new Error(out?.error || "vote failed");
@@ -428,7 +588,7 @@
           // Regardless of first vote or duplicate, show the same message + CTA
           markVotedLocal();
           finishAndHide("Thank you for your vote!");
-        }catch(e){
+        } catch (e) {
           els.status.textContent = "Could not submit vote. Please try again.";
           updateCounter();
           resizeParent();
@@ -436,7 +596,7 @@
       }
 
       // Boot
-      determineLive().catch(()=>{});
+      determineLive().catch(() => { });
       loadPoll();
 
       setInterval(determineLive, 60_000);
@@ -470,4 +630,5 @@
     });
   </script>
 </body>
+
 </html>
