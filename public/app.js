@@ -11,31 +11,39 @@
     document.documentElement.getAttribute("data-fb-page-id") ||
     "";
 
-  // Prefer the local Next API on 3000 when the page is served from a different port/origin.
+  // Prefer local Next API on 3000 when served from a different port/origin.
   const API_BASE =
     (typeof window.API_BASE === "string" && window.API_BASE) ||
-    ((location.hostname === "localhost" || location.hostname === "127.0.0.1")
-      ? (location.port === "3000" ? "" : "http://localhost:3000")
+    (location.hostname === "localhost" || location.hostname === "127.0.0.1"
+      ? location.port === "3000"
+        ? ""
+        : "http://localhost:3000"
       : "");
 
   // Helpers
   const fullUrl = (u) => (u && u.startsWith("/api/") ? `${API_BASE}${u}` : u);
   const bust = (u) => u + (u.includes("?") ? "&" : "?") + "_=" + Date.now();
 
-  // Keys (name input may not exist anymore; harmless if missing)
+  // Keys (name input may not exist; harmless if missing)
   const NAME_KEY = "raffle_display_name";
   const EMAIL_KEY = "raffle_email";
   const CONSENT_KEY = "raffle_marketing_consent";
 
+  // Session-floor keys (persist across reloads in same tab)
+  const STATS_FLOOR_VER_KEY = "stats_floor_ver";
+  const STATS_FLOOR_MINE_KEY = "stats_floor_mine";
+  const STATS_FLOOR_TOTAL_KEY = "stats_floor_total";
+
   const $ = (s, r = document) => r.querySelector(s);
 
-  const nameEl    = () => $("#user-display-name"); // optional
-  const emailEl   = () => $("#user-email");        // REQUIRED input in index.html
+  const nameEl = () => $("#user-display-name"); // optional
+  const emailEl = () => $("#user-email"); // REQUIRED input in index.html
   const consentEl = () => $("#marketing-consent"); // optional checkbox
 
-  const getName    = () => (nameEl()?.value || "").trim().slice(0, 80);
-  const getEmail   = () => (emailEl()?.value || "").trim().slice(0, 120).toLowerCase();
-  const hasConsent = () => !!(consentEl()?.checked);
+  const getName = () => (nameEl()?.value || "").trim().slice(0, 80);
+  const getEmail = () =>
+    (emailEl()?.value || "").trim().slice(0, 120).toLowerCase();
+  const hasConsent = () => !!consentEl()?.checked;
 
   function isValidEmail(e) {
     if (!e) return false;
@@ -55,7 +63,9 @@
     return Number.isFinite(v) ? v : null;
   }
   function setRoundStartOverride(ms = Date.now()) {
-    try { sessionStorage.setItem(ROUND_START_KEY, String(ms)); } catch {}
+    try {
+      sessionStorage.setItem(ROUND_START_KEY, String(ms));
+    } catch {}
     autoPickGuard.clear();
     clearEffectiveStartPin();
   }
@@ -63,7 +73,8 @@
   // Smooth, iOS-safe scroll lock for winner modal
   let __scrollY_at_lock = 0;
   function lockScroll() {
-    __scrollY_at_lock = window.scrollY || document.documentElement.scrollTop || 0;
+    __scrollY_at_lock =
+      window.scrollY || document.documentElement.scrollTop || 0;
     document.documentElement.classList.add("modal-open");
     document.body.classList.add("modal-open");
     document.body.style.position = "fixed";
@@ -76,7 +87,9 @@
     document.body.style.position = "";
     document.body.style.top = "";
     document.body.style.width = "";
-    try { void document.body.offsetHeight; } catch {}
+    try {
+      void document.body.offsetHeight;
+    } catch {}
     window.scrollTo(0, __scrollY_at_lock || 0);
   }
 
@@ -85,7 +98,10 @@
   // ──────────────────────────────────────────────────────────────
   function showInlineError(msg) {
     const email = emailEl?.();
-    if (!email) { alert(msg); return; }
+    if (!email) {
+      alert(msg);
+      return;
+    }
     let el = document.getElementById("email-inline-error");
     if (!el) {
       el = document.createElement("div");
@@ -93,7 +109,8 @@
       el.style.color = "#ff6b6b";
       el.style.fontWeight = "700";
       el.style.marginTop = "6px";
-      const holder = email.closest(".input-group") || email.parentElement || email;
+      const holder =
+        email.closest(".input-group") || email.parentElement || email;
       holder.parentNode.insertBefore(el, holder.nextSibling);
     }
     el.textContent = msg || "";
@@ -134,7 +151,9 @@
       const savedN = localStorage.getItem(NAME_KEY);
       if (savedN) nEl.value = savedN;
       nEl.addEventListener("input", () => {
-        try { localStorage.setItem(NAME_KEY, getName()); } catch {}
+        try {
+          localStorage.setItem(NAME_KEY, getName());
+        } catch {}
       });
     }
   }
@@ -163,9 +182,13 @@
       body: JSON.stringify(body || {}),
     });
     let json = null;
-    try { json = await res.json(); } catch {}
+    try {
+      json = await res.json();
+    } catch {}
     if (!res.ok) {
-      const err = new Error((json && json.error) || `Request failed (${res.status})`);
+      const err = new Error(
+        (json && json.error) || `Request failed (${res.status})`
+      );
       err.status = res.status;
       err.response = json;
       throw err;
@@ -176,22 +199,23 @@
   // Small fetch helper that prefers POST (bust caches), falls back to GET
   async function fetchJSONPreferPost(url) {
     const target = fullUrl(url);
-    // Try POST first
     try {
       const r = await fetch(target, {
         method: "POST",
-        headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+        headers: {
+          "Content-Type": "application/json",
+          "Cache-Control": "no-store",
+        },
         cache: "no-store",
-        body: "{}"
+        body: "{}",
       });
       if (r.ok) return await r.json().catch(() => ({}));
     } catch {}
-    // Fallback to GET with cache buster
     try {
       const r2 = await fetch(bust(target), {
         method: "GET",
         headers: { "Cache-Control": "no-store", Pragma: "no-cache" },
-        cache: "no-store"
+        cache: "no-store",
       });
       if (r2.ok) return await r2.json().catch(() => ({}));
     } catch {}
@@ -199,9 +223,54 @@
   }
 
   // ──────────────────────────────────────────────────────────────
-  // Optimistic UI bump for entries
+  // Optimistic UI bump for entries + session floor
   // ──────────────────────────────────────────────────────────────
-  let prevYour = 0, prevTotal = 0;
+  let prevYour = 0,
+    prevTotal = 0;
+  let cfgMem = null;
+  let pickAtMem = null;
+  let lastWinner = null; // keep early to avoid TDZ anywhere
+
+  const CFG_CACHE_KEY = "cfg";
+  function readCfgCache() {
+    try {
+      return JSON.parse(sessionStorage.getItem(CFG_CACHE_KEY) || "null");
+    } catch {
+      return null;
+    }
+  }
+  function writeCfgCache(cfg) {
+    try {
+      sessionStorage.setItem(CFG_CACHE_KEY, JSON.stringify(cfg));
+    } catch {}
+  }
+  const currentVersion = () =>
+    String((cfgMem || readCfgCache() || {}).version ?? "nov");
+
+  function saveStatsFloor() {
+    try {
+      sessionStorage.setItem(STATS_FLOOR_VER_KEY, currentVersion());
+      sessionStorage.setItem(STATS_FLOOR_MINE_KEY, String(prevYour));
+      sessionStorage.setItem(STATS_FLOOR_TOTAL_KEY, String(prevTotal));
+    } catch {}
+  }
+  function loadStatsFloorIfAny() {
+    try {
+      const ver = sessionStorage.getItem(STATS_FLOOR_VER_KEY);
+      if (ver && ver === currentVersion()) {
+        const m = Number(sessionStorage.getItem(STATS_FLOOR_MINE_KEY));
+        const t = Number(sessionStorage.getItem(STATS_FLOOR_TOTAL_KEY));
+        if (Number.isFinite(m) && m > prevYour) prevYour = m;
+        if (Number.isFinite(t) && t > prevTotal) prevTotal = t;
+        // Paint floor immediately
+        const yourEl = $("#your-entries-count") || $("#raffle-entries");
+        const totalEl = $("#total-entries-count");
+        if (yourEl && prevYour) yourEl.textContent = prevYour.toLocaleString();
+        if (totalEl && prevTotal)
+          totalEl.textContent = prevTotal.toLocaleString();
+      }
+    } catch {}
+  }
 
   function bump(el) {
     if (!el) return;
@@ -216,20 +285,32 @@
     const totalEl = $("#total-entries-count");
 
     if (yourEl) {
-      const cur = parseInt(String(yourEl.textContent).replace(/,/g, ""), 10) || 0;
+      const cur =
+        parseInt(String(yourEl.textContent).replace(/,/g, ""), 10) ||
+        prevYour ||
+        0;
       const next = Math.max(0, cur + deltaMine);
       yourEl.textContent = next.toLocaleString();
-      prevYour = next;
+      prevYour = Math.max(prevYour, next);
       bump(yourEl);
+    } else {
+      prevYour = Math.max(prevYour, prevYour + deltaMine);
     }
 
     if (totalEl) {
-      const curT = parseInt(String(totalEl.textContent).replace(/,/g, ""), 10) || 0;
+      const curT =
+        parseInt(String(totalEl.textContent).replace(/,/g, ""), 10) ||
+        prevTotal ||
+        0;
       const nextT = Math.max(0, curT + deltaTotal);
       totalEl.textContent = nextT.toLocaleString();
-      prevTotal = nextT;
+      prevTotal = Math.max(prevTotal, nextT);
       bump(totalEl);
+    } else {
+      prevTotal = Math.max(prevTotal, prevTotal + deltaTotal);
     }
+
+    saveStatsFloor(); // <- persist floor across reloads
   }
 
   // ──────────────────────────────────────────────────────────────
@@ -237,31 +318,32 @@
   // ──────────────────────────────────────────────────────────────
   async function submitEntryOnce(source) {
     const email = getEmail();
-    if (!isValidEmail(email)) return { ok: false, error: "Missing or invalid email" };
+    if (!isValidEmail(email))
+      return { ok: false, error: "Missing or invalid email" };
 
     const name = getName(); // optional
     const consent = hasConsent();
 
     try {
-      const payload = { name: (name || ""), source, email, consent: !!consent };
+      const payload = { name: name || "", source, email, consent: !!consent };
       const out = await postJSON("/api/admin?action=enter", payload);
 
-      // Optimistic bump if this was a NEW entry (not 'already')
-      if (!out?.already) {
-        incEntriesUI(1, 1);
-      }
+      // Optimistic bump if NEW entry
+      if (!out?.already) incEntriesUI(1, 1);
 
       // Reconcile with server a bit later (in case of write lag)
       refreshEntryStats().catch(() => {});
-      setTimeout(() => refreshEntryStats().catch(()=>{}), 1200);
-      setTimeout(() => refreshEntryStats().catch(()=>{}), 4000);
+      setTimeout(() => refreshEntryStats().catch(() => {}), 1200);
+      setTimeout(() => refreshEntryStats().catch(() => {}), 4000);
 
       if (!__winnerLocked) startWinnerCountdown(true);
       if (out?.already) return { ok: true, already: true };
       return { ok: true, already: false };
     } catch (e) {
       if (e && e.status === 409) {
-        showInlineError("That email already entered this month. Follow us or play the slots for extra entries!");
+        showInlineError(
+          "That email already entered this month. Follow us or play the slots for extra entries!"
+        );
         return { ok: false, duplicate: true, error: "Email already entered" };
       }
       console.error(`[entry] failed ${source}:`, e?.message || e);
@@ -278,7 +360,12 @@
     const consent = hasConsent();
 
     const url = fullUrl("/api/admin?action=enter");
-    const data = JSON.stringify({ name: (name || ""), source, email, consent: !!consent });
+    const data = JSON.stringify({
+      name: name || "",
+      source,
+      email,
+      consent: !!consent,
+    });
     const blob = new Blob([data], { type: "application/json" });
     if (navigator.sendBeacon) {
       navigator.sendBeacon(url, blob);
@@ -298,7 +385,9 @@
   // Social mark (requires email to CREDIT, but click always opens)
   // ──────────────────────────────────────────────────────────────
   async function markFollow(platform) {
-    const url = fullUrl(`/api/admin?action=mark-follow&platform=${encodeURIComponent(platform)}`);
+    const url = fullUrl(
+      `/api/admin?action=mark-follow&platform=${encodeURIComponent(platform)}`
+    );
     const res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -307,34 +396,45 @@
     });
     if (!res.ok) {
       let msg = "mark-follow failed";
-      try { msg = (await res.json()).error || msg; } catch {}
+      try {
+        msg = (await res.json()).error || msg;
+      } catch {}
       throw new Error(msg);
     }
   }
   function markFollowBeacon(platform) {
-    const url = fullUrl(`/api/admin?action=mark-follow&platform=${encodeURIComponent(platform)}`);
-    const blob = new Blob([JSON.stringify({ platform })], { type: "application/json" });
+    const url = fullUrl(
+      `/api/admin?action=mark-follow&platform=${encodeURIComponent(platform)}`
+    );
+    const blob = new Blob([JSON.stringify({ platform })], {
+      type: "application/json",
+    });
     if (navigator.sendBeacon) {
       navigator.sendBeacon(url, blob);
     } else {
-      fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: blob, keepalive: true }).catch(() => {});
+      fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: blob,
+        keepalive: true,
+      }).catch(() => {});
     }
   }
 
-  // ──────────────────────────────────────────────────────────────
   // Followers counts
-  // ──────────────────────────────────────────────────────────────
   async function refreshFollowers() {
-    const fbEl = $("#fb-followers"), igEl = $("#ig-followers");
+    const fbEl = $("#fb-followers"),
+      igEl = $("#ig-followers");
     const url = bust(`${API_BASE}/api/admin?action=followers&debug=1`);
-
     try {
       const res = await fetch(url, { cache: "no-store" });
       const j = await res.json().catch(() => ({}));
       const fb = Number(j?.facebook ?? 0);
       const ig = Number(j?.instagram ?? 0);
-      if (fbEl) fbEl.textContent = Number.isFinite(fb) ? fb.toLocaleString() : "—";
-      if (igEl) igEl.textContent = Number.isFinite(ig) ? ig.toLocaleString() : "—";
+      if (fbEl)
+        fbEl.textContent = Number.isFinite(fb) ? fb.toLocaleString() : "—";
+      if (igEl)
+        igEl.textContent = Number.isFinite(ig) ? ig.toLocaleString() : "—";
     } catch (e) {
       if (fbEl) fbEl.textContent = "—";
       if (igEl) igEl.textContent = "—";
@@ -344,17 +444,19 @@
 
   // End date label (“The winner will be picked on …”)
   async function setEndDateLabel() {
-    const el = document.getElementById('end-date-label');
+    const el = document.getElementById("end-date-label");
     if (!el) return;
     try {
-      const res = await fetch(bust('/api/admin?action=config'), { cache: 'no-store' });
+      const res = await fetch(bust("/api/admin?action=config"), {
+        cache: "no-store",
+      });
       const cfg = await res.json().catch(() => ({}));
       if (!cfg?.endTime) return;
       const end = new Date(cfg.endTime);
-      el.textContent = new Intl.DateTimeFormat('en-US', {
-        timeZone: 'America/New_York',
-        month: 'long',
-        day: 'numeric'
+      el.textContent = new Intl.DateTimeFormat("en-US", {
+        timeZone: "America/New_York",
+        month: "long",
+        day: "numeric",
       }).format(end);
     } catch {}
   }
@@ -362,19 +464,46 @@
   // ──────────────────────────────────────────────────────────────
   // Prize helpers + jackpot logging (no custom modal needed)
   // ──────────────────────────────────────────────────────────────
-  const KNOWN_PRIZES = new Set(["Sticker", "T-Shirt", "VIP Seat", "Extra Entry", "Jackpot"]);
+  const KNOWN_PRIZES = new Set([
+    "Sticker",
+    "T-Shirt",
+    "VIP Seat",
+    "Extra Entry",
+    "Jackpot",
+  ]);
   const EMOJI_MAP = new Map([
-    ["🍒", "Cherry"], ["🍌", "Banana"], ["🍋", "Lemon"], ["⭐", "Star"],
-    ["💎", "Diamond"], ["🔔", "Bell"], ["🍇", "Grape"], ["🍊", "Orange"], ["7", "Seven"],
+    ["🍒", "Cherry"],
+    ["🍌", "Banana"],
+    ["🍋", "Lemon"],
+    ["⭐", "Star"],
+    ["💎", "Diamond"],
+    ["🔔", "Bell"],
+    ["🍇", "Grape"],
+    ["🍊", "Orange"],
+    ["7", "Seven"],
   ]);
 
   function extractTargetText(t) {
     if (t == null) return "";
     if (typeof t === "string") return t.trim();
     if (typeof t === "object") {
-      const fields = ["prize","label","title","name","text","emoji","symbol","value"];
-      for (const k of fields) if (t[k] != null && String(t[k]).trim()) return String(t[k]).trim();
-      try { return String(t).trim(); } catch { return ""; }
+      const fields = [
+        "prize",
+        "label",
+        "title",
+        "name",
+        "text",
+        "emoji",
+        "symbol",
+        "value",
+      ];
+      for (const k of fields)
+        if (t[k] != null && String(t[k]).trim()) return String(t[k]).trim();
+      try {
+        return String(t).trim();
+      } catch {
+        return "";
+      }
     }
     return String(t).trim();
   }
@@ -384,20 +513,32 @@
     if (EMOJI_MAP.has(s)) s = EMOJI_MAP.get(s);
     s = s.replace(/\btee\s*-?\s*shirt\b/i, "T-Shirt");
     const lower = s.toLowerCase();
-    if (/^vip(\s*seat|s)?$/.test(lower) || lower === "vip" || lower === "vip seat") return "VIP Seat";
-    if (/^(t-?\s*shirt|tshirt|t\s*shirt|tee\s*shirt|tee|shirt)$/.test(lower))   return "T-Shirt";
-    if (/^stickers?$/.test(lower))                                             return "Sticker";
-    if (/^(extra\s*entry|extra|bonus\s*entry|free\s*entry)$/.test(lower) ||
-        lower === "extra entry")                                               return "Extra Entry";
-    if (/^jackpot$/.test(lower))                                               return "Jackpot";
+    if (
+      /^vip(\s*seat|s)?$/.test(lower) ||
+      lower === "vip" ||
+      lower === "vip seat"
+    )
+      return "VIP Seat";
+    if (/^(t-?\s*shirt|tshirt|t\s*shirt|tee\s*shirt|tee|shirt)$/.test(lower))
+      return "T-Shirt";
+    if (/^stickers?$/.test(lower)) return "Sticker";
+    if (
+      /^(extra\s*entry|extra|bonus\s*entry|free\s*entry)$/.test(lower) ||
+      lower === "extra entry"
+    )
+      return "Extra Entry";
+    if (/^jackpot$/.test(lower)) return "Jackpot";
     return "";
   }
 
   // HTML escape for safe winner injection
   function escHtml(s) {
-    return String(s ?? '')
-      .replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;')
-      .replaceAll('"','&quot;').replaceAll("'",'&#39;');
+    return String(s ?? "")
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#39;");
   }
 
   async function logSpin(targets, jackpot) {
@@ -407,90 +548,136 @@
     const name = getName() || "";
     const email = getEmail();
     const ts = Date.now();
-    const payload = { name, email: isValidEmail(email) ? email : "", targets, jackpot: true, ts, source: "slot" };
+    const payload = {
+      name,
+      email: isValidEmail(email) ? email : "",
+      targets,
+      jackpot: true,
+      ts,
+      source: "slot",
+    };
 
     // Beacon first
     let sent = false;
     try {
       if ("sendBeacon" in navigator) {
-        const blob = new Blob([JSON.stringify(payload)], { type: "application/json" });
-        sent = navigator.sendBeacon(fullUrl("/api/admin?action=prize-log"), blob);
+        const blob = new Blob([JSON.stringify(payload)], {
+          type: "application/json",
+        });
+        sent = navigator.sendBeacon(
+          fullUrl("/api/admin?action=prize-log"),
+          blob
+        );
       }
     } catch {}
     if (sent) return;
 
-    try { await postJSON("/api/admin?action=prize-log", payload); }
-    catch (e) { console.warn("logSpin POST failed:", e?.message || e); }
+    try {
+      await postJSON("/api/admin?action=prize-log", payload);
+    } catch (e) {
+      console.warn("logSpin POST failed:", e?.message || e);
+    }
   }
 
   // ──────────────────────────────────────────────────────────────
-  // Entry Stats  ← POST-first (anti-cache) + MONOTONIC CLAMP
+  // Entry Stats  ← POST-first (anti-cache) + MONOTONIC CLAMP + session floor
   // ──────────────────────────────────────────────────────────────
   function ensureEntryStatsUI() {
-    if (!$("#entry-stats")) console.warn("[entry-stats] #entry-stats container not found.");
+    if (!$("#entry-stats"))
+      console.warn("[entry-stats] #entry-stats container not found.");
   }
 
   async function refreshEntryStats() {
-    ensureEntryStatsUI();
-    const yourEl  = $("#your-entries-count") || $("#raffle-entries");
-    const totalEl = $("#total-entries-count");
+  ensureEntryStatsUI();
+  const yourEl  = $("#your-entries-count") || $("#raffle-entries");
+  const totalEl = $("#total-entries-count");
 
-    let mineCandidate = NaN;
-    let totalCandidate = NaN;
+  // Must match server's public floor
+  const PUBLIC_BASELINE = 12;
 
-    try {
-      const [jMy, jAll] = await Promise.all([
-        fetchJSONPreferPost("/api/admin?action=my-entries"),
-        fetchJSONPreferPost("/api/admin?action=entries"),
-      ]);
+  // ── Detect round/config changes (version/start/end) and clear local session floors
+  const cfg = cfgMem || readCfgCache() || {};
+  const resetToken = `${cfg.version ?? 0}|${cfg.startTime ?? ""}|${cfg.endTime ?? ""}`;
+  const STATS_TOKEN_KEY = "raffle:statsResetToken";
 
-      // /my-entries
-      const m  = Number(jMy?.mine);
-      const tt = Number(jMy?.total);
-      if (Number.isFinite(m))  mineCandidate = m;
-      if (Number.isFinite(tt)) totalCandidate = tt;
-
-      // /entries
-      const candidates = [jAll?.count, jAll?.total, Array.isArray(jAll?.entries) ? jAll.entries.length : NaN]
-        .map((x) => Number(x))
-        .filter((x) => Number.isFinite(x));
-      if (candidates.length) {
-        const best = Math.max(...candidates);
-        if (!Number.isFinite(totalCandidate) || best > totalCandidate) {
-          totalCandidate = best;
-        }
-      }
-
-    } catch (e) {
-      // ignore and use previous values
+  let tokenChanged = false;
+  try {
+    const prevTok = sessionStorage.getItem(STATS_TOKEN_KEY);
+    if (prevTok !== resetToken) {
+      sessionStorage.setItem(STATS_TOKEN_KEY, resetToken);
+      // clear local running maxima so a new round can start fresh
+      prevYour = 0;
+      prevTotal = 0;
+      tokenChanged = true;
     }
+  } catch {}
 
-    // MONOTONIC: never let UI counts go down during the session
-    const mineFinal  = Number.isFinite(mineCandidate)  ? Math.max(prevYour,  mineCandidate)  : prevYour;
-    const totalFinal = Number.isFinite(totalCandidate) ? Math.max(prevTotal, totalCandidate) : prevTotal;
+  let mineCandidate  = NaN;
+  let totalCandidate = NaN;
 
-    if (totalEl) {
-      const old = prevTotal;
-      totalEl.textContent = Number(totalFinal).toLocaleString();
-      if (totalFinal > old) bump(totalEl);
-    }
-    if (yourEl) {
-      const old = prevYour;
-      yourEl.textContent = Number(mineFinal || 0).toLocaleString();
-      if ((mineFinal || 0) > old) bump(yourEl);
-    }
+  // Pull from both sources
+  let jMy = null, jAll = null;
+  try {
+    [jMy, jAll] = await Promise.all([
+      fetchJSONPreferPost("/api/admin?action=my-entries"),
+      fetchJSONPreferPost("/api/admin?action=entries"),
+    ]);
+  } catch {}
 
-    // update prevs after clamping
-    prevYour  = Number(mineFinal || 0);
-    prevTotal = Number(totalFinal || 0);
+  // /my-entries
+  const m  = Number(jMy?.mine);
+  const tt = Number(jMy?.total);
+  if (Number.isFinite(m))  mineCandidate  = m;
+  if (Number.isFinite(tt)) totalCandidate = tt;
 
-    // Maintain round-start override if server hasn't provided times yet
-    const cfg = cfgMem || readCfgCache();
-    const serverStartOk = Number.isFinite(parseStartMs(cfg?.startTime));
-    if (!serverStartOk && prevTotal === 0 && !lastWinner && !getRoundStartOverride()) {
-      setRoundStartOverride(Date.now());
-    }
+  // /entries (raw count) → add the public baseline so jackpots move the visible number
+  const realCount = Number(jAll?.count);
+  if (Number.isFinite(realCount)) {
+    const withOffset = PUBLIC_BASELINE + realCount;
+    totalCandidate = Number.isFinite(totalCandidate)
+      ? Math.max(totalCandidate, withOffset)
+      : withOffset;
   }
+
+  // ── RESET HEURISTIC:
+  // If the server says list length is 0 AND /my-entries total is at/below the baseline,
+  // treat as a reset and allow the UI to drop back to baseline.
+  const looksReset =
+    Number.isFinite(realCount) && realCount === 0 &&
+    (!Number.isFinite(tt) || tt <= PUBLIC_BASELINE);
+
+  // Finalize with optional monotonic clamp (skip clamp on reset or when config changed)
+  const doClamp = !(looksReset || tokenChanged);
+
+  const mineFinal  = Number.isFinite(mineCandidate)
+    ? (doClamp ? Math.max(prevYour,  mineCandidate)  : mineCandidate)
+    : prevYour;
+
+  const totalFinal = Number.isFinite(totalCandidate)
+    ? (doClamp ? Math.max(prevTotal, totalCandidate) : totalCandidate)
+    : prevTotal;
+
+  if (totalEl) {
+    const old = prevTotal;
+    totalEl.textContent = Number(totalFinal).toLocaleString();
+    if (totalFinal > old) bump(totalEl);
+  }
+  if (yourEl) {
+    const old = prevYour;
+    yourEl.textContent = Number(mineFinal || 0).toLocaleString();
+    if ((mineFinal || 0) > old) bump(yourEl);
+  }
+
+  prevYour  = Number(mineFinal || 0);
+  prevTotal = Number(totalFinal || 0);
+
+  // Keep your existing override behavior for missing server times
+  const serverStartOk = Number.isFinite(parseStartMs(cfg?.startTime));
+  if (!serverStartOk && prevTotal === 0 && !lastWinner && !getRoundStartOverride()) {
+    setRoundStartOverride(Date.now());
+  }
+}
+
 
   // Expose manual trigger for quick debugging
   window.forceStats = refreshEntryStats;
@@ -498,8 +685,12 @@
   // ──────────────────────────────────────────────────────────────
   // Device helpers + follow buttons (always open; credit if email)
   // ──────────────────────────────────────────────────────────────
-  function isAndroid() { return /\bAndroid\b/i.test(navigator.userAgent); }
-  function isIOS()     { return /\b(iPhone|iPad|iPod)\b/i.test(navigator.userAgent); }
+  function isAndroid() {
+    return /\bAndroid\b/i.test(navigator.userAgent);
+  }
+  function isIOS() {
+    return /\b(iPhone|iPad|iPod)\b/i.test(navigator.userAgent);
+  }
 
   function getAppSchemes(platform) {
     if (platform === "ig") return [`instagram://user?username=${IG_USERNAME}`];
@@ -507,12 +698,22 @@
     const id = (FB_PAGE_ID || "").trim();
     if (id) {
       if (isIOS()) {
-        schemes.push(`fb://profile/${id}`, `fb://page/?id=${id}`, `fb://page/${id}`);
+        schemes.push(
+          `fb://profile/${id}`,
+          `fb://page/?id=${id}`,
+          `fb://page/${id}`
+        );
       } else {
-        schemes.push(`fb://page/${id}`, `fb://profile/${id}`, `fb://page/?id=${id}`);
+        schemes.push(
+          `fb://page/${id}`,
+          `fb://profile/${id}`,
+          `fb://page/?id=${id}`
+        );
       }
     } else {
-      schemes.push(`fb://facewebmodal/f?href=${encodeURIComponent(FACEBOOK_URL)}`);
+      schemes.push(
+        `fb://facewebmodal/f?href=${encodeURIComponent(FACEBOOK_URL)}`
+      );
     }
     return schemes;
   }
@@ -520,27 +721,50 @@
   function openAppAndTrack(platform, { timeout = 1800 } = {}) {
     return new Promise((resolve) => {
       const schemes = getAppSchemes(platform);
-      let done = false, iframe = null, attemptIdx = 0;
+      let done = false,
+        iframe = null,
+        attemptIdx = 0;
 
       const cleanup = () => {
         document.removeEventListener("visibilitychange", onVis, true);
         window.removeEventListener("pagehide", onHidden, true);
         window.removeEventListener("blur", onBlur, true);
-        clearTimeout(timer); clearTimeout(stepper);
-        if (iframe && iframe.parentNode) { try { document.body.removeChild(iframe); } catch {} }
+        clearTimeout(timer);
+        clearTimeout(stepper);
+        if (iframe && iframe.parentNode) {
+          try {
+            document.body.removeChild(iframe);
+          } catch {}
+        }
       };
 
       const onHidden = () => {
-        if (done) return; done = true;
-        try { markFollowBeacon(platform); } catch {}
-        try { submitEntryOnceBeacon(platform); } catch {}
-        cleanup(); resolve(true);
+        if (done) return;
+        done = true;
+        try {
+          markFollowBeacon(platform);
+        } catch {}
+        try {
+          submitEntryOnceBeacon(platform);
+        } catch {}
+        cleanup();
+        resolve(true);
       };
-      const onVis  = () => { if (document.visibilityState === "hidden") onHidden(); };
-      const onBlur = () => { setTimeout(onHidden, 0); };
+      const onVis = () => {
+        if (document.visibilityState === "hidden") onHidden();
+      };
+      const onBlur = () => {
+        setTimeout(onHidden, 0);
+      };
 
-      document.addEventListener("visibilitychange", onVis, { once: true, capture: true });
-      window.addEventListener("pagehide", onHidden, { once: true, capture: true });
+      document.addEventListener("visibilitychange", onVis, {
+        once: true,
+        capture: true,
+      });
+      window.addEventListener("pagehide", onHidden, {
+        once: true,
+        capture: true,
+      });
       window.addEventListener("blur", onBlur, { once: true, capture: true });
 
       const tryOne = (url) => {
@@ -550,27 +774,47 @@
             iframe.style.display = "none";
             iframe.src = url;
             document.body.appendChild(iframe);
-            setTimeout(() => { try { if (iframe && iframe.parentNode) document.body.removeChild(iframe); } catch {} }, 2000);
+            setTimeout(() => {
+              try {
+                if (iframe && iframe.parentNode)
+                  document.body.removeChild(iframe);
+              } catch {}
+            }, 2000);
           } else {
             window.location.href = url; // iOS
           }
         } catch {}
       };
 
-      if (schemes.length) { tryOne(schemes[0]); attemptIdx = 1; }
+      if (schemes.length) {
+        tryOne(schemes[0]);
+        attemptIdx = 1;
+      }
       const step = () => {
         if (done || attemptIdx >= schemes.length) return;
         tryOne(schemes[attemptIdx++]);
-        if (!done && attemptIdx < schemes.length) stepper = setTimeout(step, 600);
+        if (!done && attemptIdx < schemes.length)
+          stepper = setTimeout(step, 600);
       };
       let stepper = setTimeout(step, 600);
 
-      const timer = setTimeout(() => { if (done) return; done = true; cleanup(); resolve(false); }, timeout);
+      const timer = setTimeout(() => {
+        if (done) return;
+        done = true;
+        cleanup();
+        resolve(false);
+      }, timeout);
     });
   }
 
   let globalFollowLock = false;
-  function setDisabled(el, val) { if (!el) return; try { el.disabled = !!val; } catch {} el.classList.toggle("is-disabled", !!val); }
+  function setDisabled(el, val) {
+    if (!el) return;
+    try {
+      el.disabled = !!val;
+    } catch {}
+    el.classList.toggle("is-disabled", !!val);
+  }
 
   async function handleFollow(platform, btn) {
     const hasEmail = isValidEmail(getEmail());
@@ -584,23 +828,26 @@
       if (isAndroid() || isIOS()) {
         const opened = await openAppAndTrack(platform);
         if (!opened) {
-          try { window.open(webUrl, "_blank", "noopener"); } catch {}
+          try {
+            window.open(webUrl, "_blank", "noopener");
+          } catch {}
           if (hasEmail) {
             await markFollow(platform);
-            await submitEntryOnce(platform); // optimistic bump happens inside
+            await submitEntryOnce(platform); // optimistic bump inside
           } else {
             showInlineError("Add your email so we can credit your +1 entry 🙂");
           }
         } else {
-          if (!hasEmail) {
+          if (!hasEmail)
             showInlineError("Add your email so we can credit your +1 entry 🙂");
-          }
         }
       } else {
-        try { window.open(webUrl, "_blank", "noopener"); } catch {}
+        try {
+          window.open(webUrl, "_blank", "noopener");
+        } catch {}
         if (hasEmail) {
           await markFollow(platform);
-          await submitEntryOnce(platform); // optimistic bump happens inside
+          await submitEntryOnce(platform); // optimistic bump inside
         } else {
           showInlineError("Add your email so we can credit your +1 entry 🙂");
         }
@@ -608,35 +855,46 @@
     } catch (err) {
       console.warn(`[follow] ${platform} flow error:", ${err?.message || err}`);
     } finally {
-      setTimeout(() => { globalFollowLock = false; setDisabled(btn, false); }, 700);
+      setTimeout(() => {
+        globalFollowLock = false;
+        setDisabled(btn, false);
+      }, 700);
     }
   }
 
   // Replace intent:// anchors on DOM ready (defensive)
-  document.addEventListener("DOMContentLoaded", () => {
-    document.querySelectorAll('a[href^="intent://"]').forEach((a) => {
-      const href = a.getAttribute("href") || "";
-      const isFb = /facebook|katana|\/profile\//i.test(href);
-      a.setAttribute("href", isFb ? FACEBOOK_URL : INSTAGRAM_URL);
-      a.classList.add(isFb ? "follow-btn-fb" : "follow-btn-ig");
-    });
-  }, { once: true });
+  document.addEventListener(
+    "DOMContentLoaded",
+    () => {
+      document.querySelectorAll('a[href^="intent://"]').forEach((a) => {
+        const href = a.getAttribute("href") || "";
+        const isFb = /facebook|katana|\/profile\//i.test(href);
+        a.setAttribute("href", isFb ? FACEBOOK_URL : INSTAGRAM_URL);
+        a.classList.add(isFb ? "follow-btn-fb" : "follow-btn-ig");
+      });
+    },
+    { once: true }
+  );
 
   // unified delegated click listener for follow buttons
-  document.addEventListener("click", (e) => {
-    const fbSel = '.follow-btn-fb, a[href*="facebook.com"]';
-    const igSel = '.follow-btn-ig, a[href*="instagram.com"]';
-    const el = e.target.closest(fbSel) || e.target.closest(igSel);
-    if (!el) return;
+  document.addEventListener(
+    "click",
+    (e) => {
+      const fbSel = '.follow-btn-fb, a[href*="facebook.com"]';
+      const igSel = '.follow-btn-ig, a[href*="instagram.com"]';
+      const el = e.target.closest(fbSel) || e.target.closest(igSel);
+      if (!el) return;
 
-    const isFbMatch = !!e.target.closest(fbSel);
-    const href = (el.getAttribute("href") || "");
-    const isFb = isFbMatch || /facebook|katana|\/profile\//i.test(href);
+      const isFbMatch = !!e.target.closest(fbSel);
+      const href = el.getAttribute("href") || "";
+      const isFb = isFbMatch || /facebook|katana|\/profile\//i.test(href);
 
-    e.preventDefault();
-    e.stopPropagation();
-    handleFollow(isFb ? "fb" : "ig", el);
-  }, true);
+      e.preventDefault();
+      e.stopPropagation();
+      handleFollow(isFb ? "fb" : "ig", el);
+    },
+    true
+  );
 
   // ──────────────────────────────────────────────────────────────
   // Slot hookup (log jackpots & refresh stats) + optimistic bump
@@ -660,7 +918,9 @@
 
         const okTriple =
           norm.length >= 3 &&
-          norm[0] && norm[0] === norm[1] && norm[1] === norm[2] &&
+          norm[0] &&
+          norm[0] === norm[1] &&
+          norm[1] === norm[2] &&
           KNOWN_PRIZES.has(norm[0]);
 
         if (!okTriple) return;
@@ -674,8 +934,8 @@
         if (primary === "Extra Entry") {
           // Optimistic bump immediately, then reconcile
           incEntriesUI(1, 1);
-          setTimeout(() => refreshEntryStats().catch(()=>{}), 1200);
-          setTimeout(() => refreshEntryStats().catch(()=>{}), 4000);
+          setTimeout(() => refreshEntryStats().catch(() => {}), 1200);
+          setTimeout(() => refreshEntryStats().catch(() => {}), 4000);
         }
       } catch (err) {
         console.warn("[slot] handleResult error:", err?.message || err);
@@ -688,10 +948,6 @@
   // ──────────────────────────────────────────────────────────────
   // HEADLINE CONFIG + CACHE
   // ──────────────────────────────────────────────────────────────
-  const CFG_CACHE_KEY = "cfg";
-  function readCfgCache() { try { return JSON.parse(sessionStorage.getItem(CFG_CACHE_KEY) || "null"); } catch { return null; } }
-  function writeCfgCache(cfg) { try { sessionStorage.setItem(CFG_CACHE_KEY, JSON.stringify(cfg)); } catch {} }
-
   async function fetchConfigFresh() {
     const res = await fetch(bust(fullUrl(`/api/admin?action=config`)), {
       cache: "no-store",
@@ -714,8 +970,13 @@
     if (cached?.showName) setHeadlineText(cached.showName || "90 Surge");
     try {
       const fresh = await fetchConfigFresh();
-      if (!cached || fresh.version !== cached.version || fresh.showName !== cached.showName) {
-        writeCfgCache(fresh); setHeadlineText(fresh.showName || "90 Surge");
+      if (
+        !cached ||
+        fresh.version !== cached.version ||
+        fresh.showName !== cached.showName
+      ) {
+        writeCfgCache(fresh);
+        setHeadlineText(fresh.showName || "90 Surge");
       }
     } catch (e) {
       console.debug("[config] headline refresh skipped:", e?.message || e);
@@ -729,19 +990,16 @@
   let __countdownTimer = null;
   let __ensurePickTimer = null;
 
-  let cfgMem = null;
-  let pickAtMem = null;
-
   // Use local-flexible parser for robustness
   function parseLocalFlexible(s) {
     if (!s) return NaN;
     s = String(s).trim();
     const m = s.match(/^(\d{4}-\d{2}-\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?$/);
     if (m && !/[zZ]|[+\-]\d{2}:\d{2}$/.test(s)) {
-      const y  = +m[1].slice(0, 4);
+      const y = +m[1].slice(0, 4);
       const mo = +m[1].slice(5, 7) - 1;
-      const d  = +m[1].slice(8,10);
-      const h  = +m[2];
+      const d = +m[1].slice(8, 10);
+      const h = +m[2];
       const mi = +m[3];
       const se = +(m[4] || 0);
       return new Date(y, mo, d, h, mi, se).getTime();
@@ -753,13 +1011,15 @@
   function parseStartMs(startTime) {
     const t = parseLocalFlexible(startTime);
     if (Number.isFinite(t)) return t;
-    const m = String(startTime || "").trim().match(/^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}(?::\d{2})?)$/);
+    const m = String(startTime || "")
+      .trim()
+      .match(/^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}(?::\d{2})?)$/);
     if (m) return new Date(`${m[1]}T${m[2]}`).getTime();
     return NaN;
   }
 
   const EFFECTIVE_START_KEY = "effectiveStartMs";
-  const EFFECTIVE_VER_KEY   = "effectiveStartVer";
+  const EFFECTIVE_VER_KEY = "effectiveStartVer";
 
   function clearEffectiveStartPin() {
     try {
@@ -773,7 +1033,10 @@
     if (Number.isFinite(serverMs)) {
       try {
         sessionStorage.setItem(EFFECTIVE_START_KEY, String(serverMs));
-        sessionStorage.setItem(EFFECTIVE_VER_KEY, String(cfg?.version ?? "nov"));
+        sessionStorage.setItem(
+          EFFECTIVE_VER_KEY,
+          String(cfg?.version ?? "nov")
+        );
       } catch {}
       return serverMs;
     }
@@ -802,24 +1065,51 @@
     cfgMem = cfg;
     writeCfgCache(cfg);
     pickAtMem = computePickAtFromCfg(cfgMem);
+
+    // If version changed, clear floors so new round starts clean
+    try {
+      const curVer = currentVersion();
+      const floorVer = sessionStorage.getItem(STATS_FLOOR_VER_KEY);
+      if (floorVer && floorVer !== curVer) {
+        sessionStorage.removeItem(STATS_FLOOR_MINE_KEY);
+        sessionStorage.removeItem(STATS_FLOOR_TOTAL_KEY);
+        sessionStorage.setItem(STATS_FLOOR_VER_KEY, curVer);
+        prevYour = 0;
+        prevTotal = 0;
+      }
+    } catch {}
   }
 
   let __countdownVisible = null;
   function setCountdownVisible(visible) {
     if (__countdownVisible === visible) return;
     __countdownVisible = visible;
-    document.querySelectorAll("#winner-countdown, [data-winner-countdown], #winner-countdown-text")
-      .forEach((el) => { el.style.display = visible ? "" : "none"; });
+    document
+      .querySelectorAll(
+        "#winner-countdown, [data-winner-countdown], #winner-countdown-text"
+      )
+      .forEach((el) => {
+        el.style.display = visible ? "" : "none";
+      });
   }
 
   function stopWinnerCountdownTimers() {
-    if (__countdownTimer)  { clearInterval(__countdownTimer);  __countdownTimer  = null; }
-    if (__ensurePickTimer) { clearInterval(__ensurePickTimer); __ensurePickTimer = null; }
+    if (__countdownTimer) {
+      clearInterval(__countdownTimer);
+      __countdownTimer = null;
+    }
+    if (__ensurePickTimer) {
+      clearInterval(__ensurePickTimer);
+      __ensurePickTimer = null;
+    }
   }
 
   async function triggerAutoPick() {
     try {
-      await fetch(fullUrl("/api/admin?action=maybe-auto-pick"), { method: "POST", keepalive: true });
+      await fetch(fullUrl("/api/admin?action=maybe-auto-pick"), {
+        method: "POST",
+        keepalive: true,
+      });
     } catch {}
   }
 
@@ -837,9 +1127,10 @@
     await refreshConfigAuthoritative();
 
     if (!Number.isFinite(pickAtMem)) {
-      const el = document.getElementById("winner-countdown-text") ||
-                 document.querySelector("[data-winner-countdown]") ||
-                 document.getElementById("winner-countdown");
+      const el =
+        document.getElementById("winner-countdown-text") ||
+        document.querySelector("[data-winner-countdown]") ||
+        document.getElementById("winner-countdown");
       if (el) el.textContent = "—";
       stopWinnerCountdownTimers();
       return;
@@ -860,7 +1151,10 @@
 
     for (let i = 0; i < 8; i++) {
       const name = await fetchWinnerOnce();
-      if (name) { maybeDisplayWinner(name); return; }
+      if (name) {
+        maybeDisplayWinner(name);
+        return;
+      }
       await new Promise((r) => setTimeout(r, 750));
     }
 
@@ -931,7 +1225,13 @@
       const h = Math.floor((sec % 86400) / 3600);
       const m = Math.floor((sec % 3600) / 60);
       const s = sec % 60;
-      write(d > 0 ? `${d}d ${h}h ${m}m ${s}s` : h > 0 ? `${h}h ${m}m ${s}s` : `${m}m ${s}s`);
+      write(
+        d > 0
+          ? `${d}d ${h}h ${m}m ${s}s`
+          : h > 0
+          ? `${h}h ${m}m ${s}s`
+          : `${m}m ${s}s`
+      );
     };
 
     await tick();
@@ -953,11 +1253,12 @@
   // Winner UI
   // ──────────────────────────────────────────────────────────────
   const SHOWN_WINNER_KEY = "shownWinnerName";
-  let lastWinner = null;
 
   function winnerBannerEl() {
-    return document.querySelector(".raffle.raffle-title.blink") ||
-           document.querySelector("[data-winner-banner]");
+    return (
+      document.querySelector(".raffle.raffle-title.blink") ||
+      document.querySelector("[data-winner-banner]")
+    );
   }
   function setWinnerBanner(name) {
     const el = winnerBannerEl();
@@ -972,7 +1273,8 @@
       el.textContent = `No winner this time.`;
       el.classList.add("has-winner");
     } else {
-      const fallback = el.getAttribute("data-default") || "Free T-shirt raffle!";
+      const fallback =
+        el.getAttribute("data-default") || "Free T-shirt raffle!";
       el.textContent = fallback;
       el.classList.remove("has-winner");
     }
@@ -993,16 +1295,24 @@
       unlockScroll();
     };
 
-    modal.addEventListener("click", (e) => {
-      if (
-        e.target.classList.contains("modal-overlay") ||
-        e.target.matches("[data-close], .btn-modal-close, .winner-close, .modal-close") ||
-        e.target.closest?.("[data-close], .btn-modal-close, .winner-close, .modal-close")
-      ) {
-        e.preventDefault();
-        close();
-      }
-    }, true);
+    modal.addEventListener(
+      "click",
+      (e) => {
+        if (
+          e.target.classList.contains("modal-overlay") ||
+          e.target.matches(
+            "[data-close], .btn-modal-close, .winner-close, .modal-close"
+          ) ||
+          e.target.closest?.(
+            "[data-close], .btn-modal-close, .winner-close, .modal-close"
+          )
+        ) {
+          e.preventDefault();
+          close();
+        }
+      },
+      true
+    );
 
     document.addEventListener("keydown", (e) => {
       if (e.key === "Escape" && !modal.classList.contains("hidden")) close();
@@ -1014,23 +1324,39 @@
 
   function showWinnerModal(name) {
     const modal = ensureWinnerModal();
-    if (!modal) { alert(name && name !== "__NO_WINNER__" ? `Winner: ${name}` : "No winner this time."); return; }
+    if (!modal) {
+      alert(
+        name && name !== "__NO_WINNER__"
+          ? `Winner: ${name}`
+          : "No winner this time."
+      );
+      return;
+    }
 
-    const titleEl = modal.querySelector("#winner-title") || modal.querySelector(".modal-title");
-    const lineEl  = modal.querySelector(".winner-line");
-    const subEl   = modal.querySelector(".winner-sub");
+    const titleEl =
+      modal.querySelector("#winner-title") ||
+      modal.querySelector(".modal-title");
+    const lineEl = modal.querySelector(".winner-line");
+    const subEl = modal.querySelector(".winner-sub");
     const confettiRoot = modal.querySelector(".confetti");
 
     if (name === "__NO_WINNER__") {
       if (titleEl) titleEl.textContent = "No winner this time";
-      if (lineEl)  lineEl.innerHTML = `Looks like we had no entries this round.`;
-      if (subEl)   subEl.textContent = `Thanks for stopping by — see you at the next show!`;
+      if (lineEl) lineEl.innerHTML = `Looks like we had no entries this round.`;
+      if (subEl)
+        subEl.textContent = `Thanks for stopping by — see you at the next show!`;
       if (confettiRoot) confettiRoot.innerHTML = "";
     } else {
-      modal.querySelectorAll(".winner-name, [data-winner-name]").forEach((n) => (n.textContent = name || ""));
+      modal
+        .querySelectorAll(".winner-name, [data-winner-name]")
+        .forEach((n) => (n.textContent = name || ""));
       if (titleEl) titleEl.textContent = "🎉 We have a winner! 🎉";
-      if (lineEl)  lineEl.innerHTML = `Congrats, <strong class="winner-name">${escHtml(name || "")}</strong>! 🥳<br> Come see us to pick up your t-shirt!`;
-      if (subEl)   subEl.textContent = `Thanks for playing all — see you at the next show!`;
+      if (lineEl)
+        lineEl.innerHTML = `Congrats, <strong class="winner-name">${escHtml(
+          name || ""
+        )}</strong>! 🥳<br> Come see us to pick up your t-shirt!`;
+      if (subEl)
+        subEl.textContent = `Thanks for playing all — see you at the next show!`;
 
       try {
         if (confettiRoot) {
@@ -1040,12 +1366,14 @@
             const p = document.createElement("i");
             p.className = "confetti-piece";
             const size = 6 + Math.random() * 8;
-            p.style.width  = `${size}px`;
+            p.style.width = `${size}px`;
             p.style.height = `${Math.max(3, size * 0.45)}px`;
-            p.style.left   = `${Math.random() * 100}%`;
-            p.style.background = `hsl(${Math.floor(Math.random()*360)}, 90%, 60%)`;
-            p.style.setProperty("--dur", `${2 + Math.random()*1.8}s`);
-            p.style.setProperty("--rot", `${(Math.random()*60 - 30)}deg`);
+            p.style.left = `${Math.random() * 100}%`;
+            p.style.background = `hsl(${Math.floor(
+              Math.random() * 360
+            )}, 90%, 60%)`;
+            p.style.setProperty("--dur", `${2 + Math.random() * 1.8}s`);
+            p.style.setProperty("--rot", `${Math.random() * 60 - 30}deg`);
             p.style.animationDelay = `${Math.random() * 0.2}s`;
             confettiRoot.appendChild(p);
           }
@@ -1056,16 +1384,24 @@
     modal.classList.remove("hidden");
     modal.setAttribute("aria-hidden", "false");
     lockScroll();
-    try { modal.querySelector("[data-close], .btn-modal-close, .winner-close, .modal-close")?.focus(); } catch {}
+    try {
+      modal
+        .querySelector(
+          "[data-close], .btn-modal-close, .winner-close, .modal-close"
+        )
+        ?.focus();
+    } catch {}
   }
 
   async function fetchWinnerOnce() {
-    const res = await fetch(bust(fullUrl("/api/admin?action=winner")), { cache: "no-store" });
-    if (!res.ok) return null;
-    const j = await res.json().catch(() => ({}));
-    if (j?.noWinner || j?.none || j?.emptyRound) return "__NO_WINNER__";
-    return j?.winner?.name || null;
-  }
+  const res = await fetch(fullUrl("/api/admin?action=winner&_=" + Date.now()), { cache: "no-store" });
+  if (!res.ok) return null;
+  const j = await res.json().catch(() => ({}));
+  if (j?.noWinner || j?.none || j?.emptyRound) return "__NO_WINNER__";
+  const label = (j?.winner?.email || j?.winner?.name || "").trim();
+  return label || null;
+}
+
 
   function maybeDisplayWinner(name) {
     if (!name) {
@@ -1102,7 +1438,10 @@
           headers: { "Cache-Control": "no-store", Pragma: "no-cache" },
         });
         const j = await r.json().catch(() => ({}));
-        const name = (j?.noWinner || j?.none || j?.emptyRound) ? "__NO_WINNER__" : (j?.winner?.name || null);
+        const name =
+          j?.noWinner || j?.none || j?.emptyRound
+            ? "__NO_WINNER__"
+            : j?.winner?.name || null;
         maybeDisplayWinner(name);
       } catch {}
     }
@@ -1150,7 +1489,9 @@
       };
 
       es.onerror = () => {
-        try { es.close(); } catch {}
+        try {
+          es.close();
+        } catch {}
         if (!pollingTimer) pollingTimer = startWinnerPolling();
       };
     } catch {
@@ -1170,8 +1511,11 @@
   function fmtLocalDateTime(ms) {
     try {
       return new Intl.DateTimeFormat(undefined, {
-        weekday: "short", month: "short", day: "numeric",
-        hour: "numeric", minute: "2-digit"
+        weekday: "short",
+        month: "short",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
       }).format(new Date(ms));
     } catch {
       return new Date(ms).toLocaleString();
@@ -1180,8 +1524,11 @@
   function getShowTimesFromCfg() {
     const c = cfgMem || readCfgCache() || {};
     let startMs = parseLocalFlexible(c.startTime);
-    let endMs   = parseLocalFlexible(c.endTime);
-    if (Number.isFinite(startMs) && (!Number.isFinite(endMs) || endMs <= startMs)) {
+    let endMs = parseLocalFlexible(c.endTime);
+    if (
+      Number.isFinite(startMs) &&
+      (!Number.isFinite(endMs) || endMs <= startMs)
+    ) {
       endMs = startMs + 2 * 60 * 60 * 1000;
     }
     return { startMs, endMs };
@@ -1255,7 +1602,11 @@
     const h = Math.floor((sec % 86400) / 3600);
     const m = Math.floor((sec % 3600) / 60);
     const s = sec % 60;
-    return d > 0 ? `${d}d ${h}h ${m}m ${s}s` : h > 0 ? `${h}h ${m}m ${s}s` : `${m}m ${s}s`;
+    return d > 0
+      ? `${d}d ${h}h ${m}m ${s}s`
+      : h > 0
+      ? `${h}h ${m}m ${s}s`
+      : `${m}m ${s}s`;
   }
   async function updateGateUIOnce() {
     if (!cfgMem) await refreshConfigAuthoritative();
@@ -1269,13 +1620,20 @@
     }
 
     if (phase === "PRE") {
-      const openMs = Number.isFinite(startMs) ? (startMs - OPEN_BEFORE_MS) : NaN;
-      const showStr = Number.isFinite(startMs) ? fmtLocalDateTime(startMs) : "—";
+      const openMs = Number.isFinite(startMs) ? startMs - OPEN_BEFORE_MS : NaN;
+      const showStr = Number.isFinite(startMs)
+        ? fmtLocalDateTime(startMs)
+        : "—";
       const write = () => {
         const now = Date.now();
-        const diffToOpen = Number.isFinite(openMs) ? (openMs - now) : NaN;
-        if (Number.isFinite(diffToOpen) && diffToOpen <= 0) { updateGateUIOnce(); return; }
-        const countdown = Number.isFinite(diffToOpen) ? fmtCountdown(diffToOpen) : "—";
+        const diffToOpen = Number.isFinite(openMs) ? openMs - now : NaN;
+        if (Number.isFinite(diffToOpen) && diffToOpen <= 0) {
+          updateGateUIOnce();
+          return;
+        }
+        const countdown = Number.isFinite(diffToOpen)
+          ? fmtCountdown(diffToOpen)
+          : "—";
         const html = `
           <div>Show is at <strong>${showStr}</strong>.</div>
           <div class="gate-sub">The raffle will open in:</div>
@@ -1290,13 +1648,17 @@
     if (phase === "POST") {
       let name = lastWinner;
       if (!name && !__gateWinnerFetched) {
-        try { name = await fetchWinnerOnce(); } catch {}
+        try {
+          name = await fetchWinnerOnce();
+        } catch {}
         __gateWinnerFetched = true;
       }
       const label = name
-        ? (name === "__NO_WINNER__"
-            ? `no winner this time.`
-            : `the last show’s T-shirt winner is <strong>${escHtml(name)}</strong>.`)
+        ? name === "__NO_WINNER__"
+          ? `no winner this time.`
+          : `the last show’s T-shirt winner is <strong>${escHtml(
+              name
+            )}</strong>.`
         : `we’ll post the winner shortly.`;
       showGate({ title: "Thanks for tuning in! 🙌", html: `${label}` });
       return;
@@ -1312,9 +1674,7 @@
     });
   }
 
-  // ──────────────────────────────────────────────────────────────
   // Hide poll CTA on index if user came from standalone poll.html
-  // ──────────────────────────────────────────────────────────────
   function hidePollCTAIfStandaloneReferrer() {
     const ref = (document.referrer || "").toLowerCase();
     if (!ref) return;
@@ -1330,6 +1690,9 @@
   async function boot() {
     initContactPersistence();
     ensureEntryStatsUI();
+
+    // Paint session floor immediately (prevents refresh from showing stale 12)
+    loadStatsFloorIfAny();
 
     refreshFollowers();
     setInterval(refreshFollowers, 60_000);
@@ -1369,14 +1732,20 @@
     setInterval(() => startWinnerCountdown(true), 10_000);
 
     (function initWinnerBannerDefault() {
-      const el = document.querySelector(".raffle.raffle-title.blink") ||
-                 document.querySelector("[data-winner-banner]");
+      const el =
+        document.querySelector(".raffle.raffle-title.blink") ||
+        document.querySelector("[data-winner-banner]");
       if (el && !el.getAttribute("data-default")) {
-        el.setAttribute("data-default", el.textContent || "Free T-shirt raffle!");
+        el.setAttribute(
+          "data-default",
+          el.textContent || "Free T-shirt raffle!"
+        );
       }
     })();
 
-    fetchWinnerOnce().then(maybeDisplayWinner).catch(() => {});
+    fetchWinnerOnce()
+      .then(maybeDisplayWinner)
+      .catch(() => {});
   }
 
   if (document.readyState === "loading") {
