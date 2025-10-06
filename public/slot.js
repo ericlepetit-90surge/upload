@@ -13,18 +13,23 @@
   const SYMBOL_EXTRA = "Extra Entry";
   const SYMBOL_NONE  = "-";
 
-  // Per-reel random probability of Extra Entry (when not forcing a jackpot)
-  const WEIGHT_EXTRA = 0.12;  // 12% per reel
+  // Per-reel probability of landing "Extra Entry" when NOT forcing a jackpot
+  const WEIGHT_EXTRA = 0.12;   // 12% per reel
   const WEIGHT_NONE  = 1 - WEIGHT_EXTRA;
 
-  // Independent forced jackpot rate (all three = Extra Entry)
-  const JACKPOT_RATE = 0.15; // ~3.5%
+  // Target overall jackpot probability (~1 out of 10 spins)
+  const TARGET_JACKPOT = 0.10;
+
+  // Compute forced jackpot rate so that:
+  //   P(jackpot) = f + (1 - f) * (WEIGHT_EXTRA^3)  ~= TARGET_JACKPOT
+  const _p3 = Math.pow(WEIGHT_EXTRA, 3);
+  const JACKPOT_RATE = Math.max(0, Math.min(1, (TARGET_JACKPOT - _p3) / (1 - _p3)));
 
   const JACKPOT_TEXT = "Awesome—+1 raffle entry added!";
 
   // Spin travel (must stay well under STRIP_LEN * STRIP_REPEAT)
   const BASE_LOOPS = [3, 4, 5]; // full base-strip loops per reel
-  const EXTRA_ROWS = [3, 5, 7]; // small offsets for staggered stops
+  const EXTRA_ROWS = [3, 5, 7]; // small offsets for staggered stops (unused in travelRows below)
   const DUR        = [1000, 1300, 1600];
 
   // ---------- Utils ----------
@@ -60,14 +65,6 @@
     return parts.slice(0, mid).join(" ") + "\n" + parts.slice(mid).join(" ");
   }
 
-  function getDisplayName() {
-    return (
-      document.querySelector('#user-display-name')?.value ||
-      localStorage.getItem('raffle_display_name') ||
-      ''
-    ).trim().slice(0, 80);
-  }
-
   function isValidEmail(e) { return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test((e || "").trim()); }
   function getEmail() {
     return (
@@ -88,33 +85,31 @@
     } catch {}
   }
 
-  // POST name + email so backend can credit the right person + totals
- async function awardExtraEntry(email) {
-  try {
-    const base =
-      (typeof window !== "undefined" && typeof window.API_BASE === "string" && window.API_BASE) || "";
+  // Only email is required for bonus entry
+  async function awardExtraEntry(email) {
+    try {
+      const base =
+        (typeof window !== "undefined" && typeof window.API_BASE === "string" && window.API_BASE) || "";
 
-    // simple validation — avoids useless requests
-    const ok = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test((email || "").trim());
-    if (!ok) return { awarded: false, reason: "invalid_email" };
+      const ok = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test((email || "").trim());
+      if (!ok) return { awarded: false, reason: "invalid_email" };
 
-    const res = await fetch(`${base}/api/admin?action=bonus-entry`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      cache: "no-store",
-      body: JSON.stringify({ email }),
-    });
+      const res = await fetch(`${base}/api/admin?action=bonus-entry`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        cache: "no-store",
+        body: JSON.stringify({ email }),
+      });
 
-    const j = await res.json().catch(() => null);
-    if (!res.ok || !j?.success) {
-      return { awarded: false, reason: j?.error || `status_${res.status}` };
+      const j = await res.json().catch(() => null);
+      if (!res.ok || !j?.success) {
+        return { awarded: false, reason: j?.error || `status_${res.status}` };
+      }
+      return { awarded: true, entry: j?.entry || null };
+    } catch (e) {
+      return { awarded: false, reason: "network_error" };
     }
-    return { awarded: true, entry: j?.entry || null };
-  } catch (e) {
-    return { awarded: false, reason: "network_error" };
   }
-}
-
 
   // After awarding, pull fresh counts and update the UI
   async function refreshEntryStatsUI() {
