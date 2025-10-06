@@ -14,11 +14,11 @@
   const SYMBOL_NONE  = "-";
 
   // Per-reel random probability of Extra Entry (when not forcing a jackpot)
-  const WEIGHT_EXTRA = 0.82;  // 12% per reel
+  const WEIGHT_EXTRA = 0.12;  // 12% per reel
   const WEIGHT_NONE  = 1 - WEIGHT_EXTRA;
 
   // Independent forced jackpot rate (all three = Extra Entry)
-  const JACKPOT_RATE = 0.35; // ~3.5%
+  const JACKPOT_RATE = 0.15; // ~3.5%
 
   const JACKPOT_TEXT = "Awesome—+1 raffle entry added!";
 

@@ -63,6 +63,17 @@
     </div>
   </div>
 
+        <!-- Social follower counts -->
+        <div class="followers-wrapper">
+          <div class="follower-block">
+            <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/c/c3/FB_Logo_PNG.png/640px-FB_Logo_PNG.png" width="16" alt="Facebook" />
+            <span id="fb-followers">—</span><span> followers</span>
+          </div>
+          <div class="follower-block">
+            <img src="https://upload.wikimedia.org/wikipedia/commons/a/a5/Instagram_icon.png" width="16" alt="Instagram" />
+            <span id="ig-followers">—</span><span> followers</span>
+          </div>
+        </div>
   <div class="container">
     <section id="login-section">
       <h2 class="mb-8">Admin Login</h2>
@@ -907,6 +918,44 @@
       sp_load();
       sp_results();
     });
+  </script>
+  <!-- Followers refresher (works both prod and local dev) -->
+  <script>
+    (function(){
+      const fbEl = document.getElementById('fb-followers');
+      const igEl = document.getElementById('ig-followers');
+      if (!fbEl && !igEl) return;
+
+      async function detectBase(){
+        if (window.API_BASE) return window.API_BASE;
+        const origin = location.origin.replace(/\/+$/,'');
+        try {
+          const r = await fetch(origin + '/api/admin?action=ping', { cache:'no-store' });
+          if (r.ok) return window.API_BASE = origin;
+        } catch {}
+        try {
+          const b = 'http://localhost:3000';
+          const r = await fetch(b + '/api/admin?action=ping', { cache:'no-store' });
+          if (r.ok) return window.API_BASE = b;
+        } catch {}
+        return window.API_BASE = '';
+      }
+
+      async function getCounts(){
+        const base = (await detectBase()) || '';
+        const u = `${base}/api/admin?action=followers&_=${Date.now()}`;
+        try {
+          const r = await fetch(u, { cache:'no-store' });
+          const j = await r.json().catch(() => ({}));
+          const fb = Number(j.facebook), ig = Number(j.instagram);
+          if (Number.isFinite(fb) && fbEl) fbEl.textContent = fb.toLocaleString();
+          if (Number.isFinite(ig) && igEl) igEl.textContent = ig.toLocaleString();
+        } catch {}
+      }
+
+      getCounts();
+      setInterval(getCounts, 60_000);
+    })();
   </script>
 </body>
 </html>

@@ -18,7 +18,7 @@
     body{ margin:0; color:#fff; background:var(--bg); }
 
     .wrap{ max-width:720px; margin:0 auto; padding:20px 14px 40px; }
-    .logo{ text-align:center; margin:6px 0 14px; }
+    .logo{ text-align:center; margin:6px 0 0px; }
     .title{ text-align:center; font-size:26px; font-weight:900; margin:6px 0 2px; }
     .muted{ opacity:.85; }
     .hidden{ display:none!important; }
@@ -82,7 +82,7 @@
       display:block; text-align:center; padding:6px 10px; border-radius:999px;
       border:1px solid rgba(255,255,255,0.18); background:rgba(255,255,255,0.08); font-size:12px;
     }
-    .poll-status{ display:block; text-align:center; margin-top:8px; font-size:15px; min-height:20px; }
+
 
     /* After vote: hide list + counter + submit; keep message + CTA */
     .poll-inner.voted .poll-list,
@@ -97,14 +97,14 @@
       text-align:center;
     }
     .after-vote-cta .cta-copy{
-      margin:6px 0 10px;
+      margin:6px 0 15px;
       opacity:.95;
       font-size:15px;
     }
     .after-vote-cta .cta-btn{
       display:inline-block;
       padding:10px 14px;
-      border-radius:999px;
+      border-radius:20px;
       border:1px solid rgba(255,255,255,.2);
       background:#7c4dff;
       color:#fff;
@@ -149,7 +149,8 @@
     <div class="logo">
       <img src="https://pub-d919971fb927454bab9481eee8a435e3.r2.dev/logo-horizontal-white.png" width="200" alt="90 Surge" />
     </div>
-    <div class="title">Vote for our next covers 🎸</div>
+    <div class="sublogo">Next show: Cage Brewing 10/18 - St Petersburg</div>
+    <div class="title">Vote for our<br>next 3 covers 🎸</div>
 
     <!-- Live Ranking -->
     <section class="section section--leaders" id="poll-leaderboard" data-poll-id="top10" aria-labelledby="poll-leaderboard-title">
@@ -387,7 +388,7 @@
 
         els.list.appendChild(frag);
 
-        if (already) finishAndHide("Already voted , thank you");
+        if (already) finishAndHide("Thank you for your vote!");
         else updateCounter();
 
         resizeParent();

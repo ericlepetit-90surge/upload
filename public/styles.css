@@ -788,7 +788,7 @@ body.winner-locked #app-main { display: none !important; }
   gap: 10px;
   margin-top: 10px;
 }
-.poll-status { font-size: 0.95rem; color: #ffd166; }
+    .poll-status{ display:block; text-align:center; margin-top:8px; font-size:20px; min-height:20px; color: darkorange; }
 /* ===== /SONG POLL ===== */
 
 /* ===========================
@@ -970,13 +970,15 @@ body.winner-locked #app-main { display: none !important; }
 .email-consent{
   display:flex;
   align-items:flex-start;
-  gap:8px;
+  gap:18px;
   font-size:13px;
   line-height:1.35;
   opacity:.95;
-  margin-top:8px;
+  margin-top:38px;
 }
 .email-consent input[type="checkbox"]{ margin-top:3px; }
 
 
 #song-poll.voted .section-header { display: none !important; }
+
+.sublogo { text-align:center; font-size:18px; font-weight:900; margin:6px 0 20px; color: yellow; }
