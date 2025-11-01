@@ -1341,7 +1341,7 @@
     const confettiRoot = modal.querySelector(".confetti");
 
     if (name === "__NO_WINNER__") {
-      if (titleEl) titleEl.textContent = "We have a free 90 Surge winner!";
+      if (titleEl) titleEl.textContent = "We have a free 90 Surge T-Shirt winner!";
       if (lineEl) lineEl.innerHTML = `The winner will be contacted via email very soon! `;
       if (subEl)
         subEl.textContent = `Thanks for playing - stay tuned for a new poll tommorrow! See you at the next show!`;
