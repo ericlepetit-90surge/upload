@@ -2449,6 +2449,152 @@ export default async function handler(req, res) {
     }
   }
 
+  /* ────────────────────────────────────────────────────────────
+   ENTRIES RECOVERY — scan ALL windows, filter to name+email
+   Usage:
+     GET /api/admin?action=entries-recover           → all windows
+     GET /api/admin?action=entries-recover&limit=500 → cap results
+     GET /api/admin?action=entries-recover&since=2025-07-01T00:00:00Z
+──────────────────────────────────────────────────────────── */
+if (action === "entries-recover" && req.method === "GET") {
+  try {
+    return await withRedis(async (r) => {
+      const q = new URL(req.url, `http://${req.headers.host}`);
+      const limit = Math.max(
+        1,
+        Math.min( Number(q.searchParams.get("limit") || 5000), 100000)
+      );
+      const sinceIso = q.searchParams.get("since") || "";
+      const sinceMs = Date.parse(sinceIso) || 0;
+
+      // 1) find all raffle lists across all windows
+      const listKeys = await scanKeys(r, "raffle:entries:*", {
+        count: 500,
+        limit: 20000,
+        budgetMs: 2500,
+      });
+
+      // 2) read them in batches
+      const rows = [];
+      for (let i = 0; i < listKeys.length; i += 64) {
+        const batch = listKeys.slice(i, i + 64);
+        // pipeline
+        const pipe = r.multi();
+        for (const k of batch) pipe.lRange(k, 0, -1);
+        const lists = await pipe.exec();
+
+        batch.forEach((k, idx) => {
+          const arr = lists?.[idx] || [];
+          for (const s of arr) {
+            let e = null;
+            try { e = JSON.parse(s); } catch {}
+            if (!e) return;
+
+            // Accept either base-form entries or anything that captured an email
+            const name = (e.name || "").toString().trim();
+            const email = (e.email || "").toString().trim().toLowerCase();
+            const createdMs = Date.parse(e.createdTime || e.at || "") || 0;
+
+            if (!name) return;
+            if (!email || !/.+@.+\..+/.test(email)) return; // require valid email
+            if (sinceMs && createdMs && createdMs < sinceMs) return;
+
+            rows.push({
+              windowKey: k.replace(/^raffle:entries:/, ""),
+              id: e.id || null,
+              name,
+              email,
+              source: e.source || null,
+              createdTime: e.createdTime || e.at || null,
+              ip: e.ip || null,
+            });
+          }
+        });
+
+        if (rows.length >= limit) break;
+      }
+
+      // dedupe by (email,id) then by email if no id
+      const seen = new Set();
+      const out = [];
+      for (const r0 of rows) {
+        const keyA = r0.email + "::" + (r0.id || "");
+        const keyB = r0.email;
+        if (r0.id) {
+          if (seen.has(keyA)) continue;
+          seen.add(keyA);
+        } else {
+          if (seen.has(keyB)) continue;
+          seen.add(keyB);
+        }
+        out.push(r0);
+        if (out.length >= limit) break;
+      }
+
+      // newest first
+      out.sort((a, b) => {
+        const ta = Date.parse(a.createdTime || "") || 0;
+        const tb = Date.parse(b.createdTime || "") || 0;
+        return tb - ta || a.email.localeCompare(b.email);
+      });
+
+      noCache(res);
+      return res.status(200).json({
+        count: out.length,
+        rows: out,
+        scannedLists: listKeys.length,
+      });
+    }, 8000);
+  } catch (err) {
+    return res.status(503).json({ error: "Redis not ready", message: String(err?.message || err) });
+  }
+}
+
+/* ────────────────────────────────────────────────────────────
+   ENTRIES (CURRENT WINDOW) WITH EMAIL — quick view
+   Usage: GET /api/admin?action=entries-with-email
+──────────────────────────────────────────────────────────── */
+if (action === "entries-with-email" && req.method === "GET") {
+  try {
+    return await withRedis(async (r) => {
+      const { windowKey } = await getWindowInfo(r);
+      const listKey = `raffle:entries:${windowKey}`;
+      const raw = await r.lRange(listKey, 0, -1);
+
+      const rows = [];
+      for (const s of raw) {
+        try {
+          const e = JSON.parse(s);
+          const name = (e?.name || "").toString().trim();
+          const email = (e?.email || "").toString().trim().toLowerCase();
+          if (name && email && /.+@.+\..+/.test(email)) {
+            rows.push({
+              id: e.id || null,
+              name,
+              email,
+              source: e.source || null,
+              createdTime: e.createdTime || null,
+            });
+          }
+        } catch {}
+      }
+
+      // newest first
+      rows.sort((a, b) => {
+        const ta = Date.parse(a.createdTime || "") || 0;
+        const tb = Date.parse(b.createdTime || "") || 0;
+        return tb - ta || a.email.localeCompare(b.email);
+      });
+
+      noCache(res);
+      return res.status(200).json({ count: rows.length, rows });
+    }, 3000);
+  } catch {
+    return res.status(200).json({ count: 0, rows: [] });
+  }
+}
+
+
   /* ───── UNKNOWN ───── */
   return res.status(400).json({ error: "Invalid action or method" });
 }
