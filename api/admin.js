@@ -2258,17 +2258,16 @@ export default async function handler(req, res) {
   }
 if (action === "dump-uploads") {
   try {
-    return await withRedis(async (r) => {
-      const uploads = await r.lRange("uploads", 0, -1);
-      const parsed = uploads.map(x => {
-        try {
-          return JSON.parse(x);
-        } catch (err) {
-          return { error: "Invalid JSON", raw: x };
-        }
-      });
-      return res.status(200).json(parsed);
-    }, 3000);
+    await ensureRedisConnected(); // ⬅️ critical
+    const uploads = await redis.lRange("uploads", 0, -1);
+    const parsed = uploads.map(x => {
+      try {
+        return JSON.parse(x);
+      } catch (err) {
+        return { error: "Invalid JSON", raw: x };
+      }
+    });
+    return res.status(200).json(parsed);
   } catch (err) {
     console.error("❌ dump-uploads failed:", err);
     return res.status(500).json({

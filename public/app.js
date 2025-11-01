@@ -1341,10 +1341,10 @@
     const confettiRoot = modal.querySelector(".confetti");
 
     if (name === "__NO_WINNER__") {
-      if (titleEl) titleEl.textContent = "No winner this time";
-      if (lineEl) lineEl.innerHTML = `Looks like we had no entries this round.`;
+      if (titleEl) titleEl.textContent = "We have a free 90 Surge winner!";
+      if (lineEl) lineEl.innerHTML = `The winner will be contacted via email very soon! `;
       if (subEl)
-        subEl.textContent = `Thanks for stopping by — see you at the next show!`;
+        subEl.textContent = `Thanks for playing - stay tuned for a new poll tommorrow! See you at the next show!`;
       if (confettiRoot) confettiRoot.innerHTML = "";
     } else {
       modal
