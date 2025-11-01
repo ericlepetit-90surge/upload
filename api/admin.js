@@ -54,6 +54,41 @@ function _makeRedis() {
   return c;
 }
 
+import { createClient } from "redis";
+
+let redis;
+
+if (!globalThis.__redis && process.env.REDIS_URL) {
+  const client = createClient({
+    url: process.env.REDIS_URL,
+    socket: {
+      connectTimeout: 5000,
+      reconnectStrategy: retries => Math.min(retries * 200, 3000),
+    },
+  });
+
+  client
+    .connect()
+    .then(() => console.log("✅ Redis connected"))
+    .catch(err => console.error("❌ Redis connection failed:", err));
+
+  globalThis.__redis = client;
+}
+
+redis = globalThis.__redis;
+
+// 🔄 Ensure Redis is always connected
+async function ensureRedisConnected() {
+  if (!redis?.isOpen) {
+    console.warn("🔄 Reconnecting Redis...");
+    try {
+      await redis.connect();
+    } catch (err) {
+      console.error("❌ Redis reconnect failed:", err.message);
+    }
+  }
+}
+
 async function getRedis() {
   if (!REDIS_URL) return null;
   if (_redis?.isOpen) return _redis;
@@ -1484,6 +1519,7 @@ export default async function handler(req, res) {
     }
   }
 
+  
   if (req.method === "GET" && action === "check-follow") {
     try {
       return await withRedis(async (r) => {
@@ -2220,6 +2256,27 @@ export default async function handler(req, res) {
       },
     });
   }
+if (action === "dump-uploads") {
+  try {
+    return await withRedis(async (r) => {
+      const uploads = await r.lRange("uploads", 0, -1);
+      const parsed = uploads.map(x => {
+        try {
+          return JSON.parse(x);
+        } catch (err) {
+          return { error: "Invalid JSON", raw: x };
+        }
+      });
+      return res.status(200).json(parsed);
+    }, 3000);
+  } catch (err) {
+    console.error("❌ dump-uploads failed:", err);
+    return res.status(500).json({
+      error: "Failed to dump uploads",
+      details: err.message,
+    });
+  }
+}
 
   /* ───── UNKNOWN ───── */
   return res.status(400).json({ error: "Invalid action or method" });
