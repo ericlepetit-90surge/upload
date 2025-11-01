@@ -54,30 +54,27 @@ function _makeRedis() {
   return c;
 }
 
-import { createClient } from "redis";
-
+// Lightweight global client (used by dump-uploads) — keep compatible with your code path
 let redis;
-
 if (!globalThis.__redis && process.env.REDIS_URL) {
   const client = createClient({
     url: process.env.REDIS_URL,
     socket: {
       connectTimeout: 5000,
-      reconnectStrategy: retries => Math.min(retries * 200, 3000),
+      reconnectStrategy: (retries) => Math.min(retries * 200, 3000),
     },
   });
 
   client
     .connect()
     .then(() => console.log("✅ Redis connected"))
-    .catch(err => console.error("❌ Redis connection failed:", err));
+    .catch((err) => console.error("❌ Redis connection failed:", err));
 
   globalThis.__redis = client;
 }
-
 redis = globalThis.__redis;
 
-// 🔄 Ensure Redis is always connected
+// 🔄 Ensure Redis is always connected (for the simple global client)
 async function ensureRedisConnected() {
   if (!redis?.isOpen) {
     console.warn("🔄 Reconnecting Redis...");
@@ -832,6 +829,39 @@ export default async function handler(req, res) {
     }
   }
 
+  /* NEW: entries-with-email — raffle entries that actually have BOTH name + email */
+  if (action === "entries-with-email" && req.method === "GET") {
+    try {
+      return await withRedis(async (r) => {
+        const { windowKey } = await getWindowInfo(r);
+        const listKey = `raffle:entries:${windowKey}`;
+
+        const raw = await r.lRange(listKey, 0, -1);
+        const rows = [];
+        for (const s of raw) {
+          try {
+            const e = JSON.parse(s);
+            const name = String(e?.name || "").trim();
+            const email = String(e?.email || "").trim().toLowerCase();
+            if (name && email && /.+@.+\..+/.test(email)) {
+              rows.push({
+                id: e.id || null,
+                name,
+                email,
+                source: e.source || null,
+                createdTime: e.createdTime || null,
+                ip: e.ip || null,
+              });
+            }
+          } catch {}
+        }
+        return res.status(200).json({ rows, count: rows.length });
+      }, 2500);
+    } catch {
+      return res.status(200).json({ rows: [], count: 0 });
+    }
+  }
+
   if (action === "my-entries" && req.method === "GET") {
     try {
       return await withRedis(async (r) => {
@@ -1519,7 +1549,7 @@ export default async function handler(req, res) {
     }
   }
 
-  
+  // Check/mark follow (unchanged)
   if (req.method === "GET" && action === "check-follow") {
     try {
       return await withRedis(async (r) => {
@@ -2110,8 +2140,7 @@ export default async function handler(req, res) {
         const toDelete = new Set();
         for (const p of patterns) {
           const keys = await scanKeys(r, p, { budgetMs: 900, limit: 20000 });
-          for (const k of keys)
-            if (!k.startsWith("poll:songs:")) toDelete.add(k);
+          for (const k of keys) toDelete.add(k);
         }
 
         let deleted = 0;
@@ -2256,26 +2285,169 @@ export default async function handler(req, res) {
       },
     });
   }
-if (action === "dump-uploads") {
-  try {
-    await ensureRedisConnected(); // ⬅️ critical
-    const uploads = await redis.lRange("uploads", 0, -1);
-    const parsed = uploads.map(x => {
-      try {
-        return JSON.parse(x);
-      } catch (err) {
-        return { error: "Invalid JSON", raw: x };
+
+  /* NEW: uploads-with-email — filter uploads having email (native or inferred) */
+  if (req.method === "GET" && action === "uploads-with-email") {
+    try {
+      await ensureRedisConnected();
+      const uploads = await redis.lRange("uploads", 0, -1);
+      const rows = [];
+      for (const s of uploads) {
+        try {
+          const u = JSON.parse(s);
+          const name = String(u?.userName || "").trim();
+          const emailCandidate = String(u?.userEmail || "").trim().toLowerCase();
+          const looksEmail = (t) => !!t && /.+@.+\..+/.test(t);
+          const email = looksEmail(emailCandidate)
+            ? emailCandidate
+            : looksEmail(name)
+            ? name.toLowerCase()
+            : "";
+
+          if (name && email) {
+            rows.push({
+              id: u.id || u.fileId || u.fileName || null,
+              name,
+              email,
+              createdTime: u.createdTime || null,
+              fileName: u.fileName || null,
+              fileUrl: u.fileUrl || null,
+              mimeType: u.mimeType || null,
+              votes: typeof u.votes === "number" ? u.votes : undefined,
+              originalFileName: u.originalFileName || null,
+            });
+          }
+        } catch {}
       }
-    });
-    return res.status(200).json(parsed);
-  } catch (err) {
-    console.error("❌ dump-uploads failed:", err);
-    return res.status(500).json({
-      error: "Failed to dump uploads",
-      details: err.message,
-    });
+      return res.status(200).json({ rows, count: rows.length });
+    } catch (err) {
+      console.error("uploads-with-email failed:", err?.message || err);
+      return res.status(200).json({ rows: [], count: 0, _error: true });
+    }
   }
-}
+
+  /* NEW: contacts — merged unique contacts from raffle entries + uploads */
+  if (req.method === "GET" && action === "contacts") {
+    try {
+      // 1) Raffle entries with email
+      let raffleRows = [];
+      await withRedis(async (r) => {
+        const { windowKey } = await getWindowInfo(r);
+        const listKey = `raffle:entries:${windowKey}`;
+        const raw = await r.lRange(listKey, 0, -1);
+        for (const s of raw) {
+          try {
+            const e = JSON.parse(s);
+            const name = String(e?.name || "").trim();
+            const email = String(e?.email || "").trim().toLowerCase();
+            if (name && email && /.+@.+\..+/.test(email)) {
+              raffleRows.push({
+                email,
+                name,
+                source: e.source || "raffle",
+                createdTime: e.createdTime || null,
+              });
+            }
+          } catch {}
+        }
+      }, 2500).catch(() => {});
+
+      // 2) Uploads with email (native or inferred)
+      let uploadRows = [];
+      try {
+        await ensureRedisConnected();
+        const uploads = await redis.lRange("uploads", 0, -1);
+        for (const s of uploads) {
+          try {
+            const u = JSON.parse(s);
+            const name = String(u?.userName || "").trim();
+            const emailCandidate = String(u?.userEmail || "").trim().toLowerCase();
+            const looksEmail = (t) => !!t && /.+@.+\..+/.test(t);
+            const email = looksEmail(emailCandidate)
+              ? emailCandidate
+              : looksEmail(name)
+              ? name.toLowerCase()
+              : "";
+            if (name && email) {
+              uploadRows.push({
+                email,
+                name,
+                source: "upload",
+                createdTime: u.createdTime || null,
+              });
+            }
+          } catch {}
+        }
+      } catch {}
+
+      // 3) Merge — prefer raffle (more explicit) over upload inference
+      const byEmail = new Map();
+      for (const row of [...uploadRows, ...raffleRows]) {
+        const key = row.email;
+        if (!byEmail.has(key)) byEmail.set(key, row);
+        else {
+          // choose earliest createdTime as firstSeen, latest as lastSeen
+          const prev = byEmail.get(key);
+          const firstName = prev.name || row.name;
+          const firstSource = prev.source === "raffle" ? prev.source : row.source;
+          const times = [prev.createdTime, row.createdTime].filter(Boolean).map((t) => +new Date(t));
+          const firstSeen = times.length ? new Date(Math.min(...times)).toISOString() : (prev.createdTime || row.createdTime || null);
+          const lastSeen = times.length ? new Date(Math.max(...times)).toISOString() : (prev.createdTime || row.createdTime || null);
+          byEmail.set(key, {
+            email: key,
+            name: firstName,
+            source: firstSource,
+            firstSeen,
+            lastSeen,
+          });
+        }
+      }
+
+      // post-process first/last for entries that appeared once
+      const rows = Array.from(byEmail.values()).map((r) => {
+        if (!r.firstSeen && r.createdTime) {
+          r.firstSeen = r.createdTime;
+          r.lastSeen = r.createdTime;
+          delete r.createdTime;
+        }
+        return r;
+      });
+
+      // sort by lastSeen desc if available, else by name
+      rows.sort((a, b) => {
+        const ta = a.lastSeen ? +new Date(a.lastSeen) : 0;
+        const tb = b.lastSeen ? +new Date(b.lastSeen) : 0;
+        if (tb !== ta) return tb - ta;
+        return (a.name || "").localeCompare(b.name || "");
+      });
+
+      return res.status(200).json({ rows, count: rows.length });
+    } catch (err) {
+      console.error("contacts merge failed:", err?.message || err);
+      return res.status(200).json({ rows: [], count: 0, _error: true });
+    }
+  }
+
+  if (action === "dump-uploads") {
+    try {
+      await ensureRedisConnected(); // ⬅️ critical
+      const uploads = await redis.lRange("uploads", 0, -1);
+      const parsed = uploads.map((x) => {
+        try {
+          return JSON.parse(x);
+        } catch (err) {
+          return { error: "Invalid JSON", raw: x };
+        }
+      });
+      return res.status(200).json(parsed);
+    } catch (err) {
+      console.error("❌ dump-uploads failed:", err);
+      return res.status(500).json({
+        error: "Failed to dump uploads",
+        details: err.message,
+      });
+    }
+  }
 
   /* ───── UNKNOWN ───── */
   return res.status(400).json({ error: "Invalid action or method" });
