@@ -163,6 +163,26 @@ export default async function handler(req, res) {
   }
 
   /* ──────────────────────────────────────────────
+   RESET POLL (ADMIN ONLY)
+────────────────────────────────────────────── */
+if (action === "reset-poll" && req.method === "POST") {
+  if (!isAdmin(req)) return res.status(403).json({ error: "Forbidden" });
+
+  const pollId = "top10"; // same one you use in your front-end
+  try {
+    return await withRedis(async (r) => {
+      const voteKeys = await r.keys(`poll:votes:${pollId}:*`);
+      if (voteKeys.length) await r.del(...voteKeys);
+      await r.del(`poll:voted:${pollId}`);
+      return res.json({ success: true, cleared: voteKeys.length });
+    });
+  } catch (err) {
+    console.error("reset-poll failed:", err);
+    return res.status(500).json({ success: false, error: "reset failed" });
+  }
+}
+
+  /* ──────────────────────────────────────────────
      RAFFLE: ENTRIES / WINNER / RESET / JACKPOT
   ─────────────────────────────────────────────── */
   if (action === "enter" && req.method === "POST") {
