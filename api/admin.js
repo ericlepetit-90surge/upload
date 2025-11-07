@@ -10,7 +10,7 @@ try {
 export const config = { runtime: "nodejs" };
 
 // Minimum total entries shown publicly
-const PUBLIC_TOTAL_FLOOR = 12;
+const PUBLIC_TOTAL_FLOOR = 6;
 
 /* ──────────────────────────────────────────────────────────────
    ENV + mode
@@ -924,69 +924,6 @@ export default async function handler(req, res) {
     }
   }
 
-  // ────────────────────────────────────────────────────────────
-  // Social status (per-window aggregate for Admin UI)
-  // ────────────────────────────────────────────────────────────
-  if (req.method === "GET" && action === "social-status") {
-    try {
-      return await withRedis(async (r) => {
-        const { windowKey } = await getWindowInfo(r);
-        const setKey = `social:ips:${windowKey}`;
-        const ips = await r.sMembers(setKey);
-
-        const entries = [];
-        let totalUnlocked = 0,
-          fbClicks = 0,
-          igClicks = 0;
-
-        for (const ip of ips) {
-          const key = `social:${windowKey}:${ip}`;
-          const raw = await r.get(key);
-          if (!raw) continue;
-          let s;
-          try {
-            s = JSON.parse(raw);
-          } catch {
-            s = { followed: raw === "true", platforms: {} };
-          }
-          const ttlSeconds = await r.ttl(key);
-          if (s.followed) totalUnlocked += 1;
-          if (s.platforms?.fb) fbClicks += 1;
-          if (s.platforms?.ig) igClicks += 1;
-          entries.push({
-            ip,
-            firstSeen: s.firstSeen || null,
-            lastSeen: s.lastSeen || null,
-            followed: !!s.followed,
-            platforms: s.platforms || {},
-            count: s.count || 1,
-            ttlSeconds,
-          });
-        }
-
-        return res.status(200).json({
-          totals: {
-            uniqueIPsTracked: entries.length,
-            unlocked: totalUnlocked,
-            facebookClicks: fbClicks,
-            instagramClicks: igClicks,
-          },
-          entries,
-        });
-      }, 3500);
-    } catch {
-      return res.status(200).json({
-        totals: {
-          uniqueIPsTracked: 0,
-          unlocked: 0,
-          facebookClicks: 0,
-          instagramClicks: 0,
-        },
-        entries: [],
-        _fallback: true,
-      });
-    }
-  }
 
   /* ────────────────────────────────────────────────────────────
      WINNER (current) + PICK + RESET

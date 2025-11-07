@@ -593,7 +593,7 @@
   const totalEl = $("#total-entries-count");
 
   // Must match server's public floor
-  const PUBLIC_BASELINE = 12;
+  const PUBLIC_BASELINE = 6;
 
   // ── Detect round/config changes (version/start/end) and clear local session floors
   const cfg = cfgMem || readCfgCache() || {};
