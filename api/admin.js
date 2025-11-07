@@ -1796,17 +1796,33 @@ export default async function handler(req, res) {
             "pollId"
           ) || "top10"
         );
-        const raw = await r.get(`poll:songs:${pollId}`);
+
+        // --- CHANGED PART START ---
+        // Fetch songs AND version together
+        const [raw, ver] = await Promise.all([
+           r.get(`poll:songs:${pollId}`),
+           r.get(`poll:version:${pollId}`).catch(() => "1")
+        ]);
+        // --- CHANGED PART END ---
+
         let songs = [];
         try {
           const v = JSON.parse(raw || "[]");
           songs = Array.isArray(v) ? v : [];
         } catch {}
+
         noCache(res);
-        return res.status(200).json({ pollId, songs });
+        // Return version to client
+        return res.status(200).json({
+            pollId,
+            songs,
+            version: Number(ver || 1)
+        });
       }, 2500);
-    } catch {
-      return res.status(200).json({ pollId: "top10", songs: [] });
+    } catch (e) {
+      // Fallback if Redis fails
+      console.error("Poll load error:", e);
+      return res.status(200).json({ pollId: "top10", songs: [], version: 1 });
     }
   }
 
@@ -2219,6 +2235,36 @@ export default async function handler(req, res) {
         CWD: process.cwd(),
       },
     });
+  }
+
+/* ────────────────────────────────────────────────────────────
+   RESET POLL VOTERS ONLY (Keep vote counts)
+  ──────────────────────────────────────────────────────────── */
+  if (action === "reset-poll" && req.method === "POST") {
+    if (!isAdmin(req)) return res.status(403).json({ error: "Forbidden" });
+
+    const pollId = "top10";
+    try {
+      return await withRedis(async (r) => {
+        const { windowKey } = await getWindowInfo(r);
+
+        // 1. Delete ONLY the server-side voter locks for the current window
+        const dedupeKey = `poll:voted:${windowKey}:${pollId}`;
+        await r.del(dedupeKey);
+
+        // 2. Bump version so clients know to clear their local browser lock
+        const newVer = await r.incr(`poll:version:${pollId}`);
+
+        return res.status(200).json({
+          success: true,
+          version: newVer,
+          note: "Voter locks cleared. Vote counts PRESERVED. Users can vote again.",
+        });
+      }, 3000);
+    } catch (err) {
+      console.error("reset-poll failed:", err);
+      return res.status(503).json({ error: "Redis not ready" });
+    }
   }
 
   /* ───── UNKNOWN ───── */

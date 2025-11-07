@@ -334,6 +334,7 @@
 
   <!-- Leaderboard (Top 5 w/ percentages) -->
   <script type="module">
+    let __pollVersion = 1; // default
   (() => {
     const root  = document.getElementById('poll-leaderboard');
     if (!root) return;
@@ -424,6 +425,10 @@
       const isEmbedded = urlQ.searchParams.get('embed') === '1' || (window !== window.top);
       const MAX = 3;
 
+      // --- NEW: Track poll version ---
+      let __pollVersion = 1;
+      // -------------------------------
+
       const $ = (s, r = document) => r.querySelector(s);
       const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
 
@@ -464,8 +469,11 @@
         try { return (localStorage.getItem(NAME_KEY) || '').trim().slice(0, 80); } catch { return ''; }
       }
 
-      const votedLocal = () => localStorage.getItem("poll_voted_" + POLL_ID) === "1";
-      const markVotedLocal = () => localStorage.setItem("poll_voted_" + POLL_ID, "1");
+      // --- UPDATED: Use version in local storage key ---
+      const votedLocal = () => localStorage.getItem(`poll_voted_${POLL_ID}_v${__pollVersion}`) === "1";
+      const markVotedLocal = () => localStorage.setItem(`poll_voted_${POLL_ID}_v${__pollVersion}`, "1");
+      // -------------------------------------------------
+
       const state = { songs: [], picks: new Set() };
 
       function updateCounter() {
@@ -482,7 +490,6 @@
         try {
           els.cta?.classList?.remove('hidden');
           els.cta && (els.cta.style.display = 'block');
-          // If embedded, try to tell parent to focus the raffle app (optional)
           els.ctaBtn?.addEventListener('click', (e) => {
             if (window !== window.top) {
               try { window.parent.postMessage({ type: 'raffle:open' }, '*'); } catch { }
@@ -494,7 +501,7 @@
       function finishAndHide(msg) {
         els.status.textContent = msg || "";
         pollInner?.classList.add('voted');
-        document.getElementById('song-poll')?.classList.add('voted'); // hide the header too
+        document.getElementById('song-poll')?.classList.add('voted');
         showCTA();
         resizeParent();
       }
@@ -502,11 +509,18 @@
       async function loadPoll() {
         try {
           const base = (window.API_BASE || '').replace(/\/+$/, '');
+          // Fetch from server
           const res = await fetch(`${base}${POLL_API}&pollId=${encodeURIComponent(POLL_ID)}&_=${Date.now()}`, { cache: "no-store" });
           const data = await res.json().catch(() => ({}));
+
+          // --- NEW: Get version from server response ---
+          __pollVersion = Number(data.version) || 1;
+          // ---------------------------------------------
+
           state.songs = Array.isArray(data.songs) ? data.songs.slice(0, 10) : [];
           render();
-        } catch {
+        } catch (e) {
+          console.error(e);
           els.list.innerHTML = `<li class="poll-row muted" style="justify-content:center;text-align:center">Could not load songs.</li>`;
           resizeParent();
         }
@@ -516,6 +530,7 @@
         els.list.innerHTML = "";
         state.picks.clear();
 
+        // Check if voted using the NEW version-aware function
         const already = votedLocal();
         const frag = document.createDocumentFragment();
 
@@ -549,7 +564,14 @@
         els.list.appendChild(frag);
 
         if (already) finishAndHide("Thank you for your vote!");
-        else updateCounter();
+        else {
+           // If we just reset, we need to UN-HIDE everything just in case
+           pollInner?.classList.remove('voted');
+           document.getElementById('song-poll')?.classList.remove('voted');
+           if(els.cta) els.cta.style.display = 'none';
+           els.status.textContent = "";
+           updateCounter();
+        }
 
         resizeParent();
       }
@@ -567,7 +589,6 @@
         try {
           await determineLive();
 
-          // Bonus only when embedded + live + name present
           const savedName = getSavedName();
           const includeName = isEmbedded && __isLive && !!savedName;
 
@@ -585,7 +606,6 @@
           const out = await res.json().catch(() => ({}));
           if (!res.ok) throw new Error(out?.error || "vote failed");
 
-          // Regardless of first vote or duplicate, show the same message + CTA
           markVotedLocal();
           finishAndHide("Thank you for your vote!");
         } catch (e) {

@@ -1,56 +1,348 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>90 Surge • Admin Panel</title>
   <style>
-    :root{
-      --bg:#0f0f12;--card:#17181c;--muted:#a3a7b3;--text:#eef2ff;
-      --accent:#e91e63;--accent-2:#7c4dff;--danger:#ef4444;--success:#10b981;--reset:#f3bf64;
-      --radius:14px;--gap:16px;
+    :root {
+      --bg: #0f0f12;
+      --card: #17181c;
+      --muted: #a3a7b3;
+      --text: #eef2ff;
+      --accent: #e91e63;
+      --accent-2: #7c4dff;
+      --danger: #ef4444;
+      --success: #10b981;
+      --reset: #f3bf64;
+      --radius: 14px;
+      --gap: 16px;
     }
-    *{box-sizing:border-box} html,body{height:100%}
-    body{margin:0;background:var(--bg);color:var(--text);font:14px/1.35 system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,"Apple Color Emoji","Segoe UI Emoji"}
-    .container{max-width:1200px;margin:0 auto;padding:24px}
-    .topbar{position:sticky;top:0;z-index:20;backdrop-filter:saturate(140%) blur(6px);
-      background:linear-gradient(180deg,rgba(15,15,18,.85),rgba(15,15,18,.6));border-bottom:1px solid rgba(255,255,255,.06)}
-    .topbar-inner{display:flex;align-items:center;gap:12px;padding:14px 24px}
-    .brand{display:flex;align-items:center;gap:10px;font-weight:700;letter-spacing:.3px}
-    .brand img{height:24px;width:auto;filter:drop-shadow(0 0 8px rgba(233,30,99,.35))}
-    .spacer{flex:1}
-    .badge{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:999px;font-weight:600;font-size:12px}
-    .badge.admin{background:rgba(233,30,99,.12);color:#ffd6e6;border:1px solid rgba(233,30,99,.35)}
-    .badge.moderator{background:rgba(124,77,255,.12);color:#e5dbff;border:1px solid rgba(124,77,255,.35)}
-    .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:10px 14px;border-radius:10px;border:1px solid transparent;cursor:pointer;font-weight:600;color:var(--text);background:#24262c;transition:transform .04s ease,border-color .15s ease,background .15s ease}
-    .btn:hover{transform:translateY(-1px)} .btn:active{transform:translateY(0)}
-    .btn.primary{background:var(--accent)} .btn.success{background:var(--success)}
-    .btn.warning{background:var(--reset);color:#111} .btn.danger{background:var(--danger)}
-    .btn.ghost{background:#30333a;border-color:rgba(255,255,255,.12)} .btn.small{padding:7px 10px;font-size:12px}
-    .grid{display:grid;grid-template-columns:repeat(12,1fr);gap:var(--gap);margin-top:var(--gap)}
-    .col-4{grid-column:span 4}.col-6{grid-column:span 6}.col-8{grid-column:span 8}.col-12{grid-column:span 12}
-    .card{background:var(--card);border:1px solid rgba(255,255,255,.06);border-radius:var(--radius);overflow:hidden}
-    .card-header{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:16px 18px;border-bottom:1px solid rgba(255,255,255,.06)}
-    .card-title{font-weight:700;letter-spacing:.2px} .card-subtle{color:var(--muted);font-size:12px}
-    .card-body{padding:16px 18px}
-    .field{display:flex;flex-direction:column;gap:8px;margin-bottom:12px}
-    .field label{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.08em}
-    .input{background:#101216;color:var(--text);border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:10px 12px;outline:none}
-    .input:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(233,30,99,.15)}
-    .inline-actions{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
-    .status{display:inline-flex;align-items:center;gap:8px;padding:10px 12px;border-radius:10px;background:#0f1319;color:var(--muted);border:1px solid rgba(255,255,255,.08);font-weight:600}
-    .chip{display:inline-flex;align-items:center;gap:6px;padding:4px 8px;border-radius:999px;background:#0f1319;border:1px solid rgba(255,255,255,.1);font-size:12px;color:var(--muted)}
-    table{width:100%;border-collapse:separate;border-spacing:0 6px}
-    thead th{text-align:left;font-size:12px;color:var(--muted);padding:6px 10px}
-    tbody tr{background:#121318;border:1px solid rgba(255,255,255,.06)} tbody td{padding:10px}
-    .table-scroll{overflow:auto;border:1px solid rgba(255,255,255,.06);border-radius:12px}
-    #login-section{max-width:420px;margin:32px auto;background:var(--card);border:1px solid rgba(255,255,255,.06);border-radius:var(--radius);padding:22px}
-    #login-section h2{margin:0 0 10px 0}
-    .muted{color:var(--muted)} .mt-12{margin-top:12px}.mt-16{margin-top:16px}.mb-8{margin-bottom:8px}
-    @media (max-width:920px){.col-4,.col-6,.col-8{grid-column:span 12}}
-    @media (max-width:560px){.container{padding:16px}.topbar-inner{padding:12px 16px}.card-header,.card-body{padding:14px 16px}}
+
+    * {
+      box-sizing: border-box
+    }
+
+    html,
+    body {
+      height: 100%
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font: 14px/1.35 system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji"
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 24px
+    }
+
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      backdrop-filter: saturate(140%) blur(6px);
+      background: linear-gradient(180deg, rgba(15, 15, 18, .85), rgba(15, 15, 18, .6));
+      border-bottom: 1px solid rgba(255, 255, 255, .06)
+    }
+
+    .topbar-inner {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 14px 24px
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 700;
+      letter-spacing: .3px
+    }
+
+    .brand img {
+      height: 24px;
+      width: auto;
+      filter: drop-shadow(0 0 8px rgba(233, 30, 99, .35))
+    }
+
+    .spacer {
+      flex: 1
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 10px;
+      border-radius: 999px;
+      font-weight: 600;
+      font-size: 12px
+    }
+
+    .badge.admin {
+      background: rgba(233, 30, 99, .12);
+      color: #ffd6e6;
+      border: 1px solid rgba(233, 30, 99, .35)
+    }
+
+    .badge.moderator {
+      background: rgba(124, 77, 255, .12);
+      color: #e5dbff;
+      border: 1px solid rgba(124, 77, 255, .35)
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 10px 14px;
+      border-radius: 10px;
+      border: 1px solid transparent;
+      cursor: pointer;
+      font-weight: 600;
+      color: var(--text);
+      background: #24262c;
+      transition: transform .04s ease, border-color .15s ease, background .15s ease
+    }
+
+    .btn:hover {
+      transform: translateY(-1px)
+    }
+
+    .btn:active {
+      transform: translateY(0)
+    }
+
+    .btn.primary {
+      background: var(--accent)
+    }
+
+    .btn.success {
+      background: var(--success)
+    }
+
+    .btn.warning {
+      background: var(--reset);
+      color: #111
+    }
+
+    .btn.danger {
+      background: var(--danger)
+    }
+
+    .btn.ghost {
+      background: #30333a;
+      border-color: rgba(255, 255, 255, .12)
+    }
+
+    .btn.small {
+      padding: 7px 10px;
+      font-size: 12px
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(12, 1fr);
+      gap: var(--gap);
+      margin-top: var(--gap)
+    }
+
+    .col-4 {
+      grid-column: span 4
+    }
+
+    .col-6 {
+      grid-column: span 6
+    }
+
+    .col-8 {
+      grid-column: span 8
+    }
+
+    .col-12 {
+      grid-column: span 12
+    }
+
+    .card {
+      background: var(--card);
+      border: 1px solid rgba(255, 255, 255, .06);
+      border-radius: var(--radius);
+      overflow: hidden
+    }
+
+    .card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 16px 18px;
+      border-bottom: 1px solid rgba(255, 255, 255, .06)
+    }
+
+    .card-title {
+      font-weight: 700;
+      letter-spacing: .2px
+    }
+
+    .card-subtle {
+      color: var(--muted);
+      font-size: 12px
+    }
+
+    .card-body {
+      padding: 16px 18px
+    }
+
+    .field {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-bottom: 12px
+    }
+
+    .field label {
+      color: var(--muted);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: .08em
+    }
+
+    .input {
+      background: #101216;
+      color: var(--text);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 10px;
+      padding: 10px 12px;
+      outline: none
+    }
+
+    .input:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(233, 30, 99, .15)
+    }
+
+    .inline-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center
+    }
+
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 12px;
+      border-radius: 10px;
+      background: #0f1319;
+      color: var(--muted);
+      border: 1px solid rgba(255, 255, 255, .08);
+      font-weight: 600
+    }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: #0f1319;
+      border: 1px solid rgba(255, 255, 255, .1);
+      font-size: 12px;
+      color: var(--muted)
+    }
+
+    table {
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 0 6px
+    }
+
+    thead th {
+      text-align: left;
+      font-size: 12px;
+      color: var(--muted);
+      padding: 6px 10px
+    }
+
+    tbody tr {
+      background: #121318;
+      border: 1px solid rgba(255, 255, 255, .06)
+    }
+
+    tbody td {
+      padding: 10px
+    }
+
+    .table-scroll {
+      overflow: auto;
+      border: 1px solid rgba(255, 255, 255, .06);
+      border-radius: 12px
+    }
+
+    #login-section {
+      max-width: 420px;
+      margin: 32px auto;
+      background: var(--card);
+      border: 1px solid rgba(255, 255, 255, .06);
+      border-radius: var(--radius);
+      padding: 22px
+    }
+
+    #login-section h2 {
+      margin: 0 0 10px 0
+    }
+
+    .muted {
+      color: var(--muted)
+    }
+
+    .mt-12 {
+      margin-top: 12px
+    }
+
+    .mt-16 {
+      margin-top: 16px
+    }
+
+    .mb-8 {
+      margin-bottom: 8px
+    }
+
+    @media (max-width:920px) {
+
+      .col-4,
+      .col-6,
+      .col-8 {
+        grid-column: span 12
+      }
+    }
+
+    @media (max-width:560px) {
+      .container {
+        padding: 16px
+      }
+
+      .topbar-inner {
+        padding: 12px 16px
+      }
+
+      .card-header,
+      .card-body {
+        padding: 14px 16px
+      }
+    }
   </style>
 </head>
+
 <body>
   <div class="topbar">
     <div class="topbar-inner">
@@ -63,17 +355,18 @@
     </div>
   </div>
 
-        <!-- Social follower counts -->
-        <div class="followers-wrapper">
-          <div class="follower-block">
-            <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/c/c3/FB_Logo_PNG.png/640px-FB_Logo_PNG.png" width="16" alt="Facebook" />
-            <span id="fb-followers">—</span><span> followers</span>
-          </div>
-          <div class="follower-block">
-            <img src="https://upload.wikimedia.org/wikipedia/commons/a/a5/Instagram_icon.png" width="16" alt="Instagram" />
-            <span id="ig-followers">—</span><span> followers</span>
-          </div>
-        </div>
+  <!-- Social follower counts -->
+  <div class="followers-wrapper">
+    <div class="follower-block">
+      <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/c/c3/FB_Logo_PNG.png/640px-FB_Logo_PNG.png"
+        width="16" alt="Facebook" />
+      <span id="fb-followers">—</span><span> followers</span>
+    </div>
+    <div class="follower-block">
+      <img src="https://upload.wikimedia.org/wikipedia/commons/a/a5/Instagram_icon.png" width="16" alt="Instagram" />
+      <span id="ig-followers">—</span><span> followers</span>
+    </div>
+  </div>
   <div class="container">
     <section id="login-section">
       <h2 class="mb-8">Admin Login</h2>
@@ -109,7 +402,8 @@
         <div class="card col-6 admin-only-block">
           <div class="card-header">
             <div class="card-title">Raffle Config (Monthly)</div>
-            <div class="card-subtle">Pick the <strong>last day of the month</strong>. Winner auto-picks at <strong>12:00 local</strong> that day.</div>
+            <div class="card-subtle">Pick the <strong>last day of the month</strong>. Winner auto-picks at <strong>12:00
+                local</strong> that day.</div>
           </div>
           <div class="card-body">
             <div class="field">
@@ -215,7 +509,8 @@
           <div class="card-header">
             <div class="card-title">🎵 Song Poll (10 items, users pick 3)</div>
             <div class="inline-actions">
-              <a id="poll-open-link" class="chip" href="/public/poll.html?pollId=top10" target="_blank" rel="noopener">Open poll</a>
+              <a id="poll-open-link" class="chip" href="/public/poll.html?pollId=top10" target="_blank"
+                rel="noopener">Open poll</a>
             </div>
           </div>
           <div class="card-body">
@@ -232,7 +527,8 @@
                 <div id="poll-status" class="muted mt-12">—</div>
 
                 <div class="mt-12">
-                  <button class="btn small" id="poll-reset-submit-local-btn" type="button" title="Local test: clears only the 'already voted' lock; keeps counts.">
+                  <button class="btn small" id="poll-reset-submit-local-btn" type="button"
+                    title="Local test: clears only the 'already voted' lock; keeps counts.">
                     Reset Submit (for local testing)
                   </button>
                   <small id="poll-reset-submit-status" class="muted"></small>
@@ -242,7 +538,8 @@
               <div class="col-8">
                 <div class="field">
                   <label for="poll-json">Songs JSON (exactly 10)</label>
-                  <textarea id="poll-json" class="input" rows="14" spellcheck="false" placeholder='[{"id":"slug","title":"Song Title","artist":"Artist"}]'></textarea>
+                  <textarea id="poll-json" class="input" rows="14" spellcheck="false"
+                    placeholder='[{"id":"slug","title":"Song Title","artist":"Artist"}]'></textarea>
                 </div>
 
                 <div class="field">
@@ -254,9 +551,14 @@
                   <label>Results</label>
                   <div class="inline-actions mb-8">
                     <button class="btn small" id="poll-results-refresh">Refresh Results</button>
-                    <button class="btn danger small" id="poll-reset-all-btn" type="button" title="Clears all poll votes/ballots/locks; keeps songs.">
-                      RESET ALL POLL VOTES
+                    <button class="btn danger small" id="poll-reset-all-btn" type="button"
+                      title="Clears all poll votes/ballots/locks; keeps songs.">
+                      RESET POLL ENTRIES
                     </button>
+                    <!-- Add somewhere in your admin UI, e.g. near the poll setup section -->
+                    <button id="btnResetPoll" style="background-color:#e74c3c;color:#fff;padding:10px;">RE-ENABLE POLL VOTES</button>
+
+
                     <span id="poll-results-meta" class="card-subtle">—</span>
                   </div>
 
@@ -264,13 +566,19 @@
 
                   <details id="poll-reset-debug-wrap" class="mt-12">
                     <summary class="chip">View reset response</summary>
-                    <pre id="poll-reset-debug" class="muted" style="white-space:pre-wrap; overflow:auto; max-height:200px; border:1px solid rgba(255,255,255,.06); border-radius:12px; padding:10px;"></pre>
+                    <pre id="poll-reset-debug" class="muted"
+                      style="white-space:pre-wrap; overflow:auto; max-height:200px; border:1px solid rgba(255,255,255,.06); border-radius:12px; padding:10px;"></pre>
                   </details>
 
                   <div class="table-scroll">
                     <table id="poll-results-table">
                       <thead>
-                        <tr><th>#</th><th>Song</th><th style="text-align:right;">Votes</th><th style="text-align:right;">%</th></tr>
+                        <tr>
+                          <th>#</th>
+                          <th>Song</th>
+                          <th style="text-align:right;">Votes</th>
+                          <th style="text-align:right;">%</th>
+                        </tr>
                       </thead>
                       <tbody></tbody>
                     </table>
@@ -290,64 +598,64 @@
   <!-- MAIN -->
   <script type="module">
     // ---------- helpers ----------
-    const $  = (sel, root = document) => root.querySelector(sel);
+    const $ = (sel, root = document) => root.querySelector(sel);
     const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
-    function toast(msg, type="info"){
-      const el=document.createElement('div'); el.textContent=msg;
-      el.style.position='fixed'; el.style.bottom='20px'; el.style.left='50%'; el.style.transform='translateX(-50%)';
-      el.style.padding='10px 14px'; el.style.borderRadius='10px'; el.style.zIndex='9999'; el.style.fontWeight='700';
-      el.style.background= type==='error'?'var(--danger)':(type==='success'?'var(--success)':'#2b2f36'); el.style.color='#fff';
-      document.body.appendChild(el); setTimeout(()=>el.remove(),1800);
+    function toast(msg, type = "info") {
+      const el = document.createElement('div'); el.textContent = msg;
+      el.style.position = 'fixed'; el.style.bottom = '20px'; el.style.left = '50%'; el.style.transform = 'translateX(-50%)';
+      el.style.padding = '10px 14px'; el.style.borderRadius = '10px'; el.style.zIndex = '9999'; el.style.fontWeight = '700';
+      el.style.background = type === 'error' ? 'var(--danger)' : (type === 'success' ? 'var(--success)' : '#2b2f36'); el.style.color = '#fff';
+      document.body.appendChild(el); setTimeout(() => el.remove(), 1800);
     }
 
     // winners table
-    function escapeHtml(s){
+    function escapeHtml(s) {
       return String(s ?? "")
-        .replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;")
-        .replaceAll('"',"&quot;").replaceAll("'","&#39;");
+        .replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;").replaceAll("'", "&#39;");
     }
-    function renderWinners(rows){
+    function renderWinners(rows) {
       const tbody = document.getElementById("winners-tbody");
       const count = document.getElementById("winners-count");
       if (!tbody) return;
-      if (!rows?.length){
+      if (!rows?.length) {
         tbody.innerHTML = `<tr><td colspan="4" class="muted">No winners yet</td></tr>`;
         if (count) count.textContent = "0";
         return;
       }
-      const html = rows.map(r=>{
+      const html = rows.map(r => {
         const when = r.ts ? new Date(r.ts).toLocaleString() : "—";
         return `<tr>
           <td>${escapeHtml(when)}</td>
-          <td><strong>${escapeHtml(r.name||"")}</strong></td>
-          <td>${escapeHtml(r.prize||"")}</td>
-          <td>${escapeHtml(r.source||"—")}</td>
+          <td><strong>${escapeHtml(r.name || "")}</strong></td>
+          <td>${escapeHtml(r.prize || "")}</td>
+          <td>${escapeHtml(r.source || "—")}</td>
         </tr>`;
       }).join("");
       tbody.innerHTML = html;
       if (count) count.textContent = String(rows.length);
     }
-    async function loadWinnerLogs(){
-      try{
-        const res = await fetch("/api/admin?action=winner-logs", { cache:"no-store" });
-        const j = await res.json().catch(()=>({ rows: [] }));
+    async function loadWinnerLogs() {
+      try {
+        const res = await fetch("/api/admin?action=winner-logs", { cache: "no-store" });
+        const j = await res.json().catch(() => ({ rows: [] }));
         renderWinners(Array.isArray(j.rows) ? j.rows : []);
-      } catch(e){
+      } catch (e) {
         console.error("winner-logs error", e);
         renderWinners([]);
       }
     }
 
     // login/logout
-    async function handleLogin(){
-      try{
+    async function handleLogin() {
+      try {
         const password = $('#admin-password').value;
-        const res = await fetch('/api/admin?action=login',{
-          method:'POST',headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({ password })
+        const res = await fetch('/api/admin?action=login', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password })
         });
-        const data = await res.json().catch(()=>({success:false}));
-        if (data.success){
+        const data = await res.json().catch(() => ({ success: false }));
+        if (data.success) {
           localStorage.setItem('role', data.role);
           localStorage.setItem('authToken', password);
           if (data.role === 'admin') localStorage.setItem('adminKey', password);
@@ -355,17 +663,17 @@
         } else {
           $('#login-error').textContent = '❌ Incorrect password';
         }
-      } catch(e){
+      } catch (e) {
         console.error("login error", e);
         $('#login-error').textContent = '❌ Login failed';
       }
     }
-    function logout(){ localStorage.clear(); location.href = '/admin?ts=' + Date.now(); }
+    function logout() { localStorage.clear(); location.href = '/admin?ts=' + Date.now(); }
 
     // redis
-    async function checkRedisStatus(){
+    async function checkRedisStatus() {
       const el = $('#redis-status'); if (!el) return;
-      try{
+      try {
         const res = await fetch('/api/admin?action=redis-status');
         const d = await res.json();
         const status = d.status || 'unknown';
@@ -375,103 +683,103 @@
         const rate = (d.hitRate != null) ? `${d.hitRate}%` : '—';
         const seeded = (d.seeded != null) ? d.seeded : '—';
         el.textContent =
-          `Status: ${status==='active'?'✅ Active':'❓ Unknown'}  |  ` +
+          `Status: ${status === 'active' ? '✅ Active' : '❓ Unknown'}  |  ` +
           `Ping: ${ping ?? '—'}ms  |  Keys: ${keys ?? '—'}  |  ` +
           `Seeded: ${seeded}  |  Last warm: ${when}  |  Hit rate: ${rate}`;
-        el.style.color = status==='active' ? 'var(--success)' : 'var(--muted)';
-      } catch(e){
+        el.style.color = status === 'active' ? 'var(--success)' : 'var(--muted)';
+      } catch (e) {
         console.error("redis-status error", e);
-        el.textContent='Status: ❌ Error'; el.style.color='var(--danger)';
+        el.textContent = 'Status: ❌ Error'; el.style.color = 'var(--danger)';
       }
     }
-    async function warmRedis(){
+    async function warmRedis() {
       const adminKey = localStorage.getItem('adminKey') || '';
-      if (!adminKey){ toast('Login as admin to warm Redis','error'); return; }
-      try{
-        const res = await fetch('/api/admin?action=warm-redis',{
-          method:'POST', headers:{ Authorization: 'Bearer:super:' + adminKey }
+      if (!adminKey) { toast('Login as admin to warm Redis', 'error'); return; }
+      try {
+        const res = await fetch('/api/admin?action=warm-redis', {
+          method: 'POST', headers: { Authorization: 'Bearer:super:' + adminKey }
         });
         if (!res.ok) throw new Error();
-        const json = await res.json().catch(()=>({}));
+        const json = await res.json().catch(() => ({}));
         toast('Redis warmed' + (json.pong ? ` (${json.pong})` : ''), 'success');
-      } catch(e){
+      } catch (e) {
         console.error("warm-redis error", e);
-        toast('Warm failed','error');
+        toast('Warm failed', 'error');
       } finally {
         checkRedisStatus();
       }
     }
 
     // shutdown
-    async function checkShutdownStatusAndLabel(){
-      try{
+    async function checkShutdownStatusAndLabel() {
+      try {
         const res = await fetch('/api/admin?action=shutdown-status');
         const { isShutdown } = await res.json();
         const btn = $('#shutdown-btn');
-        if (btn){
+        if (btn) {
           btn.textContent = isShutdown ? 'Re-enable App' : 'Shut Down App';
           btn.classList.toggle('danger', !isShutdown);
           btn.classList.toggle('success', isShutdown);
         }
-      } catch(e){
+      } catch (e) {
         console.error("shutdown-status error", e);
       }
     }
-    async function toggleShutdown(){
-      try{
-        const res = await fetch('/api/admin?action=toggle-shutdown',{
-          method:'POST',
-          headers:{ Authorization:'Bearer:super:' + (localStorage.getItem('adminKey')||'') }
+    async function toggleShutdown() {
+      try {
+        const res = await fetch('/api/admin?action=toggle-shutdown', {
+          method: 'POST',
+          headers: { Authorization: 'Bearer:super:' + (localStorage.getItem('adminKey') || '') }
         });
         if (!res.ok) throw new Error('toggle failed');
         await checkShutdownStatusAndLabel();
-        toast('App shutdown status updated','success');
-        try{
-          if ('BroadcastChannel' in window){
+        toast('App shutdown status updated', 'success');
+        try {
+          if ('BroadcastChannel' in window) {
             new BroadcastChannel('surge-admin').postMessage('shutdown-toggled');
           }
-        } catch {}
+        } catch { }
         localStorage.setItem('shutdownToggle', String(Date.now()));
-      } catch(e){
+      } catch (e) {
         console.error("toggle-shutdown error", e);
-        toast('Toggle failed','error');
+        toast('Toggle failed', 'error');
       }
     }
 
     // spins
-    async function resetSpins(){
+    async function resetSpins() {
       const btn = $('#reset-spins-btn'); const status = $('#reset-spins-status');
       const adminKey = localStorage.getItem('adminKey') || '';
-      if (!adminKey){ toast('Admin login required','error'); return; }
-      try{
+      if (!adminKey) { toast('Admin login required', 'error'); return; }
+      try {
         btn.disabled = true; if (status) status.textContent = 'Resetting…';
-        const res = await fetch('/api/admin?action=reset-slot-spins',{
-          method:'POST', headers:{ Authorization:'Bearer:super:' + adminKey }
+        const res = await fetch('/api/admin?action=reset-slot-spins', {
+          method: 'POST', headers: { Authorization: 'Bearer:super:' + adminKey }
         });
-        const j = await res.json().catch(()=>({}));
+        const j = await res.json().catch(() => ({}));
         if (!res.ok || !j?.success) throw new Error(j?.error || 'reset failed');
         if (status) status.textContent = `Done (version ${j.version})`;
-        toast('Spins reset (+5)','success');
-        setTimeout(()=>{ if (status) status.textContent = ''; }, 4000);
-      } catch(e){
+        toast('Spins reset (+5)', 'success');
+        setTimeout(() => { if (status) status.textContent = ''; }, 4000);
+      } catch (e) {
         console.error("reset-spins error", e);
         if (status) status.textContent = 'Failed';
-        toast('Reset spins failed','error');
+        toast('Reset spins failed', 'error');
       } finally {
         btn.disabled = false;
       }
     }
 
     // social
-    async function loadSocialStatus(){
-      try{
+    async function loadSocialStatus() {
+      try {
         const res = await fetch('/api/admin?action=social-status');
         const data = await res.json();
         const totals = data.totals || {};
         $('#social-totals').textContent =
           `FB clicks: ${totals.facebookClicks || 0}  |  IG clicks: ${totals.instagramClicks || 0}`;
         const tbody = $('#social-table tbody'); tbody.innerHTML = '';
-        (data.entries || []).forEach(row=>{
+        (data.entries || []).forEach(row => {
           const tr = document.createElement('tr');
           tr.innerHTML = `
             <td>${row.ip}</td>
@@ -481,180 +789,210 @@
             <td>${typeof row.ttlSeconds === 'number' ? row.ttlSeconds : '—'}</td>`;
           tbody.appendChild(tr);
         });
-      } catch(e){
+      } catch (e) {
         console.error("social-status error", e);
         $('#social-totals').textContent = 'Failed to load.';
       }
     }
 
     // config helpers
-    function toDateInputValue(iso){
+    function toDateInputValue(iso) {
       if (!iso) return "";
       const d = new Date(iso);
-      const yyyy=d.getFullYear(), mm=String(d.getMonth()+1).padStart(2,"0"), dd=String(d.getDate()).padStart(2,"0");
+      const yyyy = d.getFullYear(), mm = String(d.getMonth() + 1).padStart(2, "0"), dd = String(d.getDate()).padStart(2, "0");
       return `${yyyy}-${mm}-${dd}`;
     }
-    function setNextPickPreviewFromDateStr(dateStr){
+    function setNextPickPreviewFromDateStr(dateStr) {
       const el = $('#next-pick-preview'); if (!el) return;
-      if (!dateStr){ el.textContent = 'Next pick: —'; return; }
+      if (!dateStr) { el.textContent = 'Next pick: —'; return; }
       const localNoon = new Date(`${dateStr}T12:00:00`);
       el.textContent = 'Next pick: ' + (isNaN(localNoon.getTime()) ? '—' : localNoon.toLocaleString());
     }
-    async function loadConfig(){
-      try{
+    async function loadConfig() {
+      try {
         let cached = null;
-        try{ cached = JSON.parse(sessionStorage.getItem("cfg") || "null"); }catch{}
-        if (cached){
+        try { cached = JSON.parse(sessionStorage.getItem("cfg") || "null"); } catch { }
+        if (cached) {
           $('#showName').value = cached.showName || '';
           $('#endDate').value = toDateInputValue(cached.endTime);
           setNextPickPreviewFromDateStr($('#endDate').value || '');
         }
-        const res = await fetch(`/api/admin?action=config&v=${Date.now()}`, { cache:"no-store" });
+        const res = await fetch(`/api/admin?action=config&v=${Date.now()}`, { cache: "no-store" });
         if (!res.ok) return;
         const fresh = await res.json();
         $('#showName').value = fresh.showName || '';
         $('#endDate').value = toDateInputValue(fresh.endTime);
         setNextPickPreviewFromDateStr($('#endDate').value || '');
         sessionStorage.setItem("cfg", JSON.stringify(fresh));
-      } catch(e){
+      } catch (e) {
         console.error("config load error", e);
       }
     }
-    async function saveConfig(){
+    async function saveConfig() {
       const role = localStorage.getItem('role'); if (role !== 'admin') return;
       const showName = $('#showName').value.trim();
       const endDate = $('#endDate').value;
-      if (!showName || !endDate){ toast('Fill all fields','error'); return; }
+      if (!showName || !endDate) { toast('Fill all fields', 'error'); return; }
 
       // Compute monthly window from End Date:
       // - startTime: first day of that month @ 00:00 local
       // - endTime:   End Date @ 12:00 local
       const end = new Date(`${endDate}T12:00:00`);
-      if (isNaN(end.getTime())) { toast('Invalid End Date','error'); return; }
-      const y=end.getFullYear(), m=end.getMonth();
+      if (isNaN(end.getTime())) { toast('Invalid End Date', 'error'); return; }
+      const y = end.getFullYear(), m = end.getMonth();
       const start = new Date(y, m, 1, 0, 0, 0, 0);
 
-      const body = { showName, startTime:start.toISOString(), endTime:end.toISOString() };
-      try{
-        const res = await fetch('/api/admin?action=config',{
-          method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)
+      const body = { showName, startTime: start.toISOString(), endTime: end.toISOString() };
+      try {
+        const res = await fetch('/api/admin?action=config', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
         });
-        const json = await res.json().catch(()=>({}));
-        if (res.ok){
-          toast('Config saved','success');
+        const json = await res.json().catch(() => ({}));
+        if (res.ok) {
+          toast('Config saved', 'success');
           setNextPickPreviewFromDateStr(endDate);
         } else {
           throw new Error(json.error || 'Save failed');
         }
-      } catch(e){
+      } catch (e) {
         console.error("config save error", e);
-        toast('Save failed','error');
+        toast('Save failed', 'error');
       }
     }
 
     // raffle
-    async function loadCurrentWinner(){
-      try{
+    async function loadCurrentWinner() {
+      try {
         const res = await fetch('/api/admin?action=winner');
-        const data = await res.json().catch(()=>({}));
+        const data = await res.json().catch(() => ({}));
         const w = data?.winner?.name;
         $('#winnerDisplay').textContent = w ? `🎉 Winner: ${w}` : 'No winner yet';
-      } catch(e){
+      } catch (e) {
         console.error("winner load error", e);
       }
     }
-    async function loadEntries(){
+    async function loadEntries() {
       const tbody = document.getElementById("raffle-rows");
       const totals = document.getElementById("entries-totals");
       if (!tbody) return;
       tbody.innerHTML = `<tr><td colspan="2" style="opacity:.7;">Loading…</td></tr>`;
       totals.textContent = "Loading entries…";
       let rows = [];
-      try{
-        const res = await fetch("/api/admin?action=entries-summary", { cache:"no-store" });
-        const data = await res.json().catch(()=>({}));
+      try {
+        const res = await fetch("/api/admin?action=entries-summary", { cache: "no-store" });
+        const data = await res.json().catch(() => ({}));
         rows = Array.isArray(data.rows) ? data.rows : [];
-      } catch(e){
+      } catch (e) {
         console.error("entries-summary error", e);
         tbody.innerHTML = `<tr><td colspan="2" style="opacity:.7;">(error loading)</td></tr>`;
         totals.textContent = "Failed to load entries.";
         return;
       }
-      if (!rows.length){
+      if (!rows.length) {
         tbody.innerHTML = `<tr><td colspan="2" style="opacity:.7;">(no entries yet)</td></tr>`;
         totals.textContent = "No entries yet.";
         return;
       }
       const totalNames = rows.length;
-      const totalEntries = rows.reduce((sum,r)=>sum+(Number(r.entries)||0),0);
+      const totalEntries = rows.reduce((sum, r) => sum + (Number(r.entries) || 0), 0);
       totals.textContent = `Unique names: ${totalNames} • Total entries: ${totalEntries}`;
       const frag = document.createDocumentFragment();
-      for (const r of rows){
+      for (const r of rows) {
         const tr = document.createElement("tr");
-        const tdName = document.createElement("td"); tdName.textContent = r.name || ""; tdName.style.textAlign="left";
-        const tdEntries = document.createElement("td"); tdEntries.textContent = String(r.entries ?? 0); tdEntries.style.textAlign="right"; tdEntries.style.fontWeight="700";
+        const tdName = document.createElement("td"); tdName.textContent = r.name || ""; tdName.style.textAlign = "left";
+        const tdEntries = document.createElement("td"); tdEntries.textContent = String(r.entries ?? 0); tdEntries.style.textAlign = "right"; tdEntries.style.fontWeight = "700";
         tr.append(tdName, tdEntries); frag.appendChild(tr);
       }
       tbody.innerHTML = ""; tbody.appendChild(frag);
     }
-    async function resetEntries(){
+    async function resetEntries() {
       if (!confirm('Reset ALL raffle entries for THIS window?\n(Does NOT touch poll data or current winner)')) return;
-      try{
-        const res = await fetch('/api/admin?action=reset-entries',{
-          method:'POST', headers:{ Authorization:'Bearer:super:' + (localStorage.getItem('adminKey')||'') }
+      try {
+        const res = await fetch('/api/admin?action=reset-entries', {
+          method: 'POST', headers: { Authorization: 'Bearer:super:' + (localStorage.getItem('adminKey') || '') }
         });
-        const json = await res.json().catch(()=>({}));
+        const json = await res.json().catch(() => ({}));
         if (!res.ok || !json.success) throw new Error(json.error || 'Failed');
-        toast('Raffle entries reset','success');
+        toast('Raffle entries reset', 'success');
         await Promise.all([loadEntries(), loadSocialStatus(), loadWinnerLogs()]);
-      } catch(e){
+      } catch (e) {
         console.error("reset-entries error", e);
-        toast('Reset failed','error');
+        toast('Reset failed', 'error');
       }
     }
-    async function pickWinner(){
+    async function pickWinner() {
       if (!confirm('Pick a random winner from all entries?')) return;
-      try{
-        const res = await fetch('/api/admin?action=pick-winner',{
-          method:'POST',
-          headers:{
-            'Content-Type':'application/json',
-            'Authorization':'Bearer:super:' + (localStorage.getItem('adminKey')||'')
+      try {
+        const res = await fetch('/api/admin?action=pick-winner', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer:super:' + (localStorage.getItem('adminKey') || '')
           },
-          body:JSON.stringify({ role:(localStorage.getItem('role')||'admin') })
+          body: JSON.stringify({ role: (localStorage.getItem('role') || 'admin') })
         });
-        const result = await res.json().catch(()=>({}));
-        if (result?.winner?.name){
+        const result = await res.json().catch(() => ({}));
+        if (result?.winner?.name) {
           const winnerName = result.winner.name;
           $('#winnerDisplay').textContent = `🎉 Winner: ${winnerName}`;
-          toast('Winner announced','success');
-          loadWinnerLogs().catch(()=>{});
+          toast('Winner announced', 'success');
+          loadWinnerLogs().catch(() => { });
         } else {
-          toast(result?.error || 'No eligible entries','error');
+          toast(result?.error || 'No eligible entries', 'error');
         }
-      } catch(e){
+      } catch (e) {
         console.error("pick-winner error", e);
-        toast('Pick failed','error');
+        toast('Pick failed', 'error');
       }
     }
-    async function resetWinner(){
+    async function resetWinner() {
       if (!confirm('Clear the current winner?')) return;
-      try{
-        const apiRes = await fetch('/api/admin?action=reset-winner',{
-          method:'POST', headers:{ Authorization:'Bearer:super:' + (localStorage.getItem('adminKey')||'') }
+      try {
+        const apiRes = await fetch('/api/admin?action=reset-winner', {
+          method: 'POST', headers: { Authorization: 'Bearer:super:' + (localStorage.getItem('adminKey') || '') }
         });
-        const apiJson = await apiRes.json().catch(()=>({}));
+        const apiJson = await apiRes.json().catch(() => ({}));
         if (!apiRes.ok || !apiJson.success) throw new Error(apiJson.error || 'Reset failed');
         $('#winnerDisplay').textContent = 'No winner yet';
-        toast('Winner reset','success');
-      } catch(e){
+        toast('Winner reset', 'success');
+      } catch (e) {
         console.error("reset-winner error", e);
-        toast('Reset failed','error');
+        toast('Reset failed', 'error');
       }
     }
 
+
+    document.getElementById('btnResetPoll').addEventListener('click', async () => {
+  if (!confirm('Are you sure you want to clear all poll votes? This cannot be undone.')) {
+    return;
+  }
+  const adminKey = localStorage.getItem('adminKey') || '';
+  if (!adminKey) {
+    alert('❌ Admin key not found. Please log in again.');
+    return;
+  }
+  try {
+    const resp = await fetch('/api/admin?action=reset-poll', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer:super:' + adminKey
+      }
+    });
+    const data = await resp.json();
+    if (resp.ok && data.success) {
+      alert('✅ Poll votes cleared. Users can vote again.');
+    } else {
+      alert('❌ Failed to reset poll: ' + (data.error || JSON.stringify(data)));
+    }
+  } catch (err) {
+    alert('❌ Error resetting poll votes: ' + err.message);
+  }
+});
+
+
     // ---------- bootstrap ----------
-    document.addEventListener('DOMContentLoaded', async ()=>{
+    document.addEventListener('DOMContentLoaded', async () => {
       $('#login-btn')?.addEventListener('click', handleLogin);
       $('#logout-btn')?.addEventListener('click', logout);
       $('#refresh-winners-btn')?.addEventListener('click', loadWinnerLogs);
@@ -664,22 +1002,22 @@
       const app = $('#admin-content');
       const banner = $('#role-banner');
 
-      if (!role){
-        login.style.display='block'; app.style.display='none';
-        if (banner){ banner.textContent='Logged out'; banner.className='badge'; }
-        $('#logout-btn').style.display='none';
+      if (!role) {
+        login.style.display = 'block'; app.style.display = 'none';
+        if (banner) { banner.textContent = 'Logged out'; banner.className = 'badge'; }
+        $('#logout-btn').style.display = 'none';
         return;
       }
-      login.style.display='none'; app.style.display='block'; $('#logout-btn').style.display='inline-flex';
+      login.style.display = 'none'; app.style.display = 'block'; $('#logout-btn').style.display = 'inline-flex';
 
-      if (role === 'moderator'){
-        if (banner){ banner.textContent='Moderator'; banner.className='badge moderator'; }
-        $$('.admin-only-block').forEach(el=> el.style.display='none');
-        $$('.admin-only').forEach(el=> el.style.display='none');
-        const pw = $('#pick-winner-btn'); if (pw){ pw.style.display='inline-flex'; pw.disabled=false; pw.classList.remove('admin-only'); }
+      if (role === 'moderator') {
+        if (banner) { banner.textContent = 'Moderator'; banner.className = 'badge moderator'; }
+        $$('.admin-only-block').forEach(el => el.style.display = 'none');
+        $$('.admin-only').forEach(el => el.style.display = 'none');
+        const pw = $('#pick-winner-btn'); if (pw) { pw.style.display = 'inline-flex'; pw.disabled = false; pw.classList.remove('admin-only'); }
         $('#pick-winner-btn')?.addEventListener('click', pickWinner);
       } else {
-        if (banner){ banner.textContent='Admin'; banner.className='badge admin'; }
+        if (banner) { banner.textContent = 'Admin'; banner.className = 'badge admin'; }
         $('#warm-redis-btn')?.addEventListener('click', warmRedis);
         $('#shutdown-btn')?.addEventListener('click', toggleShutdown);
         $('#save-config-btn')?.addEventListener('click', saveConfig);
@@ -690,7 +1028,7 @@
       }
 
       // live preview of next pick at 12:00 on End Date
-      $('#endDate')?.addEventListener('input', (e)=> {
+      $('#endDate')?.addEventListener('input', (e) => {
         const v = e.target.value || '';
         setNextPickPreviewFromDateStr(v);
       });
@@ -712,58 +1050,58 @@
 
   <!-- SONG POLL MODULE -->
   <script type="module">
-    const qs  = (sel, root=document) => root.querySelector(sel);
-    const qsa = (sel, root=document) => Array.from(root.querySelectorAll(sel));
+    const qs = (sel, root = document) => root.querySelector(sel);
+    const qsa = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
-    const POLL_GET          = "/api/admin?action=poll";
-    const POLL_SET          = "/api/admin?action=poll-setup";
-    const POLL_RESULTS      = "/api/admin?action=poll-results";
+    const POLL_GET = "/api/admin?action=poll";
+    const POLL_SET = "/api/admin?action=poll-setup";
+    const POLL_RESULTS = "/api/admin?action=poll-results";
     const POLL_RESET_VOTERS = "/api/admin?action=poll-reset-voters";
-    const POLL_RESET_ALL    = "/api/admin?action=poll-hard-reset";
+    const POLL_RESET_ALL = "/api/admin?action=poll-hard-reset";
     const POLL_ID = "top10";
 
-    function toast(msg, type="info"){
-      const el=document.createElement('div'); el.textContent=msg;
-      el.style.position='fixed'; el.style.bottom='20px'; el.style.left='50%'; el.style.transform='translateX(-50%)';
-      el.style.padding='10px 14px'; el.style.borderRadius='10px'; el.style.zIndex='9999'; el.style.fontWeight='700';
-      el.style.background= type==='error'?'#ef4444':(type==='success'?'#10b981':'#2b2f36'); el.style.color='#fff';
-      document.body.appendChild(el); setTimeout(()=>el.remove(),1800);
+    function toast(msg, type = "info") {
+      const el = document.createElement('div'); el.textContent = msg;
+      el.style.position = 'fixed'; el.style.bottom = '20px'; el.style.left = '50%'; el.style.transform = 'translateX(-50%)';
+      el.style.padding = '10px 14px'; el.style.borderRadius = '10px'; el.style.zIndex = '9999'; el.style.fontWeight = '700';
+      el.style.background = type === 'error' ? '#ef4444' : (type === 'success' ? '#10b981' : '#2b2f36'); el.style.color = '#fff';
+      document.body.appendChild(el); setTimeout(() => el.remove(), 1800);
     }
-    function escapeHtml(s){return String(s??"").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#39;");}
-    function sp_setStatus(msg, ok=true){
+    function escapeHtml(s) { return String(s ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;"); }
+    function sp_setStatus(msg, ok = true) {
       const el = qs('#poll-status'); if (!el) return;
       el.textContent = msg || '—'; el.style.color = ok ? 'var(--text)' : '#ff6b6b';
     }
-    function sp_renderPreview(){
+    function sp_renderPreview() {
       const ol = qs('#poll-preview'); if (!ol) return;
       let list = [];
-      try{
+      try {
         const arr = JSON.parse(qs('#poll-json').value || "[]");
-        if (Array.isArray(arr)) list = arr.slice(0,10);
-      } catch {}
+        if (Array.isArray(arr)) list = arr.slice(0, 10);
+      } catch { }
       ol.innerHTML = list.length
-        ? list.map(s => `<li><strong>${escapeHtml(s.title||"")}</strong>${s.artist?` — ${escapeHtml(s.artist)}`:""} <span class="card-subtle">(id: ${escapeHtml(s.id||"")})</span></li>`).join("")
+        ? list.map(s => `<li><strong>${escapeHtml(s.title || "")}</strong>${s.artist ? ` — ${escapeHtml(s.artist)}` : ""} <span class="card-subtle">(id: ${escapeHtml(s.id || "")})</span></li>`).join("")
         : `<li class="card-subtle">No items</li>`;
     }
-    async function sp_load(){
+    async function sp_load() {
       sp_setStatus('Loading…', true);
-      try{
-        const r = await fetch(`${POLL_GET}&pollId=${encodeURIComponent(POLL_ID)}`, { cache:"no-store" });
-        const j = await r.json().catch(()=> ({}));
+      try {
+        const r = await fetch(`${POLL_GET}&pollId=${encodeURIComponent(POLL_ID)}`, { cache: "no-store" });
+        const j = await r.json().catch(() => ({}));
         const songs = Array.isArray(j.songs) ? j.songs : [];
         qs('#poll-json').value = JSON.stringify(songs, null, 2);
         sp_renderPreview();
         sp_setStatus(`Loaded ${songs.length} item(s) from ${POLL_ID}`, true);
-      } catch(e){
+      } catch (e) {
         console.error('poll load error', e);
         sp_setStatus('Could not load', false);
       }
     }
-    async function sp_save(){
+    async function sp_save() {
       const adminKey = localStorage.getItem('adminKey') || '';
-      if (!adminKey){ toast('Admin login required','error'); return; }
+      if (!adminKey) { toast('Admin login required', 'error'); return; }
       let songs;
-      try{
+      try {
         songs = JSON.parse(qs('#poll-json').value || "[]");
         if (!Array.isArray(songs) || songs.length !== 10) throw new Error('need-10');
       } catch {
@@ -771,28 +1109,28 @@
         return;
       }
       sp_setStatus('Saving…', true);
-      try{
+      try {
         const res = await fetch(POLL_SET, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization':'Bearer:super:' + adminKey },
+          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer:super:' + adminKey },
           body: JSON.stringify({ pollId: POLL_ID, songs })
         });
-        const out = await res.json().catch(()=>({}));
+        const out = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(out?.error || 'Save failed');
         sp_setStatus('Saved ✅', true);
-        toast('Poll saved','success');
-        sp_results().catch(()=>{});
-      } catch(e){
+        toast('Poll saved', 'success');
+        sp_results().catch(() => { });
+      } catch (e) {
         console.error('poll save error', e);
         sp_setStatus('Save failed (check admin pass?)', false);
-        toast('Save failed','error');
+        toast('Save failed', 'error');
       }
     }
 
-    function sp_nukeLocalVoteLocks(pollId){
+    function sp_nukeLocalVoteLocks(pollId) {
       const patterns = [
         `poll:voted:${pollId}`, `voted:${pollId}`, `poll-voted:${pollId}`, `poll:${pollId}`,
-        'poll:voted','poll_vote','poll-vote','alreadyvoted','voted'
+        'poll:voted', 'poll_vote', 'poll-vote', 'alreadyvoted', 'voted'
       ];
       for (const store of [localStorage, sessionStorage]) {
         try {
@@ -800,98 +1138,98 @@
             const kl = k.toLowerCase();
             if (patterns.some(p => kl.includes(p.toLowerCase()))) store.removeItem(k);
           }
-        } catch {}
+        } catch { }
       }
-      try { new BroadcastChannel('surge-poll').postMessage({ type:'clear-vote', pollId }); } catch {}
+      try { new BroadcastChannel('surge-poll').postMessage({ type: 'clear-vote', pollId }); } catch { }
     }
 
-    async function sp_resetSubmitLocal(){
+    async function sp_resetSubmitLocal() {
       const adminKey = localStorage.getItem('adminKey') || '';
       const status = qs('#poll-reset-submit-status');
-      try{
+      try {
         if (status) status.textContent = 'Resetting…';
         const res = await fetch(POLL_RESET_VOTERS, {
-          method:'POST',
-          headers:{ 'Content-Type':'application/json', Authorization:'Bearer:super:' + adminKey },
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: 'Bearer:super:' + adminKey },
           body: JSON.stringify({ pollId: POLL_ID, scope: 'all' })
         });
-        const j = await res.json().catch(()=>({}));
+        const j = await res.json().catch(() => ({}));
         if (!res.ok || !j.ok) throw new Error(j?.error || 'server reset failed');
 
         sp_nukeLocalVoteLocks(POLL_ID);
         if (status) status.textContent = 'Submit lock cleared. You can vote again now.';
         toast('Submit lock cleared (counts kept).', 'success');
-        sp_results().catch(()=>{});
-      } catch(e){
+        sp_results().catch(() => { });
+      } catch (e) {
         console.error('reset submit failed', e);
         if (status) status.textContent = 'Reset failed';
         toast('Reset submit failed', 'error');
       } finally {
-        setTimeout(()=>{ if (status) status.textContent = ''; }, 4000);
+        setTimeout(() => { if (status) status.textContent = ''; }, 4000);
       }
     }
 
-    async function sp_resetAll(){
+    async function sp_resetAll() {
       const adminKey = localStorage.getItem('adminKey') || '';
       const note = document.getElementById('poll-reset-note');
-      const dbg  = document.getElementById('poll-reset-debug');
-      if (!adminKey){ toast('Admin login required', 'error'); return; }
+      const dbg = document.getElementById('poll-reset-debug');
+      if (!adminKey) { toast('Admin login required', 'error'); return; }
       if (!confirm('Reset ALL poll votes for this show window? (Keeps songs & raffle entries)')) return;
 
-      try{
+      try {
         if (note) note.textContent = 'Resetting poll votes…';
         const res = await fetch(POLL_RESET_ALL, {
           method: 'POST',
           headers: {
-            'Content-Type':'application/json',
-            'Authorization':'Bearer:super:' + adminKey
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer:super:' + adminKey
           },
           body: JSON.stringify({ pollId: POLL_ID, scope: 'all', forceNoScan: true })
         });
-        const j = await res.json().catch(()=>({}));
+        const j = await res.json().catch(() => ({}));
         if (dbg) dbg.textContent = JSON.stringify(j, null, 2);
 
         if (!res.ok || !j.success) throw new Error(j.error || 'Reset failed');
 
         const scopeLabel = j.scope || 'all';
         const cleared = Number(j.deletedKeys ?? 0);
-        toast(`Poll votes reset (${cleared} key${cleared===1?'':'s'}).`, 'success');
+        toast(`Poll votes reset (${cleared} key${cleared === 1 ? '' : 's'}).`, 'success');
         if (note) note.textContent = `Cleared ${cleared} key(s). Scope: ${scopeLabel} • Window: ${j.windowKey || '—'}`;
         await sp_results();
-      } catch(e){
+      } catch (e) {
         console.error('poll-reset-all failed', e);
         toast('Reset failed: ' + (e?.message || 'error'), 'error');
         if (note) note.textContent = 'Reset failed.';
       } finally {
-        setTimeout(()=>{ if (note) note.textContent = ''; }, 5000);
+        setTimeout(() => { if (note) note.textContent = ''; }, 5000);
       }
     }
 
-    async function sp_results(){
+    async function sp_results() {
       const meta = qs('#poll-results-meta');
       const tbody = qs('#poll-results-table tbody');
-      try{
+      try {
         meta.textContent = 'Loading…';
         tbody.innerHTML = `<tr><td colspan="4" class="muted">Loading…</td></tr>`;
-        const r = await fetch(`${POLL_RESULTS}&pollId=${encodeURIComponent(POLL_ID)}`, { cache:"no-store" });
-        const j = await r.json().catch(()=> ({}));
+        const r = await fetch(`${POLL_RESULTS}&pollId=${encodeURIComponent(POLL_ID)}`, { cache: "no-store" });
+        const j = await r.json().catch(() => ({}));
         const counts = j.counts || {};
-        const songs  = Array.isArray(j.songs) ? j.songs : [];
-        const totalVotes = Object.values(counts).reduce((a,b)=>a + (Number(b)||0), 0);
+        const songs = Array.isArray(j.songs) ? j.songs : [];
+        const totalVotes = Object.values(counts).reduce((a, b) => a + (Number(b) || 0), 0);
 
-        const sorted = [...songs].sort((a,b)=>{
-          const va = Number(counts[a.id]||0);
-          const vb = Number(counts[b.id]||0);
+        const sorted = [...songs].sort((a, b) => {
+          const va = Number(counts[a.id] || 0);
+          const vb = Number(counts[b.id] || 0);
           if (vb !== va) return vb - va;
           return a.title.localeCompare(b.title);
         });
 
-        tbody.innerHTML = sorted.map((s, idx)=>{
-          const v = Number(counts[s.id]||0);
-          const pct = totalVotes ? Math.round((v/totalVotes)*1000)/10 : 0;
+        tbody.innerHTML = sorted.map((s, idx) => {
+          const v = Number(counts[s.id] || 0);
+          const pct = totalVotes ? Math.round((v / totalVotes) * 1000) / 10 : 0;
           const label = `${s.title}${s.artist ? ' — ' + s.artist : ''}`;
           return `<tr>
-            <td>${idx+1}</td>
+            <td>${idx + 1}</td>
             <td>${escapeHtml(label)}</td>
             <td style="text-align:right;font-weight:700;">${v}</td>
             <td style="text-align:right;">${pct.toFixed(1)}%</td>
@@ -899,7 +1237,7 @@
         }).join("") || `<tr><td colspan="4" class="muted">No results yet</td></tr>`;
 
         meta.textContent = `Total votes: ${totalVotes}`;
-      } catch(e){
+      } catch (e) {
         console.error('poll-results error', e);
         meta.textContent = 'Failed to load';
         tbody.innerHTML = `<tr><td colspan="4" class="muted">Failed to load</td></tr>`;
@@ -921,36 +1259,36 @@
   </script>
   <!-- Followers refresher (works both prod and local dev) -->
   <script>
-    (function(){
+    (function () {
       const fbEl = document.getElementById('fb-followers');
       const igEl = document.getElementById('ig-followers');
       if (!fbEl && !igEl) return;
 
-      async function detectBase(){
+      async function detectBase() {
         if (window.API_BASE) return window.API_BASE;
-        const origin = location.origin.replace(/\/+$/,'');
+        const origin = location.origin.replace(/\/+$/, '');
         try {
-          const r = await fetch(origin + '/api/admin?action=ping', { cache:'no-store' });
+          const r = await fetch(origin + '/api/admin?action=ping', { cache: 'no-store' });
           if (r.ok) return window.API_BASE = origin;
-        } catch {}
+        } catch { }
         try {
           const b = 'http://localhost:3000';
-          const r = await fetch(b + '/api/admin?action=ping', { cache:'no-store' });
+          const r = await fetch(b + '/api/admin?action=ping', { cache: 'no-store' });
           if (r.ok) return window.API_BASE = b;
-        } catch {}
+        } catch { }
         return window.API_BASE = '';
       }
 
-      async function getCounts(){
+      async function getCounts() {
         const base = (await detectBase()) || '';
         const u = `${base}/api/admin?action=followers&_=${Date.now()}`;
         try {
-          const r = await fetch(u, { cache:'no-store' });
+          const r = await fetch(u, { cache: 'no-store' });
           const j = await r.json().catch(() => ({}));
           const fb = Number(j.facebook), ig = Number(j.instagram);
           if (Number.isFinite(fb) && fbEl) fbEl.textContent = fb.toLocaleString();
           if (Number.isFinite(ig) && igEl) igEl.textContent = ig.toLocaleString();
-        } catch {}
+        } catch { }
       }
 
       getCounts();
@@ -958,4 +1296,5 @@
     })();
   </script>
 </body>
+
 </html>
