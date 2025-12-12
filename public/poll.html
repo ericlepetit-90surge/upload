@@ -295,20 +295,22 @@
     <div class="sublogo">Next show: Ka'Tiki - Sat. Nov 15 - 7pm - Treasure Island, FL</div>
     <div class="title">Vote for our<br>next 3 covers 🎸</div>
 
-  
 
-
-    <!-- Live Ranking -->
     <section class="section section--leaders" id="poll-leaderboard" data-poll-id="top10"
       aria-labelledby="poll-leaderboard-title">
-  <div class="section-header" id="poll-leaderboard-title">Live ranking – Top 5</div>
+      <div class="section-header" id="poll-leaderboard-title">Live ranking – Top 5</div>
       <ol id="poll-leaders-list" class="leaders"></ol>
     </section>
 
-    <!-- Poll UI -->
     <section class="section section--poll poll-card" id="song-poll" data-poll-id="top10" aria-labelledby="poll-title">
       <div class="section-header" id="poll-title">Pick your 3 favorite songs</div>
       <div class="poll-inner" id="poll-inner">
+        
+        <div id="poll-closed-message" style="display:none; text-align:center; padding: 20px 0;">
+          <h2 style="color: #ff9800; margin-bottom:10px;">Poll Closed</h2>
+          <p id="poll-closed-text" style="font-size: 1.1rem; line-height: 1.5; opacity: 0.9;"></p>
+        </div>
+
         <div class="name-box">
           <input type="text" id="user-display-name" placeholder="Your name (hidden)" autocomplete="off"
             inputmode="text" />
@@ -323,7 +325,6 @@
 
         <span id="song-poll-status" class="poll-status" aria-live="polite"></span>
 
-        <!-- CTA shown after vote / already voted -->
         <div id="after-vote-cta" class="after-vote-cta">
           <p class="cta-copy">Want to win a Free 90 Surge T-Shirt?</p>
           <a id="cta-tshirt-btn" class="cta-btn" href="/" target="_top" rel="noopener">HELL YEAHHHHH!</a>
@@ -332,9 +333,7 @@
     </section>
   </div>
 
-  <!-- Leaderboard (Top 5 w/ percentages) -->
   <script type="module">
-    let __pollVersion = 1; // default
   (() => {
     const root  = document.getElementById('poll-leaderboard');
     if (!root) return;
@@ -412,7 +411,6 @@
 </script>
 
 
-  <!-- Poll logic; bonus only when EMBEDDED + LIVE -->
   <script type="module">
     (() => {
       const POLL_API = "/api/admin?action=poll";
@@ -439,6 +437,10 @@
         status: $("#song-poll-status"),
         cta: $("#after-vote-cta"),
         ctaBtn: $("#cta-tshirt-btn"),
+        // --- Added: Section elements for visibility toggling ---
+        pollSection: document.getElementById('song-poll'),
+        leaderboardSection: document.getElementById('poll-leaderboard'), 
+        // -------------------------------------------------------
       };
       const pollInner = document.getElementById('poll-inner');
 
@@ -501,8 +503,34 @@
       function finishAndHide(msg) {
         els.status.textContent = msg || "";
         pollInner?.classList.add('voted');
-        document.getElementById('song-poll')?.classList.add('voted');
+        els.pollSection?.classList.add('voted');
         showCTA();
+        resizeParent();
+      }
+      
+      // Helper to hide everything and show the closed message
+      function showClosedState(msg) {
+        // Find elements created outside the main script
+        const closedMsgBox = document.getElementById('poll-closed-message');
+        const closedMsgText = document.getElementById('poll-closed-text');
+
+        // 1. Hide the Leaderboard
+        if (els.leaderboardSection) els.leaderboardSection.style.display = 'none';
+
+        // 2. Hide the voting section controls
+        pollInner?.classList.add('voted'); 
+        els.pollSection?.classList.add('voted');
+
+        if (els.cta) els.cta.style.display = 'none'; 
+        els.status.textContent = "";
+
+        // 3. Show the specific message
+        if (closedMsgBox) {
+            closedMsgBox.style.display = 'block';
+            if (closedMsgText) {
+                closedMsgText.textContent = msg || "This poll is currently closed.";
+            }
+        }
         resizeParent();
       }
 
@@ -513,15 +541,26 @@
           const res = await fetch(`${base}${POLL_API}&pollId=${encodeURIComponent(POLL_ID)}&_=${Date.now()}`, { cache: "no-store" });
           const data = await res.json().catch(() => ({}));
 
-          // --- NEW: Get version from server response ---
-          __pollVersion = Number(data.version) || 1;
-          // ---------------------------------------------
+          // --- NEW: HANDLE CLOSED STATE ---
+          if (data.closed) {
+              showClosedState(data.closedMsg);
+              return; // Stop here, don't render songs
+          }
+          // --- If poll is open, ensure closed state elements are hidden ---
+          if (els.leaderboardSection) els.leaderboardSection.style.display = '';
+          const closedMsgBox = document.getElementById('poll-closed-message');
+          if (closedMsgBox) closedMsgBox.style.display = 'none';
+          // --------------------------------------------------------
 
+          __pollVersion = Number(data.version) || 1;
           state.songs = Array.isArray(data.songs) ? data.songs.slice(0, 10) : [];
           render();
         } catch (e) {
           console.error(e);
-          els.list.innerHTML = `<li class="poll-row muted" style="justify-content:center;text-align:center">Could not load songs.</li>`;
+          // Only show 'could not load songs' if the poll section is visible
+          if (!els.pollSection.classList.contains('voted')) {
+            els.list.innerHTML = `<li class="poll-row muted" style="justify-content:center;text-align:center">Could not load songs.</li>`;
+          }
           resizeParent();
         }
       }
@@ -530,7 +569,6 @@
         els.list.innerHTML = "";
         state.picks.clear();
 
-        // Check if voted using the NEW version-aware function
         const already = votedLocal();
         const frag = document.createDocumentFragment();
 
@@ -565,9 +603,9 @@
 
         if (already) finishAndHide("Thank you for your vote!");
         else {
-           // If we just reset, we need to UN-HIDE everything just in case
+           // If open, ensure the voting form is visible
            pollInner?.classList.remove('voted');
-           document.getElementById('song-poll')?.classList.remove('voted');
+           els.pollSection?.classList.remove('voted');
            if(els.cta) els.cta.style.display = 'none';
            els.status.textContent = "";
            updateCounter();
@@ -587,6 +625,14 @@
         if (state.picks.size !== MAX) return;
         els.status.textContent = "Submitting…";
         try {
+          // Double-check server status before submitting
+          const pollStatusRes = await fetch(`${(window.API_BASE || '').replace(/\/+$/, '')}/api/admin?action=poll&pollId=${encodeURIComponent(POLL_ID)}&_=${Date.now()}`);
+          const pollStatus = await pollStatusRes.json();
+          if (pollStatus.closed) {
+              showClosedState(pollStatus.closedMsg);
+              throw new Error("Poll is closed.");
+          }
+          
           await determineLive();
 
           const savedName = getSavedName();
@@ -604,13 +650,17 @@
             method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload)
           });
           const out = await res.json().catch(() => ({}));
+          
           if (!res.ok) throw new Error(out?.error || "vote failed");
 
           markVotedLocal();
           finishAndHide("Thank you for your vote!");
         } catch (e) {
-          els.status.textContent = "Could not submit vote. Please try again.";
-          updateCounter();
+          // If poll is closed, the message is already displayed by showClosedState
+          if (e.message !== "Poll is closed.") {
+              els.status.textContent = e.message || "Could not submit vote. Please try again.";
+              updateCounter();
+          }
           resizeParent();
         }
       }
@@ -625,7 +675,6 @@
     })();
   </script>
 
-  <!-- Friendly API reachability nudge -->
   <script>
     document.addEventListener('DOMContentLoaded', async () => {
       if (typeof window.__apiPing === 'function') {

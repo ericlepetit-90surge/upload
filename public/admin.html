@@ -355,7 +355,6 @@
     </div>
   </div>
 
-  <!-- Social follower counts -->
   <div class="followers-wrapper">
     <div class="follower-block">
       <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/c/c3/FB_Logo_PNG.png/640px-FB_Logo_PNG.png"
@@ -504,7 +503,6 @@
           </div>
         </div>
 
-        <!-- ===== SONG POLL (top10) ===== -->
         <div class="card col-12 admin-only-block" id="song-poll-card">
           <div class="card-header">
             <div class="card-title">🎵 Song Poll (10 items, users pick 3)</div>
@@ -555,7 +553,6 @@
                       title="Clears all poll votes/ballots/locks; keeps songs.">
                       RESET POLL ENTRIES
                     </button>
-                    <!-- Add somewhere in your admin UI, e.g. near the poll setup section -->
                     <button id="btnResetPoll" style="background-color:#e74c3c;color:#fff;padding:10px;">RE-ENABLE POLL VOTES</button>
 
 
@@ -587,15 +584,18 @@
 
               </div>
             </div>
-          </div>
+            <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(255, 255, 255, .06);">
+              <button id="btnTogglePoll" class="btn small" style="background-color: var(--reset); color: #000; display: inline-flex;">
+                🔒 Close Poll
+              </button>
+              <span id="pollStateStatus" class="muted" style="margin-left:10px; font-size:12px;">Status: —</span>
+            </div>
+            </div>
         </div>
-        <!-- ===== /SONG POLL ===== -->
-
-      </div>
+        </div>
     </section>
   </div>
 
-  <!-- MAIN -->
   <script type="module">
     // ---------- helpers ----------
     const $ = (sel, root = document) => root.querySelector(sel);
@@ -982,6 +982,8 @@
     const data = await resp.json();
     if (resp.ok && data.success) {
       alert('✅ Poll votes cleared. Users can vote again.');
+      // After reset, check status to update the toggle button state (if poll was closed before reset)
+      checkPollStatus().catch(() => {}); 
     } else {
       alert('❌ Failed to reset poll: ' + (data.error || JSON.stringify(data)));
     }
@@ -1045,10 +1047,80 @@
       setInterval(loadSocialStatus, 15000);
       setInterval(loadEntries, 10000);
       setInterval(loadCurrentWinner, 15000);
+      
+      // === POLL TOGGLE CONTROL (Logic) ===
+      const btnToggle = document.getElementById('btnTogglePoll');
+      const txtStatus = document.getElementById('pollStateStatus');
+      let isPollClosed = false;
+      const POLL_TOGGLE_API = "/api/admin?action=poll-toggle";
+      const POLL_GET_API = "/api/admin?action=poll?pollId=top10"; // We use the modular POLL_GET from below
+
+      // 1. Checks current status and updates the button text/color
+      async function checkPollStatus() {
+        try {
+          const r = await fetch(`${POLL_GET}&pollId=${POLL_ID}`);
+          const data = await r.json();
+          isPollClosed = !!data.closed;
+          updateToggleButton();
+        } catch {}
+      }
+
+      function updateToggleButton() {
+        if (!btnToggle || !txtStatus) return;
+        if (isPollClosed) {
+          btnToggle.textContent = "🔓 Re-Open Poll";
+          btnToggle.style.backgroundColor = "var(--success)"; 
+          txtStatus.textContent = "Status: CLOSED";
+        } else {
+          btnToggle.textContent = "🔒 Close Poll";
+          btnToggle.style.backgroundColor = "var(--reset)"; 
+          txtStatus.textContent = "Status: OPEN";
+        }
+      }
+
+      // 2. Handles the button click to send the close/open command
+      if (btnToggle) {
+          btnToggle.addEventListener('click', async () => {
+            const closingNow = !isPollClosed;
+            
+            // Custom message to save to Redis when closing
+            const msg = "The votes are in for November and will be posted soon on Facebook. Stay tuned for the next poll starting in a few days...";
+
+            if (closingNow && !confirm("Are you sure you want to CLOSE the poll? Users will see the 'Votes are in' message.")) return;
+            if (!closingNow && !confirm("Re-open the poll for voting?")) return;
+
+            const token = localStorage.getItem('adminKey');
+            if (!token) { toast('Admin key missing, please log in.', 'error'); return; }
+
+            try {
+              const res = await fetch(POLL_TOGGLE_API, {
+                method: 'POST',
+                headers: { 
+                  'Content-Type': 'application/json',
+                  'Authorization': 'Bearer:super:' + token 
+                },
+                // Send 'closed: true' or 'closed: false' along with the message (if closing)
+                body: JSON.stringify({ closed: closingNow, message: closingNow ? msg : "" })
+              });
+              const d = await res.json();
+              if (d.success) {
+                isPollClosed = closingNow;
+                updateToggleButton();
+                toast(`Poll ${closingNow ? 'Closed' : 'Re-Opened'}`, 'success');
+              } else {
+                toast("Error: " + (d.error || "Failed"), 'error');
+              }
+            } catch (e) {
+              toast("Network error", 'error');
+            }
+          });
+          // Call this function when the DOM is ready to show the initial state
+          checkPollStatus(); 
+      }
+      // === END POLL TOGGLE CONTROL ===
     });
   </script>
 
-  <!-- SONG POLL MODULE -->
   <script type="module">
     const qs = (sel, root = document) => root.querySelector(sel);
     const qsa = (sel, root = document) => Array.from(root.querySelectorAll(sel));
@@ -1174,7 +1246,7 @@
       const note = document.getElementById('poll-reset-note');
       const dbg = document.getElementById('poll-reset-debug');
       if (!adminKey) { toast('Admin login required', 'error'); return; }
-      if (!confirm('Reset ALL poll votes for this show window? (Keeps songs & raffle entries)')) return;
+      if (!confirm('Reset ALL poll votes for this show window? (Clears vote counts & locks, keeps songs)')) return;
 
       try {
         if (note) note.textContent = 'Resetting poll votes…';
@@ -1244,7 +1316,7 @@
       }
     }
 
-    document.addEventListener('DOMContentLoaded', () => {
+    document.addEventListener('DOMContentLoaded', async () => { 
       qs('#poll-load-btn')?.addEventListener('click', sp_load);
       qs('#poll-save-btn')?.addEventListener('click', sp_save);
       qs('#poll-json')?.addEventListener('input', sp_renderPreview);
@@ -1257,7 +1329,6 @@
       sp_results();
     });
   </script>
-  <!-- Followers refresher (works both prod and local dev) -->
   <script>
     (function () {
       const fbEl = document.getElementById('fb-followers');
