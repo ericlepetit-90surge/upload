@@ -409,13 +409,9 @@
               <label for="showName">Raffle Name</label>
               <input class="input" type="text" id="showName" placeholder="e.g., 90 Surge Monthly Raffle" />
             </div>
-            <div class="field">
-              <label for="endDate">End Date (Pick @ 12:00)</label>
-              <input class="input" type="date" id="endDate" />
-            </div>
+      
             <div class="inline-actions mt-12" style="align-items:center;">
               <button class="btn primary admin-only" id="save-config-btn">Save Config</button>
-              <span id="next-pick-preview" class="chip">Next pick: —</span>
             </div>
           </div>
         </div>
@@ -802,27 +798,18 @@
       const yyyy = d.getFullYear(), mm = String(d.getMonth() + 1).padStart(2, "0"), dd = String(d.getDate()).padStart(2, "0");
       return `${yyyy}-${mm}-${dd}`;
     }
-    function setNextPickPreviewFromDateStr(dateStr) {
-      const el = $('#next-pick-preview'); if (!el) return;
-      if (!dateStr) { el.textContent = 'Next pick: —'; return; }
-      const localNoon = new Date(`${dateStr}T12:00:00`);
-      el.textContent = 'Next pick: ' + (isNaN(localNoon.getTime()) ? '—' : localNoon.toLocaleString());
-    }
+    
     async function loadConfig() {
       try {
         let cached = null;
         try { cached = JSON.parse(sessionStorage.getItem("cfg") || "null"); } catch { }
         if (cached) {
           $('#showName').value = cached.showName || '';
-          $('#endDate').value = toDateInputValue(cached.endTime);
-          setNextPickPreviewFromDateStr($('#endDate').value || '');
         }
         const res = await fetch(`/api/admin?action=config&v=${Date.now()}`, { cache: "no-store" });
         if (!res.ok) return;
         const fresh = await res.json();
         $('#showName').value = fresh.showName || '';
-        $('#endDate').value = toDateInputValue(fresh.endTime);
-        setNextPickPreviewFromDateStr($('#endDate').value || '');
         sessionStorage.setItem("cfg", JSON.stringify(fresh));
       } catch (e) {
         console.error("config load error", e);
@@ -831,16 +818,7 @@
     async function saveConfig() {
       const role = localStorage.getItem('role'); if (role !== 'admin') return;
       const showName = $('#showName').value.trim();
-      const endDate = $('#endDate').value;
-      if (!showName || !endDate) { toast('Fill all fields', 'error'); return; }
-
-      // Compute monthly window from End Date:
-      // - startTime: first day of that month @ 00:00 local
-      // - endTime:   End Date @ 12:00 local
-      const end = new Date(`${endDate}T12:00:00`);
-      if (isNaN(end.getTime())) { toast('Invalid End Date', 'error'); return; }
-      const y = end.getFullYear(), m = end.getMonth();
-      const start = new Date(y, m, 1, 0, 0, 0, 0);
+      if (!showName) { toast('Fill all fields', 'error'); return; }
 
       const body = { showName, startTime: start.toISOString(), endTime: end.toISOString() };
       try {
@@ -850,7 +828,6 @@
         const json = await res.json().catch(() => ({}));
         if (res.ok) {
           toast('Config saved', 'success');
-          setNextPickPreviewFromDateStr(endDate);
         } else {
           throw new Error(json.error || 'Save failed');
         }
@@ -1029,11 +1006,6 @@
         $('#reset-winner-btn')?.addEventListener('click', resetWinner);
       }
 
-      // live preview of next pick at 12:00 on End Date
-      $('#endDate')?.addEventListener('input', (e) => {
-        const v = e.target.value || '';
-        setNextPickPreviewFromDateStr(v);
-      });
 
       await loadWinnerLogs();
       setInterval(loadWinnerLogs, 10000);
